@@ -4,6 +4,8 @@ A redesigned Hermes Desktop, as a plugin. helm replaces the look of the whole ap
 
 ![helm](docs/banner.png)
 
+**Launch film (33 s):** [![helm launch film](docs/launch-poster.jpg)](https://github.com/P0GL0L/hermes-helm/releases/latest/download/helm-launch.mp4)
+
 ```
 hermes plugins install P0GL0L/hermes-helm
 hermes plugins enable helm
