@@ -67,8 +67,32 @@ globalThis.__helmQuery = {
   error: null
 }
 
+// Gateway fixtures: one live Vision session waiting on a shell approval, one
+// BUILDER session waiting on a question, and a todo plan in the focused chat.
+globalThis.__gw = {
+  'session.active_list': { sessions: [
+    { id: 'rt-vision', session_key: 's2', status: 'waiting', title: 'Install helm', preview: '', message_count: 3, model: 'grok', started_at: 1, last_active: 2, current: true },
+    { id: 'rt-builder', session_key: 's1', status: 'waiting', title: 'Refactor the auth flow', preview: '', message_count: 3, model: 'q', started_at: 1, last_active: 2, current: false },
+    { id: 'rt-idle', session_key: 'zz', status: 'idle', title: 'x', preview: '', message_count: 1, model: 'q', started_at: 1, last_active: 2, current: false }
+  ] },
+  'approval.pending': p => (p.session_id === 'rt-vision' ? { approvals: [{ request_id: 'req-1', command: 'gh release create v0.1.6', description: 'publishes a release', choices: ['once', 'session', 'always', 'deny'], tool_name: 'terminal' }] } : { approvals: [] }),
+  'approval.respond': p => ({ resolved: 1, echo: p }),
+  'session.history': { count: 3, messages: [
+    { role: 'tool', name: 'todo_list', content: JSON.stringify({ todos: [{ id: 'a', content: 'Old plan', status: 'pending' }] }) },
+    { role: 'assistant', text: 'ok' },
+    { role: 'tool', name: 'todo_list', content: JSON.stringify({ todos: [
+      { id: '1', content: 'Verify merged head CI is green', status: 'completed' },
+      { id: '2', content: 'Package the artifact', status: 'in_progress' },
+      { id: '3', content: 'Write the swap script', status: 'pending' },
+      { id: '3a', content: 'Loopback health check', status: 'pending', parent: '3' },
+      { id: '4', content: 'Old idea', status: 'cancelled' }
+    ] }) }
+  ] }
+}
+
 plugin.register(ctx)
 await new Promise(r => setTimeout(r, 60)) // crew poller's first refresh
+await new Promise(r => setTimeout(r, 1200)) // inbox poller's first pass (starts at 800 ms)
 
 const byArea = area => contributions.filter(c => c.area === area)
 const themes = byArea('themes')
@@ -100,10 +124,26 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
 {
   const desk = byArea('routes').find(c => c.data.path === '/helm/desk')
   const html = renderToString(desk.render())
-  for (const word of ['Good ', 'Needs you', 'What should we tackle?', 'Continue', 'Today', 'Refactor the auth flow', 'Install helm', 'Vision is', 'One thing is waiting on you.', 'Draft', 'Send', 'Scheduled jobs', 'Reply…'])
+  for (const word of ['Good ', 'Needs you', 'What should we tackle?', 'Continue', 'Today', 'Refactor the auth flow', 'Install helm', 'Vision is', '2 things are waiting on you.', 'Draft', 'Send', 'Scheduled jobs', 'Answer'])
     assert.ok(html.includes(word), `desk: ${word}`)
   const pane = renderToString(contributions.find(c => c.area === 'panes').render())
   for (const word of ['Session', 'Model', 'Crew', 'BUILDER', 'reply waiting', 'Scheduled jobs']) assert.ok(pane.includes(word), `session pane: ${word}`)
+  // Task plan: the latest todo_list wins; nested and cancelled items survive
+  const { latestPlan, refreshPlan, $plan } = mod._internals
+  const plan = latestPlan(globalThis.__gw['session.history'].messages)
+  assert.deepEqual(plan.map(t => t.status), ['completed', 'in_progress', 'pending', 'pending', 'cancelled'])
+  assert.equal(plan[3].parent, '3')
+  await refreshPlan('rt-vision')
+  assert.equal($plan.get().items.length, 5, 'plan read through session.history for the focused chat')
+  const pane2 = renderToString(contributions.find(c => c.area === 'panes' && c.id === 'session-pane').render())
+  assert.ok(pane2.includes('Plan · 1 of 4') && pane2.includes('Package the artifact') && pane2.includes(' · now'), `plan pane: ${pane2.slice(0, 300)}`)
+
+  // Inbox: the approval and the question surface on the Desk, with buttons
+  const desk2 = renderToString(byArea('routes').find(c => c.data.path === '/helm/desk').render())
+  for (const word of ['Shell command', 'gh release create v0.1.6', 'Approve', 'Deny', 'Allow session', 'is waiting for your answer']) assert.ok(desk2.includes(word), `desk inbox: ${word}`)
+  assert.ok(contributions.find(c => c.area === 'panes' && c.id === 'needs-you-pane'), 'sidebar Needs you pane registers while something waits')
+  const needsPane = renderToString(contributions.find(c => c.id === 'needs-you-pane').render())
+  assert.ok(needsPane.includes('gh release create') && needsPane.includes('Approve'), `needs pane: ${needsPane.slice(0, 200)}`)
   const strip = renderToString(byArea('composer.top')[0].render())
   assert.ok(strip.includes('Continue') && strip.includes('Install helm') && strip.includes('1 needs you'), `desk strip: ${strip.slice(0, 300)}`)
 }
@@ -158,5 +198,14 @@ assert.equal(store.get('prefs').preferredTheme, 'helm-paper')
 const custom = byArea('themes').find(t => t.data.name === 'helm-custom')
 assert.equal(custom.data.colors.background, '#F7F6F2', 'custom theme follows the chosen base')
 
+{
+  // Approve answers through approval.respond with the request id, then hides the row
+  const { answerApproval, $inbox } = mod._internals
+  const item = $inbox.get().approvals[0]
+  await answerApproval(item, 'once')
+  const sent = globalThis.__rpc.filter(([m]) => m === 'approval.respond').pop()[1]
+  assert.deepEqual(sent, { session_id: 'rt-vision', request_id: 'req-1', choice: 'once', all: false })
+  assert.equal($inbox.get().approvals.length, 0, 'answered approval leaves the inbox immediately')
+}
 disposed.forEach(fn => fn())
 console.log('helm smoke: ok —', contributions.length, 'contributions,', rendered.length, 'rendered')

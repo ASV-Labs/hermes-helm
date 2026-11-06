@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 — 2026-11-06
+
+What needs you, wherever you are.
+
+- **Approve and deny from anywhere.** helm reads every live session's pending tool approvals (`session.active_list` → `approval.pending`, the same calls the app's approval card makes) and shows them with the command, the bot and the chat. *Approve*, *Allow session* and *Deny* answer through `approval.respond`, only when you click. A session waiting with no approval queued shows as a question with *Answer*.
+- **Needs you in the sidebar.** A pane above Sessions with approvals, questions and unread replies from every bot. It appears only while something is waiting and can be turned off in Customize look.
+- **Task plan in the Session pane.** The focused chat's latest plan (its `todo_list`), read from its transcript (`session.history`): *Plan · 3 of 5*, the step in progress marked *now*, sub-steps indented, refreshed every few seconds while the bot works.
+- The Desk's *Needs you* section and status line count approvals and questions, each chat once.
+
 ## 0.5.0 — 2026-11-06
 
 The Desk: a home for the whole app.

@@ -61,6 +61,7 @@ export const host = {
     cwd: atom('/Users/x/src/lineage-demo'),
     model: atom('grok-4.7'),
     activeSessionId: atom(null),
+    focusedSessionId: atom('rt-vision'),
     focusedStoredSessionId: atom(null),
     profile: atom('vision'),
     viewport: atom({ width: 1440, height: 900, narrow: false })
@@ -94,6 +95,9 @@ export const host = {
   request: async (method, params) => {
     globalThis.__requests = (globalThis.__requests || []).concat([[method, params && params.name]])
     if (method === 'profiles.get_asset') return { found: false }
+    globalThis.__rpc = (globalThis.__rpc || []).concat([[method, params]])
+    const gw = globalThis.__gw || {}
+    if (method in gw) return typeof gw[method] === 'function' ? gw[method](params) : gw[method]
     return { ok: true }
   },
   notify: () => {},

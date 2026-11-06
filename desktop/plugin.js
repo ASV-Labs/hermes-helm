@@ -42,7 +42,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '0.5.0'
+const VERSION = '0.6.0'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -402,6 +402,7 @@ const DEFAULT_PREFS = {
   width: 'default',
   rail: 'mono',
   openDeskAtLaunch: true,
+  showNeedsYouPane: true,
   showDeskStrip: true,
   deskName: ''
 }
@@ -1656,7 +1657,7 @@ function statusSentence(crew) {
     const live = rows.find(r => r.is_active && !r.ended_at)
     if (live) working.push({ profile: p, row: live })
   }
-  const waiting = waitingAcross(crew).length
+  const waiting = needsYouOf($inbox.get(), crew).total
   const parts = []
   if (working.length) {
     const first = working[0]
@@ -2002,8 +2003,32 @@ function TodayList() {
   })
 }
 
+function DeskNeedsYou({ looks, lookOf }) {
+  const n = useNeedsYou()
+  return jsx(DeskSection, {
+    title: jsxs('span', { children: ['Needs you', n.total ? jsx('span', { style: { color: V.amber, marginLeft: 6 }, children: n.total }) : null] }),
+    action: n.unread.length
+      ? jsx(LinkButton, {
+          onClick: () => {
+            $boardFilter.set('attention')
+            host.navigate(BOTS_ROUTE)
+          },
+          children: 'All replies'
+        })
+      : null,
+    children: n.total
+      ? [
+          ...n.approvals.map(item => jsx(ApprovalRow, { item, looks }, item.requestId)),
+          ...n.questions.map(item => jsx(QuestionRow, { item, looks }, `q:${item.sessionId}`)),
+          ...n.unread.slice(0, 5).map(entry => jsx(NeedsYouRow, { entry, look: lookOf(entry.profile.name) }, `${entry.profile.name}:${entry.row.id}`))
+        ]
+      : jsx(Quiet, { children: 'Nothing is waiting on you.' })
+  })
+}
+
 function DeskPage({ looks, prefs, setPrefs }) {
   const crew = useValue($crew)
+  useValue($inbox)
   const looksValue = useValue(looks)
   const p = useValue(prefs)
   const [naming, setNaming] = useState(false)
@@ -2081,21 +2106,7 @@ function DeskPage({ looks, prefs, setPrefs }) {
               })
             : jsx(Quiet, { children: crew.ready ? 'No sessions yet. Start one above.' : 'Loading sessions…' })
         }),
-        jsx(DeskSection, {
-          title: jsxs('span', { children: ['Needs you', waiting.length ? jsx('span', { style: { color: V.amber, marginLeft: 6 }, children: waiting.length }) : null] }),
-          action: waiting.length
-            ? jsx(LinkButton, {
-                onClick: () => {
-                  $boardFilter.set('attention')
-                  host.navigate(BOTS_ROUTE)
-                },
-                children: 'All of them'
-              })
-            : null,
-          children: waiting.length
-            ? waiting.slice(0, 5).map(entry => jsx(NeedsYouRow, { entry, look: lookOf(entry.profile.name) }, `${entry.profile.name}:${entry.row.id}`))
-            : jsx(Quiet, { children: 'Nothing is waiting on you.' })
-        }),
+        jsx(DeskNeedsYou, { looks: looksValue, lookOf }),
         jsx(DeskSection, {
           title: 'Today',
           action: jsx(LinkButton, { onClick: () => host.navigate('/cron'), children: 'Scheduled jobs' }),
@@ -2166,6 +2177,317 @@ function DeskStrip({ looks, prefs }) {
   })
 }
 
+
+// ──────────────────────────────────────────────── the inbox: what needs you
+// Pending tool approvals and questions across every live session, read with
+// the same gateway calls the app's own approval card uses (session.active_list,
+// approval.pending) and answered with approval.respond. Nothing is ever
+// answered without a click.
+
+const $inbox = atom({ ready: false, approvals: [], questions: [], reach: 'unknown', at: 0 })
+let inboxInflight = false
+let inboxTimer = null
+const answered = new Set() // request ids answered from helm, hidden until the backend drops them
+
+function liveRows(res) {
+  return Array.isArray(res && res.sessions) ? res.sessions.filter(r => r && r.id) : []
+}
+
+async function refreshInbox() {
+  if (inboxInflight || typeof host.request !== 'function') return
+  inboxInflight = true
+  try {
+    const crew = $crew.get()
+    const seen = new Map()
+    let reach = 'none'
+    const collect = rows => rows.forEach(r => seen.set(r.id, r))
+    try {
+      collect(liveRows(await host.request('session.active_list', {})))
+      reach = 'primary'
+    } catch {
+      /* gateway not up yet */
+    }
+    // Bots served by the primary gateway answer with their profile scoped in;
+    // a bot on its own gateway errors here and is reported as unreachable.
+    for (const p of crew.profiles || []) {
+      try {
+        collect(liveRows(await host.request('session.active_list', { profile: p.name })))
+      } catch {
+        /* not routed through this gateway */
+      }
+    }
+    const approvals = []
+    const questions = []
+    for (const row of seen.values()) {
+      if (row.status !== 'waiting') continue
+      const hit = (crew.byId && (crew.byId[row.session_key] || crew.byId[row.id])) || null
+      const profile = hit ? hit.profile : null
+      const base = { sessionId: row.id, storedId: row.session_key || row.id, profile, title: row.title || row.preview || (hit && sessionTitle(hit.row)) || 'Session', row: hit ? hit.row : null }
+      let pending = null
+      try {
+        const res = await host.request('approval.pending', { session_id: row.id })
+        pending = Array.isArray(res && res.approvals) ? res.approvals : []
+      } catch {
+        continue // not answerable from this gateway; its own chat still shows it
+      }
+      const live = pending.filter(a => a && typeof a.request_id === 'string' && !answered.has(a.request_id))
+      if (live.length) {
+        for (const a of live)
+          approvals.push({
+            ...base,
+            requestId: a.request_id,
+            command: typeof a.command === 'string' ? a.command : '',
+            description: typeof a.description === 'string' ? a.description : 'wants to run a command',
+            toolName: typeof a.tool_name === 'string' ? a.tool_name : null,
+            choices: Array.isArray(a.choices) ? a.choices.filter(c => typeof c === 'string') : a.smart_denied ? ['once', 'deny'] : null,
+            allowPermanent: a.allow_permanent !== false
+          })
+      } else if (!pending.length) {
+        questions.push(base) // waiting with no approval queued: a question for you
+      }
+    }
+    $inbox.set({ ready: true, approvals, questions, reach, at: Date.now() })
+  } finally {
+    inboxInflight = false
+  }
+}
+
+function startInbox(ctx) {
+  let stopped = false
+  const loop = async () => {
+    if (stopped) return
+    await refreshInbox()
+    const busyNow = Object.values(atomGet(host.state.busyBySession) || {}).some(Boolean)
+    const cur = $inbox.get()
+    const fast = busyNow || cur.approvals.length || cur.questions.length || crewTotals($crew.get()).working
+    inboxTimer = setTimeout(loop, fast ? 4000 : 15000)
+  }
+  inboxTimer = setTimeout(loop, 800)
+  const stop = () => {
+    stopped = true
+    clearTimeout(inboxTimer)
+  }
+  ctx.onDispose(stop)
+  return stop
+}
+
+async function answerApproval(item, choice) {
+  answered.add(item.requestId)
+  $inbox.set({ ...$inbox.get(), approvals: $inbox.get().approvals.filter(a => a.requestId !== item.requestId) })
+  try {
+    await host.request('approval.respond', { session_id: item.sessionId, request_id: item.requestId, choice, all: false }, 330000)
+    haptic(choice === 'deny' ? 'cancel' : 'submit')
+  } catch (err) {
+    answered.delete(item.requestId)
+    host.notifyError?.(`Could not answer the approval: ${err && err.message ? err.message : err}`)
+  }
+  setTimeout(refreshInbox, 600)
+}
+
+function openInboxItem(item) {
+  if (item.row && item.profile) openSession(item.row, item.profile)
+  else
+    try {
+      host.openSession(item.storedId, item.profile ? { profile: item.profile } : undefined)
+    } catch (err) {
+      host.notifyError?.(`Could not open the session: ${err && err.message ? err.message : err}`)
+    }
+}
+
+function needsYouOf(inbox, crew) {
+  // A chat that is waiting on an approval or a question is shown once, as that.
+  const waitingIds = new Set(inbox.approvals.concat(inbox.questions).map(a => a.storedId))
+  const unread = waitingAcross(crew).filter(e => !waitingIds.has(e.row.id) && !waitingIds.has(e.row._lineage_root_id))
+  return { approvals: inbox.approvals, questions: inbox.questions, unread, total: inbox.approvals.length + inbox.questions.length + unread.length, reach: inbox.reach }
+}
+
+function useNeedsYou() {
+  return needsYouOf(useValue($inbox), useValue($crew))
+}
+
+function ApprovalRow({ item, looks, compact }) {
+  const [busy, setBusy] = useState(null)
+  const look = normalizeLook(looks[item.profile] || null, item.profile || 'default')
+  const profile = ($crew.get().profiles || []).find(p => p.name === item.profile)
+  const who = profile ? botLabel(profile) : item.profile || 'A bot'
+  const allowSession = item.choices ? item.choices.includes('session') : true
+  const act = choice => {
+    setBusy(choice)
+    answerApproval(item, choice)
+  }
+  const cmd = item.command ? (item.command.length > 160 ? `${item.command.slice(0, 157)}…` : item.command) : ''
+  return jsxs('div', {
+    style: { display: 'flex', flexDirection: 'column', gap: compact ? 4 : 6, padding: compact ? '8px 0' : '12px 0', borderBottom: `1px solid ${V.hair}` },
+    children: [
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'flex-start', gap: compact ? 8 : 12 },
+        children: [
+          compact ? null : jsx(RobotHead, { look, expr: 'question', size: 28, title: item.profile || 'bot' }),
+          jsxs('div', {
+            style: { minWidth: 0, flex: 1 },
+            children: [
+              jsxs('div', {
+                style: { fontSize: compact ? 12 : 14, color: V.t1, lineHeight: 1.4 },
+                children: [jsx('span', { style: { color: V.amber }, children: item.toolName === 'terminal' || !item.toolName ? 'Shell command' : item.toolName }), ` · ${who} `, jsx('span', { style: { color: V.t3 }, children: item.description })]
+              }),
+              cmd ? jsx('code', { style: { display: 'block', marginTop: 4, fontFamily: V.mono, fontSize: compact ? 11 : 12, color: V.t2, wordBreak: 'break-all', whiteSpace: 'pre-wrap' }, children: cmd }) : null,
+              compact ? null : jsx('div', { className: 'truncate', style: { fontSize: 12, color: V.t4, marginTop: 4 }, children: `in “${item.title}”` })
+            ]
+          })
+        ]
+      }),
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'center', gap: 6, justifyContent: compact ? 'flex-start' : 'flex-end' },
+        children: [
+          jsx(LinkButton, { tone: 'muted', onClick: () => openInboxItem(item), children: 'Open' }),
+          jsx(SmallButton, { disabled: !!busy, onClick: () => act('deny'), children: busy === 'deny' ? 'Denying…' : 'Deny' }),
+          allowSession && !compact ? jsx(SmallButton, { disabled: !!busy, title: 'Allow this kind of command for the rest of the session', onClick: () => act('session'), children: 'Allow session' }) : null,
+          jsx(SmallButton, { primary: true, disabled: !!busy, onClick: () => act('once'), children: busy === 'once' ? 'Approving…' : 'Approve' })
+        ]
+      })
+    ]
+  })
+}
+
+function QuestionRow({ item, looks, compact }) {
+  const look = normalizeLook(looks[item.profile] || null, item.profile || 'default')
+  const profile = ($crew.get().profiles || []).find(p => p.name === item.profile)
+  return jsx(DeskRow, {
+    dot: V.amber,
+    lead: compact ? null : jsx(RobotHead, { look, expr: 'question', size: 28, title: item.profile || 'bot' }),
+    title: item.title,
+    sub: jsx('span', { style: { color: V.amber }, children: `${profile ? botLabel(profile) : item.profile || 'A bot'} is waiting for your answer` }),
+    actions: jsx(SmallButton, { onClick: () => openInboxItem(item), children: 'Answer' })
+  })
+}
+
+// Sidebar pane above Sessions: registered only while something needs you.
+function NeedsYouPane({ looks }) {
+  const looksValue = useValue(looks)
+  const n = useNeedsYou()
+  if (!n.total) return jsx('div', { style: { padding: '10px 12px', fontSize: 12, color: V.t3 }, children: 'Nothing needs you.' })
+  return jsxs('div', {
+    style: { height: '100%', overflowY: 'auto', padding: '4px 12px 8px' },
+    children: [
+      ...n.approvals.map(item => jsx(ApprovalRow, { item, looks: looksValue, compact: true }, item.requestId)),
+      ...n.questions.map(item => jsx(QuestionRow, { item, looks: looksValue, compact: true }, `q:${item.sessionId}`)),
+      ...n.unread.slice(0, 6).map(entry =>
+        jsxs(
+          'button',
+          {
+            type: 'button',
+            onClick: () => openSession(entry.row, entry.profile.name),
+            style: { display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 0, borderBottom: `1px solid ${V.hair}`, padding: '7px 0', cursor: 'pointer' },
+            children: [
+              jsx('div', { className: 'truncate', style: { fontSize: 12, color: V.t1 }, children: sessionTitle(entry.row) }),
+              jsx('div', { className: 'truncate', style: { fontSize: 11, color: V.amber }, children: `${botLabel(entry.profile)} replied · ${ago(entry.row.last_active)}` })
+            ]
+          },
+          `u:${entry.row.id}`
+        )
+      )
+    ]
+  })
+}
+
+// ── task plan: the focused chat's latest todo list, from its transcript ──
+
+const $plan = atom({ sessionId: null, items: null, at: 0 })
+let planInflight = null
+
+function parseTodoList(value) {
+  let v = value
+  if (typeof v === 'string') {
+    try {
+      v = JSON.parse(v)
+    } catch {
+      return null
+    }
+  }
+  if (v && !Array.isArray(v) && typeof v === 'object') v = v.todos !== undefined ? v.todos : v.result !== undefined ? parseTodoList(v.result) : null
+  if (!Array.isArray(v)) return null
+  const items = v
+    .filter(t => t && typeof t === 'object' && ['pending', 'in_progress', 'completed', 'cancelled'].includes(t.status))
+    .map(t => ({ id: String(t.id ?? ''), content: String(t.content ?? '').trim(), status: t.status, parent: t.parent ? String(t.parent) : null }))
+    .filter(t => t.id && t.content)
+  return items
+}
+
+function latestPlan(messages) {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i]
+    if (!m || (m.name !== 'todo_list' && m.name !== 'todo')) continue
+    const fromResult = parseTodoList(m.content)
+    if (fromResult && fromResult.length) return fromResult
+    const args = m.args || {}
+    if (!args.merge) {
+      const fromArgs = parseTodoList(args.todos)
+      if (fromArgs && fromArgs.length) return fromArgs
+    }
+  }
+  return null
+}
+
+async function refreshPlan(sessionId) {
+  if (!sessionId || typeof host.request !== 'function') {
+    $plan.set({ sessionId: null, items: null, at: Date.now() })
+    return
+  }
+  if (planInflight === sessionId) return
+  planInflight = sessionId
+  try {
+    const res = await host.request('session.history', { session_id: sessionId }, 15000)
+    const items = latestPlan(Array.isArray(res && res.messages) ? res.messages : [])
+    if (atomGet(host.state.focusedSessionId) === sessionId) $plan.set({ sessionId, items, at: Date.now() })
+  } catch {
+    if (atomGet(host.state.focusedSessionId) === sessionId) $plan.set({ sessionId, items: null, at: Date.now() })
+  } finally {
+    planInflight = null
+  }
+}
+
+function usePlan() {
+  const sessionId = useValue(host.state.focusedSessionId)
+  const busy = useValue(host.state.busy)
+  const plan = useValue($plan)
+  useEffect(() => {
+    refreshPlan(sessionId)
+    if (!busy || !sessionId) return undefined
+    const h = setInterval(() => refreshPlan(sessionId), 6000)
+    return () => clearInterval(h)
+  }, [sessionId, busy])
+  return plan.sessionId === sessionId ? plan.items : null
+}
+
+const PLAN_MARK = { completed: '✓', in_progress: '●', pending: '○', cancelled: '–' }
+
+function PlanList({ items }) {
+  const counted = items.filter(t => t.status !== 'cancelled')
+  const done = counted.filter(t => t.status === 'completed').length
+  const ids = new Set(items.map(t => t.id))
+  return jsxs('div', {
+    children: [
+      jsx(PaneHead, { children: `Plan · ${done} of ${counted.length}` }),
+      ...items.map(t =>
+        jsxs(
+          'div',
+          {
+            style: { display: 'flex', gap: 8, alignItems: 'flex-start', padding: '3px 0', paddingLeft: t.parent && ids.has(t.parent) ? 16 : 0, fontSize: 12, lineHeight: 1.45 },
+            children: [
+              jsx('span', { style: { width: 12, flexShrink: 0, textAlign: 'center', color: t.status === 'completed' ? V.green : t.status === 'in_progress' ? V.accent : V.t4 }, children: PLAN_MARK[t.status] }),
+              jsxs('span', {
+                style: { color: t.status === 'completed' ? V.t3 : t.status === 'cancelled' ? V.t4 : V.t1, textDecoration: t.status === 'cancelled' ? 'line-through' : 'none' },
+                children: [t.content, t.status === 'in_progress' ? jsx('span', { style: { color: V.accent }, children: ' · now' }) : null]
+              })
+            ]
+          },
+          t.id
+        )
+      )
+    ]
+  })
+}
+
 // ───────────────────────────────────────────────────────── the Session pane
 // A right-sidebar tab beside Files: the focused chat at a glance (who, where,
 // what it has cost), the rest of the crew, and the next scheduled job.
@@ -2216,6 +2538,7 @@ function SessionPane({ looks }) {
     .filter(j => j.enabled !== false && toMs(j.next_run_at) > Date.now())
     .sort((a, b) => toMs(a.next_run_at) - toMs(b.next_run_at))[0]
   const others = (crew.profiles || []).filter(p => p.name !== owner)
+  const plan = usePlan()
 
   return jsxs('div', {
     style: { height: '100%', overflowY: 'auto', padding: '14px 14px 20px' },
@@ -2233,6 +2556,7 @@ function SessionPane({ looks }) {
           })
         ]
       }),
+      plan && plan.length ? jsx(PlanList, { items: plan }) : null,
       jsx(PaneHead, { children: busy ? 'Session · working' : 'Session' }),
       jsx(KV, { k: 'Model', v: (r && r.model) || model }),
       jsx(KV, { k: 'Folder', v: basename((r && r.cwd) || cwd), mono: true }),
@@ -2541,6 +2865,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
 
   const toggles = [
     ['openDeskAtLaunch', 'Open the Desk at launch', 'Hermes starts on the Desk: what’s running, what needs you, what ran today.'],
+    ['showNeedsYouPane', 'Needs you in the sidebar', 'Approvals, questions and unread replies from every bot above your sessions, only while something is waiting.'],
     ['showDeskStrip', 'Continue strip on new chats', 'Recent sessions above the composer of a fresh chat, one click back in.'],
     ['showContextLine', 'Titlebar context', 'Bot, folder, model, cost and context of the chat you’re in.'],
     ['showRowBots', 'Bots in the session list', 'Each session row shows the robot of the bot it belongs to; its face is the row’s state.'],
@@ -2669,6 +2994,9 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
 }
 
 // ───────────────────────────────────────────────────────────────── plugin
+
+// Pure helpers, exported for the test suite only.
+export const _internals = { latestPlan, parseTodoList, answerApproval, refreshPlan, $plan, $inbox }
 
 export default {
   id: ID,
@@ -2848,6 +3176,37 @@ export default {
 
     // The crew poller feeds every crew-aware surface, and gives new bots robots.
     startCrew(ctx)
+
+    // The inbox (approvals and questions across live sessions) and the sidebar
+    // pane that shows it, mounted only while something needs you.
+    startInbox(ctx)
+    let offNeedsPane = null
+    const syncNeedsPane = () => {
+      const inbox = $inbox.get()
+      const total = needsYouOf(inbox, $crew.get()).total
+      const want = prefs.get().showNeedsYouPane && isPrimaryWindow() && total > 0
+      if (want && !offNeedsPane) {
+        offNeedsPane = ctx.register({
+          id: 'needs-you-pane',
+          area: 'panes',
+          title: 'Needs you',
+          data: { placement: 'left', collapsible: true, dock: { pane: 'sessions', pos: 'top' }, height: '190px', tabTitleText: () => 'Needs you' },
+          render: () => jsx(NeedsYouPane, { looks })
+        })
+      } else if (!want && offNeedsPane) {
+        offNeedsPane()
+        offNeedsPane = null
+      }
+    }
+    const offInboxSub = $inbox.subscribe(syncNeedsPane)
+    const offCrewNeeds = $crew.subscribe(syncNeedsPane)
+    const offPrefsNeeds = prefs.subscribe(syncNeedsPane)
+    ctx.onDispose(() => {
+      offInboxSub()
+      offCrewNeeds()
+      offPrefsNeeds()
+      if (offNeedsPane) offNeedsPane()
+    })
     const offCrew = $crew.subscribe(crew => {
       syncBotCommands(crew)
       if (crew.ready && crew.profiles.length) autoAvatars(crew.profiles, looks, avatars, prefs)
