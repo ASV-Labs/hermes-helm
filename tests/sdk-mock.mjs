@@ -62,7 +62,8 @@ export const host = {
     model: atom('grok-4.7'),
     activeSessionId: atom(null),
     focusedStoredSessionId: atom(null),
-    profile: atom('vision')
+    profile: atom('vision'),
+    viewport: atom({ width: 1440, height: 900, narrow: false })
   },
   composer: {
     submit: (id, text) => {

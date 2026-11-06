@@ -23,3 +23,15 @@ plugin_api._list_jobs = lambda: [{'id': 'j1', 'name': 'Weekly', 'profile': 'buil
 j = c.get('/api/plugins/helm/desk/today').json()
 assert j['available'] and j['jobs'][0]['last_status'] == 'error' and len(j['jobs'][0]['last_error']) == 300 and len(j['jobs']) == 1, j
 print('desk/today ok')
+
+# File fallback: per-profile cron/jobs.json, schedule display lifted from the schedule dict.
+import tempfile, os, json as _json
+with tempfile.TemporaryDirectory() as d:
+    os.makedirs(f'{d}/cron'); os.makedirs(f'{d}/profiles/builder/cron')
+    _json.dump({'jobs': [{'id': 'a', 'name': 'Root job', 'schedule': {'display': 'every day 9:00'}}]}, open(f'{d}/cron/jobs.json', 'w'))
+    _json.dump([{'id': 'b', 'name': 'Builder job', 'last_error': 'boom'}], open(f'{d}/profiles/builder/cron/jobs.json', 'w'))
+    plugin_api._hermes_home = lambda: pathlib.Path(d)
+    files = plugin_api._jobs_from_files()
+    assert [(j['id'], j['profile']) for j in files] == [('a', 'default'), ('b', 'builder')], files
+    assert files[0]['schedule_display'] == 'every day 9:00'
+print('desk file fallback ok')

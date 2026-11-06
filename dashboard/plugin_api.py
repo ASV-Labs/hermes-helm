@@ -84,11 +84,59 @@ def _trim_job(job: dict) -> dict:
     return out
 
 
-def _list_jobs() -> list:
-    from hermes_cli.web_routers.cron import _list_cron_jobs_sync  # noqa: PLC0415 — optional, version-dependent
+def _hermes_home() -> Path:
+    try:
+        from hermes_constants import get_hermes_home  # noqa: PLC0415
 
-    jobs = _list_cron_jobs_sync("all")
-    return jobs if isinstance(jobs, list) else []
+        return Path(get_hermes_home())
+    except Exception:  # noqa: BLE001
+        import os  # noqa: PLC0415
+
+        return Path(os.environ.get("HERMES_HOME") or Path.home() / ".hermes")
+
+
+def _read_store(path: Path, profile: str) -> list:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+    jobs = data.get("jobs") if isinstance(data, dict) else data
+    out = []
+    for job in jobs if isinstance(jobs, list) else []:
+        if isinstance(job, dict):
+            job = dict(job)
+            job.setdefault("profile", profile)
+            sched = job.get("schedule")
+            if not job.get("schedule_display") and isinstance(sched, dict):
+                job["schedule_display"] = sched.get("display") or sched.get("expr") or sched.get("cron")
+            out.append(job)
+    return out
+
+
+def _jobs_from_files() -> list:
+    home = _hermes_home()
+    jobs = _read_store(home / "cron" / "jobs.json", "default")
+    profiles = home / "profiles"
+    if profiles.is_dir():
+        for child in sorted(profiles.iterdir()):
+            store = child / "cron" / "jobs.json"
+            if store.is_file():
+                jobs.extend(_read_store(store, child.name))
+    return jobs
+
+
+def _list_jobs() -> list:
+    # Prefer the dashboard's own listing (it annotates live runs); fall back to
+    # reading each profile's cron/jobs.json when that helper isn't importable.
+    try:
+        from hermes_cli.web_routers.cron import _list_cron_jobs_sync  # noqa: PLC0415 — optional, version-dependent
+
+        jobs = _list_cron_jobs_sync("all")
+        if isinstance(jobs, list):
+            return jobs
+    except Exception:  # noqa: BLE001
+        pass
+    return _jobs_from_files()
 
 
 @router.get("/desk/today")

@@ -1091,7 +1091,7 @@ function BotCard({ profile, look, focusedWorking, onEdit, onStatus, os }) {
             className: 'flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-(--chrome-action-hover)',
             children: [
               jsx(Codicon, { name: latest.unread ? 'circle-filled' : 'comment', size: 12 }),
-              jsx('span', { className: 'min-w-0 flex-1 truncate text-(--ui-text-secondary)', children: latest.title || latest.preview || 'Untitled session' }),
+              jsx('span', { className: 'min-w-0 flex-1 truncate text-(--ui-text-secondary)', children: sessionTitle(latest) }),
               jsx('span', { className: 'shrink-0 text-(--ui-text-quaternary)', children: ago(latest.last_active) })
             ]
           })
@@ -1631,8 +1631,10 @@ function rowState(r) {
 }
 
 function sessionTitle(r) {
-  if (r.title || r.preview) return r.title || r.preview
   const src = (r.handoff_platform || r.source || '').toLowerCase()
+  // A scheduled run's preview is its injected job prompt, not something to show.
+  if (src === 'cron' || r.scheduler_owned) return r.title || 'Scheduled run'
+  if (r.title || r.preview) return r.title || r.preview
   const where = src === 'cron' || r.scheduler_owned ? 'Scheduled run' : src && !['desktop', 'tui', 'cli'].includes(src) ? `${src.charAt(0).toUpperCase()}${src.slice(1)} chat` : 'Untitled chat'
   return r.started_at ? `${where} · ${new Date(toMs(r.started_at)).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : where
 }
@@ -1665,6 +1667,15 @@ function statusSentence(crew) {
   if (waiting) parts.push(waiting === 1 ? 'One thing is waiting on you.' : `${waiting} things are waiting on you.`)
   if (!parts.length) parts.push(crew.ready ? 'All quiet — nothing is running or waiting on you.' : 'Checking on the crew…')
   return parts.join(' ')
+}
+
+function isPrimaryWindow() {
+  try {
+    const q = new URLSearchParams(globalThis.location ? globalThis.location.search : '')
+    return !q.get('win') && q.get('peer') !== '1' && !q.get('watch') && q.get('profileWindow') !== '1'
+  } catch {
+    return false
+  }
 }
 
 function atomGet(a) {
@@ -2001,11 +2012,13 @@ function DeskPage({ looks, prefs, setPrefs }) {
   const totals = crewTotals(crew)
   const lookOf = name => normalizeLook(looksValue[name], name)
   const name = (p.deskName || '').trim()
+  const viewport = useValue(host.state.viewport) || {}
+  const compact = viewport.narrow || (viewport.width && viewport.width < 900)
 
   return jsx('div', {
     style: { height: '100%', overflowY: 'auto' },
     children: jsxs('div', {
-      style: { margin: '0 auto', width: '100%', maxWidth: 760, padding: '64px 28px 72px' },
+      style: { margin: '0 auto', width: '100%', maxWidth: 760, padding: compact ? '20px 16px 40px' : '64px 28px 72px' },
       children: [
         jsxs('div', {
           style: { display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 14, rowGap: 4, marginBottom: 18 },
@@ -2118,10 +2131,11 @@ function DeskPage({ looks, prefs, setPrefs }) {
 function DeskStrip({ looks, prefs }) {
   const { showDeskStrip } = useValue(prefs)
   const active = useValue(host.state.activeSessionId)
+  const stored = useValue(host.state.focusedStoredSessionId)
   const crew = useValue($crew)
   const looksValue = useValue(looks)
   const recent = useMemo(() => recentAcross(crew, 3), [crew])
-  if (!showDeskStrip || active || !recent.length) return null
+  if (!showDeskStrip || active || stored || !recent.length) return null
   const waiting = crewTotals(crew).needYou
   return jsxs('div', {
     style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, padding: '6px 8px 2px', fontSize: 11, color: V.t3 },
@@ -2821,8 +2835,10 @@ export default {
 
     // Start on the Desk once per app launch (not on a plugin reload), and only
     // when no chat is open by then.
+    // The app opens the same renderer for its HUD, pop-outs and peer windows;
+    // those carry a query marker (?win=hud, ?peer=1, …) and must keep their own view.
     const launchFlag = '__helmDeskShown'
-    if (prefs.get().openDeskAtLaunch && !globalThis[launchFlag]) {
+    if (prefs.get().openDeskAtLaunch && !globalThis[launchFlag] && isPrimaryWindow()) {
       globalThis[launchFlag] = true
       const t = setTimeout(() => {
         if (!atomGet(host.state.activeSessionId) && !atomGet(host.state.focusedStoredSessionId)) host.navigate(DESK_ROUTE)

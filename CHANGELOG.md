@@ -10,6 +10,9 @@ The Desk: a home for the whole app.
 - **Session pane**: a right-sidebar tab beside Files with the focused chat's bot, model, folder, branch, start, messages, tool calls, tokens and cost, the rest of the crew's status, and the next scheduled job.
 - Shortcuts moved off keys the app or macOS already own: Desk `⌘⌥0`, Bots board `⌘⌥R`, Customize look `⌘⌥U`.
 - Every class helm uses is one the app itself compiles; the Desk and pane lay out with inline styles, so nothing renders unstyled.
+- Today falls back to reading each profile's `cron/jobs.json` when the dashboard's cron helper isn't importable on the installed Hermes.
+- The Desk only opens itself in the main window; the HUD, pop-outs and peer windows keep their own view. The Desk compacts on narrow windows.
+- Scheduled runs show as *Scheduled run* instead of their injected job prompt, on the Desk and the Bots board.
 - Both new surfaces can be turned off in Customize look.
 
 ## 0.4.0 — 2026-11-06
