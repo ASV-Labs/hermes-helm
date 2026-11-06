@@ -2248,7 +2248,11 @@ async function refreshInbox() {
       }
     }
     const waiting = [...seen.values()].filter(r => r.status === 'waiting').length
-    $inbox.set({ ready: true, approvals, questions, reach, live: seen.size, waiting, error, at: Date.now() })
+    // stored id → gateway session id, for session-scoped reads (the app's own
+    // focused id can be a client-local alias the gateway doesn't know)
+    const liveByKey = {}
+    for (const r of seen.values()) if (r.session_key) liveByKey[r.session_key] = r.id
+    $inbox.set({ ready: true, approvals, questions, reach, live: seen.size, waiting, error, liveByKey, at: Date.now() })
   } finally {
     inboxInflight = false
   }
@@ -2430,27 +2434,44 @@ function latestPlan(messages) {
   return null
 }
 
+function gatewayIdFor(storedId) {
+  const map = $inbox.get().liveByKey || {}
+  if (map[storedId]) return map[storedId]
+  const hit = $crew.get().byId && $crew.get().byId[storedId]
+  if (hit) for (const id of [hit.row.id, hit.row._lineage_root_id, ...(hit.row._lineage_ids || [])]) if (id && map[id]) return map[id]
+  const focused = atomGet(host.state.focusedSessionId)
+  return focused && !String(focused).startsWith('local-') ? focused : null
+}
+
+// Keyed by the STORED id: that is what survives reloads and what the
+// gateway's live list maps back to its own session id.
 async function refreshPlan(sessionId) {
   if (!sessionId || typeof host.request !== 'function') {
-    $plan.set({ sessionId: null, items: null, at: Date.now() })
+    $plan.set({ sessionId: null, items: null, messages: 0, error: null, at: Date.now() })
     return
   }
   if (planInflight === sessionId) return
   planInflight = sessionId
   try {
-    const res = await host.request('session.history', { session_id: sessionId }, 15000)
+    let gid = gatewayIdFor(sessionId)
+    if (!gid) {
+      await refreshInbox()
+      gid = gatewayIdFor(sessionId)
+    }
+    if (!gid) throw new Error('not live in this gateway')
+    const res = await host.request('session.history', { session_id: gid }, 15000)
     const messages = Array.isArray(res && res.messages) ? res.messages : []
     const items = latestPlan(messages)
-    if (atomGet(host.state.focusedSessionId) === sessionId) $plan.set({ sessionId, items, messages: messages.length, error: null, at: Date.now() })
+    if (atomGet(host.state.focusedStoredSessionId) === sessionId) $plan.set({ sessionId, items, messages: messages.length, error: null, at: Date.now() })
   } catch (err) {
-    if (atomGet(host.state.focusedSessionId) === sessionId) $plan.set({ sessionId, items: null, messages: 0, error: err && err.message ? err.message : String(err), at: Date.now() })
+    if (atomGet(host.state.focusedStoredSessionId) === sessionId) $plan.set({ sessionId, items: null, messages: 0, error: err && err.message ? err.message : String(err), at: Date.now() })
   } finally {
     planInflight = null
   }
 }
 
 function usePlan() {
-  const sessionId = useValue(host.state.focusedSessionId)
+  const sessionId = useValue(host.state.focusedStoredSessionId)
   const busy = useValue(host.state.busy)
   const plan = useValue($plan)
   useEffect(() => {
@@ -2464,7 +2485,7 @@ function usePlan() {
 
 function PlanStatus() {
   const pl = useValue($plan)
-  const sid = useValue(host.state.focusedSessionId)
+  const sid = useValue(host.state.focusedStoredSessionId)
   if (pl.sessionId !== sid) return null
   return jsxs('div', {
     children: [
@@ -3113,7 +3134,7 @@ export default {
           keywords: ['helm', 'debug', 'diagnostics', 'inbox', 'plan'],
           run: async () => {
             await refreshInbox()
-            await refreshPlan(atomGet(host.state.focusedSessionId))
+            await refreshPlan(atomGet(host.state.focusedStoredSessionId))
             const i = $inbox.get()
             const pl = $plan.get()
             host.notify?.({

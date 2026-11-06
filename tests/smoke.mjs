@@ -18,6 +18,8 @@ const tmp = join(here, '.tmp', 'plugin.rewritten.mjs')
 writeFileSync(tmp, rewritten)
 
 const mod = await import(pathToFileURL(tmp).href)
+const sdk = await import('./sdk-mock.mjs')
+const host_set_stored = id => sdk.host.state.focusedStoredSessionId.set(id)
 const plugin = mod.default
 assert.equal(plugin.id, 'helm')
 assert.equal(typeof plugin.register, 'function')
@@ -133,10 +135,12 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
   const plan = latestPlan(globalThis.__gw['session.history'].messages)
   assert.deepEqual(plan.map(t => t.status), ['completed', 'in_progress', 'pending', 'pending', 'cancelled'])
   assert.equal(plan[3].parent, '3')
-  await refreshPlan('rt-vision')
+  host_set_stored('s2')
+  await refreshPlan('s2')
   assert.equal($plan.get().items.length, 5, 'plan read through session.history for the focused chat')
   const pane2 = renderToString(contributions.find(c => c.area === 'panes' && c.id === 'session-pane').render())
   assert.ok(pane2.includes('Plan · 1 of 4') && pane2.includes('Package the artifact') && pane2.includes(' · now'), `plan pane: ${pane2.slice(0, 300)}`)
+  host_set_stored(null)
 
   // Inbox: the approval and the question surface on the Desk, with buttons
   const desk2 = renderToString(byArea('routes').find(c => c.data.path === '/helm/desk').render())
