@@ -4,8 +4,8 @@ from PIL import Image, ImageDraw, ImageFont
 S = sys.argv[1]; OUT = sys.argv[2]
 def bot(color, face, topper, chest, tool=None, back=None):
     im = Image.new('RGBA', (640, 800), (0, 0, 0, 0))
-    layers = [f'back_{back}_{color}.png' if back in ('backpack', 'jetpack') else (f'back_{back}.png' if back else None),
-              f'base_{color}.png', f'chest_{chest}_{color}.png', f'face_{face}_{color}.png',
+    layers = [f'base_{color}.png',
+              f'back_{back}_{color}.png' if back in ('backpack', 'jetpack') else (f'back_{back}.png' if back else None), f'chest_{chest}_{color}.png', f'face_{face}_{color}.png',
               f'topper_{topper}_{color}.png' if topper in ('antenna', 'cat', 'dish', 'cap') else f'topper_{topper}.png',
               f'tool_{tool}.png' if tool else None]
     for n in layers:

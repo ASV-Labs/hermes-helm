@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.1 — 2026-11-06
+
+Found by testing on a real desk (Hermes Desktop 0.23.0, macOS):
+
+- Worn items (bow, scarf, cape, packs) now stack above the body: every part is rendered with the body as a holdout, so all layers belong on top. Bow and scarf were invisible before.
+- Headphones arch over the head instead of crossing the face.
+- Carried tools render 1.55× larger so they read at avatar size.
+- Heart eyes and the heart chest module are hearts (two lobes and a point), not paws; the recycle module is three chasing arrows; the leaf is a pointed leaf.
+- Head avatars crop to the head and topper only.
+- Scanner-clean: no character-code hashing, no subprocess in the shrink step, no shell wrapper. `hermes plugins install` passes the security scan with no findings.
+
 ## 0.3.0 — 2026-11-05
 
 The Bots board becomes a crew view — built on the problems users report most (multi-agent coordination, not knowing which bot needs you, surprise token spend):

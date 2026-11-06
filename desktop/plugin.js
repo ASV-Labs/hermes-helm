@@ -42,7 +42,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '0.3.0'
+const VERSION = '0.3.1'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 
@@ -299,7 +299,7 @@ const PART_LABEL = {
 // down or the routes are not mounted yet, the SVG robots below stand in.
 const SPRITE_W = 640
 const SPRITE_H = 800
-const HEAD_CROP = [120, 90, 400, 400] // x, y, w, h of the head in sprite space
+const HEAD_CROP = [120, 20, 400, 400] // x, y, w, h of the head in sprite space
 const CHEST_CROP = [200, 380, 240, 200]
 const TOOL_CROP = [400, 200, 240, 300]
 const spriteCache = new Map()
@@ -317,9 +317,11 @@ function spriteName(kind, part, color) {
 }
 
 function layerNames(look, expr) {
+  // Every part was rendered with the body as a holdout, so its pixels are
+  // already only the visible ones: all parts stack ON TOP of the body.
   return [
-    spriteName('back', look.back, look.color),
     spriteName('base', 'base', look.color),
+    spriteName('back', look.back, look.color),
     spriteName('chest', look.chest, look.color),
     spriteName('face', expr || look.face, look.color),
     spriteName('topper', look.topper, look.color),
@@ -366,8 +368,7 @@ function useSprites(names) {
 function SpriteStack({ look, expr, width, crop, className, title }) {
   const names = useMemo(() => layerNames(look, expr), [look.topper, look.face, look.chest, look.tool, look.back, look.color, expr])
   const urls = useSprites(names)
-  const baseIdx = names.findIndex(n => n.startsWith('base_'))
-  if (!urls[baseIdx]) return null
+  if (!urls[0]) return null
   const [cx, cy, cw, ch] = crop || [0, 0, SPRITE_W, SPRITE_H]
   const scale = width / cw
   const height = Math.round(ch * scale)

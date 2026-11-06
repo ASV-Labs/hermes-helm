@@ -188,6 +188,13 @@ def build_base(col, coll):
         torus('foot_ring', 0.19, 0.045, (sx*0.50, -1.02, 0.30), gl, coll, rot=(math.pi/2, 0, 0))
         cyl('foot_core', 0.15, 0.04, (sx*0.50, -1.025, 0.30), dark_mat(), coll, rot=(math.pi/2, 0, 0))
 
+def heart(name, cx, y, cz, r, m, coll):
+    """Two lobes and a downward point: reads as a heart, not a paw."""
+    sphere(name, r, (cx - r*0.62, y, cz + r*0.25), scale=(1, 0.45, 1), m=m, coll=coll)
+    sphere(name, r, (cx + r*0.62, y, cz + r*0.25), scale=(1, 0.45, 1), m=m, coll=coll)
+    bpy.ops.mesh.primitive_cone_add(radius1=r*1.45, radius2=0.0, depth=r*1.9, vertices=32, location=(cx, y, cz - r*0.62), rotation=(math.pi, 0, 0))
+    ob = bpy.context.object; ob.name = name; ob.scale = (1, 0.32, 1); smooth(ob); ob.data.materials.append(m); link(ob, coll)
+
 # ---- faces: emissive shapes on the visor plane (y = SCREEN_Y + head)
 FY = HEAD_C.y - 0.66
 
@@ -245,10 +252,8 @@ def build_face(kind, col, coll):
         for x in (-0.26, 0.26):
             line('z', (x-0.1, y, EYE_Z), (x+0.1, y, EYE_Z), col, coll, 0.032)
     elif kind == 'heart':
-        for x in (-0.26, 0.26):
-            sphere('h', 0.075, (x-0.05, y, EYE_Z+0.03), scale=(1,0.5,1), m=glow_mat(col, 2.8), coll=coll)
-            sphere('h', 0.075, (x+0.05, y, EYE_Z+0.03), scale=(1,0.5,1), m=glow_mat(col, 2.8), coll=coll)
-            sphere('h', 0.08, (x, y, EYE_Z-0.06), scale=(1.3,0.5,1), m=glow_mat(col, 2.8), coll=coll)
+        for x in (-0.30, 0.30):
+            heart('h', x, y, EYE_Z + 0.02, 0.085, glow_mat(col, 2.8), coll)
         arc('mouth', (0, y, EYE_Z-0.22), col, coll, r=0.07, width=0.025, flip=True)
     elif kind == 'star':
         for x in (-0.26, 0.26):
@@ -319,7 +324,7 @@ def build_topper(kind, col, coll):
             a = i/6*2*math.pi
             sphere('crown_pt', 0.06, (0.34*math.cos(a), 0.34*math.sin(a), top + 0.22), m=gold, coll=coll)
     elif kind == 'headphones':
-        torus('hp_band', 0.74, 0.05, (0, 0.02, top - 0.45), mat('hp', base=(0.9,0.45,0.65), rough=0.5), coll, rot=(0, math.pi/2, 0))
+        torus('hp_band', 0.86, 0.06, (0, 0.02, 1.66), mat('hp', base=(0.9,0.45,0.65), rough=0.5), coll, rot=(math.pi/2, 0, 0))
         for sx in (-1, 1):
             cyl('hp_cup', 0.34, 0.16, (sx*(EAR_X+0.12), 0.02, 1.60), mat('hp', base=(0.9,0.45,0.65), rough=0.5), coll, rot=(0, math.pi/2, 0))
 
@@ -332,17 +337,19 @@ def build_chest(kind, col, coll):
         sphere('pl', 0.09, (0, y, z), scale=(1,0.5,1), m=g, coll=coll)
         torus('ring', 0.18, 0.022, (0, y, z), g, coll, rot=(math.radians(28), math.radians(-22), 0.0))
     elif kind == 'heart':
-        sphere('h', 0.075, (-0.065, y, z+0.03), scale=(1,0.5,1), m=g, coll=coll)
-        sphere('h', 0.075, (0.065, y, z+0.03), scale=(1,0.5,1), m=g, coll=coll)
-        sphere('h', 0.09, (0, y, z-0.05), scale=(1.4,0.5,1.1), m=g, coll=coll)
+        heart('h', 0, y, z + 0.01, 0.075, g, coll)
     elif kind == 'gear':
         torus('gear', 0.10, 0.035, (0, y, z), g, coll, rot=(math.pi/2, 0, 0))
         for i in range(8):
             a = i/8*2*math.pi
             rbox('tooth', (0.06, 0.04, 0.06), (0.15*math.cos(a), y, z+0.15*math.sin(a)), 0.015, g, coll, rot=(0, a, 0), segs=3)
     elif kind == 'leaf':
-        sphere('leaf', 0.13, (0.02, y, z), scale=(0.8,0.4,1.3), m=g, coll=coll)
-        line('vein', (-0.04, y-0.02, z-0.14), (0.06, y-0.02, z+0.12), col, coll, 0.012)
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=0.14, segments=40, ring_count=20, location=(0, y, z))
+        lf = bpy.context.object; lf.name = 'leaf'; lf.scale = (0.55, 0.3, 1.25); lf.rotation_euler = (0, math.radians(-38), 0)
+        for v in lf.data.vertices:
+            v.co.x *= (1 - 0.55 * abs(v.co.z) / 0.14)   # taper both ends to points
+        smooth(lf); lf.data.materials.append(g); link(lf, coll)
+        line('stem', (-0.10, y, z-0.12), (-0.15, y, z-0.18), col, coll, 0.016)
     elif kind == 'bars':
         for i, h in enumerate((0.08, 0.14, 0.22)):
             rbox('bar', (0.06, 0.04, h), (-0.1 + i*0.1, y, z - 0.1 + h/2), 0.015, g, coll, segs=3)
@@ -351,18 +358,33 @@ def build_chest(kind, col, coll):
         for x, zz in ((-0.11, 0.06), (-0.04, 0.12), (0.04, 0.12), (0.11, 0.06)):
             sphere('toe', 0.04, (x, y, z+zz), scale=(1,0.5,1.2), m=g, coll=coll)
     elif kind == 'recycle':
+        R = 0.12
         for i in range(3):
-            a = i/3*2*math.pi + math.pi/2
-            rbox('arrow', (0.14, 0.04, 0.05), (0.11*math.cos(a), y, z+0.11*math.sin(a)), 0.015, g, coll, rot=(0, a + math.pi/2, 0), segs=3)
+            a0 = math.radians(90 + i*120 + 18); a1 = math.radians(90 + i*120 + 100)
+            for k in range(12):
+                a = a0 + (a1 - a0) * k / 11
+                sphere('rc', 0.022, (R*math.cos(a), y, z + R*math.sin(a)), scale=(1, 0.5, 1), m=g, coll=coll)
+            tip = (R*math.cos(a1), y, z + R*math.sin(a1))
+            # cone axis (+Z) turned to the counter-clockwise tangent (-sin a1, cos a1) in the XZ plane
+            bpy.ops.mesh.primitive_cone_add(radius1=0.055, radius2=0.0, depth=0.08, vertices=24, location=tip, rotation=(0, -a1, 0))
+            ob = bpy.context.object; ob.name = 'rc_head'; ob.scale = (1, 0.45, 1); smooth(ob); ob.data.materials.append(g); link(ob, coll)
     elif kind == 'bolt':
         line('b', (-0.02, y, z+0.16), (-0.08, y, z-0.01), col, coll, 0.03)
         line('b', (-0.08, y, z-0.01), (0.04, y, z-0.01), col, coll, 0.03)
         line('b', (0.04, y, z-0.01), (-0.02, y, z-0.17), col, coll, 0.03)
 
 # ---- tools, held in the right hand (viewer's right: +x)
-HAND_R = Vector((1.05, -0.45, 0.95))
+HAND_R = Vector((1.05, -0.50, 1.00))
 def build_tool(kind, col, coll):
     h = HAND_R; mm = metal_mat(); dk = dark_mat(); acc = accent_mat(col)
+    before = set(bpy.data.objects)
+    _tool(kind, h, mm, dk, acc, col, coll)
+    # scale every new part about the grip so carried items read at avatar size
+    for ob in set(bpy.data.objects) - before:
+        ob.location = h + (ob.location - h) * 1.55
+        ob.scale = tuple(c * 1.55 for c in ob.scale)
+
+def _tool(kind, h, mm, dk, acc, col, coll):
     if kind == 'wrench':
         cyl('w_shaft', 0.045, 0.7, h + Vector((0.05, -0.1, 0.3)), mm, coll, rot=(0.0, 0.25, 0))
         torus('w_head', 0.11, 0.05, h + Vector((0.15, -0.1, 0.66)), mm, coll, rot=(math.pi/2, 0, 0.25))
@@ -412,12 +434,13 @@ def build_back(kind, col, coll):
         rbox('sat', (0.6, 0.35, 0.5), BODY_C + Vector((0.65, 0.3, -0.3)), 0.1, mat('leather2', base=(0.45,0.28,0.15), rough=0.6), coll)
         capsule('sat_strap', 0.035, 0, (-0.5, -0.1, 1.05), (0.7, 0.3, -0.1), m=mat('leather2', base=(0.45,0.28,0.15), rough=0.6), coll=coll)
     elif kind == 'scarf':
-        torus('scarf', 0.46, 0.13, (0, 0.03, 1.1), mat('knit', base=(0.95,0.5,0.6), rough=0.95), coll)
-        rbox('scarf_tail', (0.22, 0.12, 0.6), (0.5, -0.3, 0.75), 0.06, mat('knit', base=(0.95,0.5,0.6), rough=0.95), coll, rot=(0, 0.2, 0))
+        knit = mat('knit', base=(0.95,0.5,0.6), rough=0.95)
+        torus('scarf', 0.42, 0.13, (0, 0.0, 1.06), knit, coll)
+        rbox('scarf_tail', (0.20, 0.10, 0.48), (0.24, -0.47, 0.84), 0.06, knit, coll, rot=(0, 0.18, 0))
     elif kind == 'bow':
         for sx in (-1, 1):
-            sphere('bow', 0.16, (sx*0.18, -0.2, 1.1), scale=(1.3, 0.6, 0.8), m=mat('bowm', base=(0.7,0.45,0.9), rough=0.5), coll=coll)
-        sphere('bow_knot', 0.09, (0, -0.24, 1.1), m=mat('bowm2', base=(0.55,0.35,0.75), rough=0.5), coll=coll)
+            sphere('bow', 0.15, (sx*0.19, -0.46, 1.05), scale=(1.35, 0.55, 0.85), m=mat('bowm', base=(0.7,0.45,0.9), rough=0.5), coll=coll)
+        sphere('bow_knot', 0.085, (0, -0.52, 1.05), m=mat('bowm2', base=(0.55,0.35,0.75), rough=0.5), coll=coll)
 
 # ------------------------------------------------------------------ scene
 def setup_scene(res=(768, 960), samples=64, head_cam=False):

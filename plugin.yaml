@@ -1,6 +1,6 @@
 name: helm
 manifest_version: 2
-version: "0.3.0"
+version: "0.3.1"
 description: "A quieter Hermes Desktop: three themes (Helm Dark, Graphite, Paper), status-bar chips for what is working and what the focused session costs, a Bots board with customizable robot looks, and a Settings page whose choices survive updates. Desktop-only; the agent half registers nothing."
 author: "Charles Bonetti"
 license: "MIT"
