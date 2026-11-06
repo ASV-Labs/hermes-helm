@@ -1,7 +1,7 @@
 // Loads desktop/plugin.js against the SDK mock, registers it with a fake
 // ctx, and renders every contributed component to a string. Any thrown
 // error fails the run. Run with `npm test` from tests/.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { renderToString } from 'react-dom/server'
@@ -53,7 +53,11 @@ const ctx = {
     globalThis.__restCalls = (globalThis.__restCalls || []).concat(path)
     const names = decodeURIComponent(path.split('names=')[1] || '').split(',')
     const sprites = {}
-    for (const n of names) sprites[n] = 'data:image/png;base64,iVBORw0KGgo='
+    for (const n of names) {
+      // HELM_SCREEN renders README screenshots with the real robot layers.
+      const f = join(here, '..', 'dashboard', 'sprites', n)
+      sprites[n] = process.env.HELM_SCREEN && /^[a-z_]+\.png$/.test(n) && existsSync(f) ? 'data:image/png;base64,' + readFileSync(f).toString('base64') : 'data:image/png;base64,iVBORw0KGgo='
+    }
     return { sprites }
   }
 }
@@ -83,7 +87,7 @@ globalThis.__gw = {
   'cron.manage': p => {
     const soon = new Date(Math.min(Date.now() + 60000, new Date().setHours(23, 59, 0, 0))).toISOString()
     const ran = new Date(new Date().setHours(0, 1, 0, 0)).toISOString()
-    if (p.profile === 'builder') return { scoped: 'builder', jobs: [{ job_id: 'j-b', name: 'Nightly build check', schedule: 'every day 00:01', last_run_at: ran, last_status: 'error', last_error: 'x'.repeat(400), enabled: true }] }
+    if (p.profile === 'builder') return { scoped: 'builder', jobs: [{ job_id: 'j-b', name: 'Nightly build check', schedule: 'every day 00:01', last_run_at: ran, last_status: 'error', last_error: 'Gateway timeout after 30 s while fetching build status from the CI runner. '.repeat(6), enabled: true }] }
     if (p.profile) return { scoped: p.profile, jobs: [] }
     return { jobs: [{ job_id: 'j-b', name: 'dup', last_run_at: ran }, { job_id: 'j-r', name: 'Morning digest', schedule: 'every hour', next_run_at: soon, enabled: true }] }
   },
@@ -159,6 +163,7 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
     assert.equal(today.jobs.find(j => j.id === 'j-b').last_error.length, 300)
     const deskT = renderToString(byArea('routes').find(c => c.data.path === '/helm/desk').render())
     assert.ok(deskT.includes('Nightly build check') && deskT.includes('failed') && deskT.includes('Morning digest'), `today list: ${deskT.slice(0, 200)}`)
+    if (process.env.HELM_SCREEN) writeFileSync(join(here, '.tmp', 'desk.html'), deskT)
   }
 
   // Inbox: the approval and the question surface on the Desk, with buttons
