@@ -9,20 +9,19 @@ export const SIDEBAR_NAV_AREA = 'sidebarNav'
 export const PALETTE_AREA = 'palette'
 export const KEYBINDS_AREA = 'keybinds'
 
-const listeners = new Set()
 export function atom(initial) {
   let value = initial
+  const listeners = new Set()
   const a = {
     get: () => value,
     set: v => {
       value = v
-      listeners.forEach(l => l(a))
+      listeners.forEach(l => l(value))
     },
     subscribe: l => {
-      const fn = () => l(value)
-      listeners.add(fn)
-      fn()
-      return () => listeners.delete(fn)
+      listeners.add(l)
+      l(value)
+      return () => listeners.delete(l)
     }
   }
   return a
@@ -58,7 +57,9 @@ export const host = {
     busyBySession: atom({ a: true, b: false, c: true }),
     focusedUsage: atom({ cost_usd: 0.4213, context_percent: 18.4 }),
     busy: atom(true),
-    focusedSessionProfile: atom('vision')
+    focusedSessionProfile: atom('vision'),
+    cwd: atom('/Users/x/src/lineage-demo'),
+    model: atom('grok-4.7')
   },
   settings: {
     get: key => ({ sessionListDensity: 'comfortable', chatTextScale: 110 })[key],
@@ -67,7 +68,7 @@ export const host = {
     },
     subscribe: () => () => {}
   },
-  profiles: { list: async () => ({ profiles: [] }) },
+  profiles: { list: async () => (globalThis.__helmQuery && globalThis.__helmQuery.data) || { profiles: [] } },
   newChat: name => {
     globalThis.__newChat = name
   },
@@ -75,7 +76,13 @@ export const host = {
     globalThis.__navigated = path
   },
   notifyError: () => {},
-  listPersistedSessions: async () => ({ sessions: [] }),
+  listPersistedSessions: async (_route, { profile }) => ({ sessions: (globalThis.__helmSessions || {})[profile] || [] }),
+  request: async (method, params) => {
+    globalThis.__requests = (globalThis.__requests || []).concat([[method, params && params.name]])
+    if (method === 'profiles.get_asset') return { found: false }
+    return { ok: true }
+  },
+  notify: () => {},
   openSession: (id, opts) => {
     globalThis.__opened = [id, opts]
   },

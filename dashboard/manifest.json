@@ -3,7 +3,7 @@
   "label": "Helm",
   "description": "Serves Helm's rendered robot sprites to the desktop plugin (no dashboard tab).",
   "icon": "Bot",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "tab": { "path": "/helm", "hidden": true },
   "entry": "dist/index.js",
   "api": "plugin_api.py"

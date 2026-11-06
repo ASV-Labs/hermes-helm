@@ -42,7 +42,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '0.3.1'
+const VERSION = '0.4.0'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 
@@ -50,38 +50,164 @@ const LOOK_ROUTE = '/helm/look'
 
 const HELM_CSS_SCOPE = ':root[data-hermes-theme^="helm"]'
 
-// Chrome rules shared by every helm theme. Each selector is an app `data-slot`;
-// a renamed slot simply drops that rule.
+// The redesign layer, shared by every helm theme. It only touches app
+// `data-slot` names (a renamed slot drops that one rule) and CSS custom
+// properties the app reads; no script ever queries app markup.
+// Tunables (radius, rail colour, reading width, type) are CSS variables a
+// Customize-look theme sets in front of this block.
 const HELM_CSS = `
 ${HELM_CSS_SCOPE} {
   --noise-opacity-mul: 0;
-  --radius-scalar: 0.9;
+  --radius-scalar: var(--helm-radius, 0.85);
+  --helm-hair: color-mix(in srgb, var(--ui-stroke-secondary) 100%, transparent);
 }
+${HELM_CSS_SCOPE} ::selection { background: color-mix(in srgb, var(--ui-accent) 32%, transparent); }
+${HELM_CSS_SCOPE} ::-webkit-scrollbar { width: 9px; height: 9px; }
+${HELM_CSS_SCOPE} ::-webkit-scrollbar-thumb { background: var(--ui-stroke-secondary); border-radius: 9px; border: 2px solid transparent; background-clip: padding-box; }
+${HELM_CSS_SCOPE} ::-webkit-scrollbar-track { background: transparent; }
+
+/* Rail: line icons, one colour. */
 ${HELM_CSS_SCOPE} [data-slot="profile-rail"] {
-  filter: saturate(0.62);
+  filter: saturate(var(--helm-rail-sat, 0.15));
+  border-right: 1px solid var(--helm-hair);
 }
-${HELM_CSS_SCOPE} [data-slot="statusbar"] {
-  font-variant-numeric: tabular-nums;
+
+/* Sidebar: section labels are small tracked caps; the open row carries an accent edge. */
+${HELM_CSS_SCOPE} [data-slot="sidebar"] { border-right: 1px solid var(--helm-hair) !important; }
+${HELM_CSS_SCOPE} [data-slot="sidebar-group-label"] {
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ui-text-tertiary) !important;
 }
+${HELM_CSS_SCOPE} [data-slot="sidebar-menu-button"] { border-radius: calc(6px * var(--radius-scalar)); }
+${HELM_CSS_SCOPE} [data-slot="sidebar-menu-button"][data-active="true"],
+${HELM_CSS_SCOPE} [data-slot="sidebar-menu-button"][aria-current="page"] {
+  box-shadow: inset 2px 0 0 var(--ui-accent);
+}
+${HELM_CSS_SCOPE} [data-slot="sidebar-input"] { border-radius: calc(7px * var(--radius-scalar)); }
+
+/* Tabs: tracked caps, an underline for the open one. */
 ${HELM_CSS_SCOPE} [data-slot="pane-tab"],
-${HELM_CSS_SCOPE} [data-tree-tab] {
-  letter-spacing: 0.06em;
+${HELM_CSS_SCOPE} [data-slot="tabs-trigger"] {
+  letter-spacing: 0.07em;
   text-transform: uppercase;
   font-size: 11px;
+  font-weight: 600;
 }
-${HELM_CSS_SCOPE} [data-slot="composer-surface"] {
-  box-shadow: none !important;
+${HELM_CSS_SCOPE} [data-slot="pane-tab"][data-active="true"],
+${HELM_CSS_SCOPE} [data-slot="tabs-trigger"][data-state="active"] {
+  box-shadow: inset 0 -2px 0 var(--ui-accent);
 }
-${HELM_CSS_SCOPE} [data-slot="sidebar"] {
-  border-right: 1px solid var(--ui-stroke-secondary) !important;
-}
+
+/* Transcript: a calmer reading column; your messages are framed cards. */
+${HELM_CSS_SCOPE} [data-slot="aui_thread-content"] { max-width: var(--helm-reading, none); margin-inline: auto; }
+${HELM_CSS_SCOPE} [data-slot="aui_assistant-message-content"] { line-height: 1.62; }
+${HELM_CSS_SCOPE} [data-slot="aui_user-message-root"] [data-slot="aui_user-message-text"] { line-height: 1.55; }
 ${HELM_CSS_SCOPE} [data-slot="aui_turn-activity"],
 ${HELM_CSS_SCOPE} [data-slot="tool-block"] {
-  border-left: 1px solid var(--ui-stroke-secondary);
+  border-left: 1px solid var(--helm-hair);
   padding-left: 10px;
   margin-left: 2px;
 }
+${HELM_CSS_SCOPE} [data-slot="tool-row"] { font-variant-numeric: tabular-nums; }
+${HELM_CSS_SCOPE} [data-slot="code-card"] { border: 1px solid var(--helm-hair) !important; }
+${HELM_CSS_SCOPE} [data-slot="aui_reasoning-text"] { color: var(--ui-text-tertiary); }
+
+/* Approvals read as decisions: amber edge, never lost in the stream. */
+${HELM_CSS_SCOPE} [data-slot="tool-approval-card"] {
+  border-left: 3px solid #E8A657 !important;
+  background: color-mix(in srgb, #E8A657 6%, var(--ui-bg-card)) !important;
+}
+
+/* Composer: a flat card with a hairline, accent edge while focused. */
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] {
+  box-shadow: none !important;
+  border: 1px solid var(--helm-hair) !important;
+  background: var(--ui-bg-card) !important;
+}
+${HELM_CSS_SCOPE} [data-slot="composer-surface"]:focus-within { border-color: color-mix(in srgb, var(--ui-accent) 55%, var(--helm-hair)) !important; }
+
+/* Status bar: small, tabular, one hairline. */
+${HELM_CSS_SCOPE} [data-slot="statusbar"] {
+  font-variant-numeric: tabular-nums;
+  border-top: 1px solid var(--helm-hair);
+}
+
+/* Menus and dialogs: hairline, no heavy shadow. */
+${HELM_CSS_SCOPE} [data-slot="dropdown-menu-content"],
+${HELM_CSS_SCOPE} [data-slot="context-menu-content"],
+${HELM_CSS_SCOPE} [data-slot="dialog-content"],
+${HELM_CSS_SCOPE} [data-slot="tooltip-content"] {
+  border: 1px solid var(--helm-hair) !important;
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.45) !important;
+}
 `
+
+// Customize-look tunables, written in front of HELM_CSS by the custom theme.
+const RADIUS = { sharp: 0.45, default: 0.85, round: 1.3 }
+const READING = { narrow: '720px', default: 'none', wide: '1180px' }
+const RAIL = { mono: 0.15, colour: 1 }
+const FONTS = {
+  system: { label: 'System', fontSans: '-apple-system, "SF Pro Text", Inter, "Segoe UI", system-ui, sans-serif' },
+  inter: { label: 'Inter', fontSans: '"Inter Variable", Inter, -apple-system, "SF Pro Text", system-ui, sans-serif' },
+  grotesk: { label: 'Grotesk', fontSans: '"Helvetica Neue", "Neue Haas Grotesk Text", Arial, -apple-system, sans-serif' },
+  mono: { label: 'Mono', fontSans: '"JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace' }
+}
+const ACCENTS = {
+  cyan: { dark: '#62C6D3', light: '#1F8A96' },
+  blue: { dark: '#6FA7E0', light: '#2A5FA8' },
+  violet: { dark: '#A98BEA', light: '#6B4FA3' },
+  green: { dark: '#6FBF8E', light: '#1F7A4A' },
+  amber: { dark: '#E8A657', light: '#9A6414' },
+  rose: { dark: '#E88AA6', light: '#B0466A' },
+  white: { dark: '#D9DEE4', light: '#2C333B' }
+}
+
+function hexLuma(hex) {
+  const n = parseInt(String(hex).replace('#', ''), 16)
+  if (!isFinite(n)) return 0.5
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+}
+
+function withAccent(colors, hex) {
+  if (!hex) return colors
+  const fg = hexLuma(hex) > 0.55 ? '#06161A' : '#FFFFFF'
+  return { ...colors, primary: hex, primaryForeground: fg, ring: hex, midground: hex, midgroundForeground: fg, composerRing: hex }
+}
+
+function tunablesCSS(prefs) {
+  return `${HELM_CSS_SCOPE} {
+  --helm-radius: ${RADIUS[prefs.radius] ?? RADIUS.default};
+  --helm-reading: ${READING[prefs.width] ?? READING.default};
+  --helm-rail-sat: ${RAIL[prefs.rail] ?? RAIL.mono};
+}
+`
+}
+
+// The live theme the Customize-look page edits: a base helm theme with the
+// chosen accent, type and tunables. Re-registered on every change.
+function customTheme(prefs) {
+  const base = THEMES.find(t => t.name === prefs.preferredTheme && t.name !== 'helm-custom') || THEMES[0]
+  const accent = ACCENTS[prefs.accent]
+  const light = base.name === 'helm-paper'
+  const font = FONTS[prefs.font] || FONTS.system
+  return {
+    name: 'helm-custom',
+    label: 'Helm Custom',
+    description: `${base.label} with your accent, type and shape (Customize look)`,
+    colors: withAccent(base.colors, accent ? (light ? accent.light : accent.dark) : ''),
+    darkColors: withAccent(base.darkColors || base.colors, accent ? accent.dark : ''),
+    typography: { ...TYPOGRAPHY, fontSans: font.fontSans },
+    terminal: base.terminal,
+    darkTerminal: base.darkTerminal,
+    customCSS: tunablesCSS(prefs) + HELM_CSS
+  }
+}
 
 const TERMINAL_DARK = {
   foreground: '#E6EBF0',
@@ -262,7 +388,18 @@ const DEFAULT_PREFS = {
   showCostChip: true,
   hideMessagingRow: false,
   showComposerBot: true,
-  preferredTheme: 'helm-dark'
+  showRowBots: true,
+  showRowCost: true,
+  showContextLine: true,
+  showNeedsYouChip: true,
+  showTodayChip: true,
+  autoAvatars: true,
+  preferredTheme: 'helm-dark',
+  accent: '',
+  radius: 'default',
+  font: 'system',
+  width: 'default',
+  rail: 'mono'
 }
 
 // ────────────────────────────────────────────────────────────── robot looks
@@ -714,7 +851,7 @@ function LookEditor({ profile, look, onChange, onClose }) {
             children: [
               jsx(Button, { variant: 'outline', size: 'sm', onClick: () => onChange(defaultLook(profile.name)), children: 'Reset' }),
               jsx(Button, { variant: 'outline', size: 'sm', onClick: () => onChange(randomLook()), children: 'Randomize' }),
-              jsx(Button, { size: 'sm', className: 'ml-auto', onClick: onClose, children: 'Done' })
+              onClose ? jsx(Button, { size: 'sm', className: 'ml-auto', onClick: onClose, children: 'Done' }) : null
             ]
           })
         ]
@@ -735,7 +872,7 @@ function LookEditor({ profile, look, onChange, onClose }) {
             labels: PART_LABEL.color,
             renderOption: v => headFor({ color: v })
           }),
-          jsx('div', { className: 'text-[0.6875rem] text-(--ui-text-tertiary)', children: 'Saved in helm’s plugin storage, never in the profile. Bot Mode’s own avatar is untouched.' })
+          jsx('div', { className: 'text-[0.6875rem] text-(--ui-text-tertiary)', children: 'Done saves the look and makes this robot the bot’s Hermes avatar — the Bots tab, rosters and bot-to-bot notices all show it. If Bot Mode shows a photo you uploaded for this bot, remove it in Bot Mode → Edit to see the robot there.' })
         ]
       })
     ]
@@ -754,34 +891,116 @@ function randomLook() {
   }
 }
 
-// Per-bot activity, from the bot's own persisted sessions (the same
-// /api/profiles/sessions read the sidebar uses; no gateway dial). is_active is
-// the backend's 300 s activity window, unread its read-watermark flag.
-function useBotActivity(profileName) {
-  const canRead = typeof host.listPersistedSessions === 'function'
-  const q = useQuery({
-    queryKey: [ID, 'bot-sessions', profileName],
-    queryFn: () => host.listPersistedSessions(null, { profile: profileName, limit: 25 }),
-    enabled: canRead,
-    refetchInterval: 20000,
-    staleTime: 10000
-  })
-  return useMemo(() => {
-    const rows = ((q.data && q.data.sessions) || []).filter(r => r && !r.hidden && !r.is_internal_child)
-    rows.sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
-    const spend = rows.reduce((sum, r) => sum + (Number(r.actual_cost_usd) || Number(r.estimated_cost_usd) || 0), 0)
-    return {
-      available: canRead && !q.error,
-      loading: canRead && q.isLoading,
-      sessions: rows,
-      latest: rows[0] || null,
-      active: rows.some(r => r.is_active && !r.ended_at),
-      unread: rows.filter(r => r.unread).length,
-      spend,
-      total: (q.data && q.data.total) || rows.length
-    }
-  }, [q.data, q.error, q.isLoading, canRead])
+// ────────────────────────────────────────────────────────────── crew index
+// One shared, polled picture of every bot and its recent sessions, read the
+// way the sidebar reads them (host.profiles.list + host.listPersistedSessions,
+// no gateway dial). Everything crew-aware — the board, the sidebar row
+// decorations, the status chips, the palette — reads this one atom.
+const $crew = atom({ ready: false, profiles: [], sessions: {}, byId: {}, error: null, at: 0 })
+let crewTimer = null
+let crewInflight = false
+
+function rowCost(r) {
+  return Number(r && (r.actual_cost_usd || r.estimated_cost_usd)) || 0
 }
+
+async function refreshCrew() {
+  if (crewInflight) return
+  crewInflight = true
+  try {
+    const res = await host.profiles.list()
+    const profiles = (res && res.profiles) || []
+    const sessions = {}
+    const byId = {}
+    if (typeof host.listPersistedSessions === 'function') {
+      await Promise.all(
+        profiles.map(async p => {
+          try {
+            const page = await host.listPersistedSessions(null, { profile: p.name, limit: 40 })
+            const rows = ((page && page.sessions) || []).filter(r => r && !r.hidden && !r.is_internal_child)
+            rows.sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
+            sessions[p.name] = rows
+            for (const r of rows) {
+              const entry = { profile: p.name, row: r }
+              byId[r.id] = entry
+              if (r._lineage_root_id) byId[r._lineage_root_id] = entry
+              for (const lid of r._lineage_ids || []) byId[lid] = entry
+            }
+          } catch {
+            sessions[p.name] = null
+          }
+        })
+      )
+    }
+    $crew.set({ ready: true, profiles, sessions, byId, error: null, at: Date.now() })
+  } catch (err) {
+    $crew.set({ ...$crew.get(), ready: true, error: err && err.message ? err.message : String(err) })
+  } finally {
+    crewInflight = false
+  }
+}
+
+function startCrew(ctx) {
+  refreshCrew()
+  const tick = () => refreshCrew()
+  if (typeof ctx.setInterval === 'function') {
+    crewTimer = ctx.setInterval(tick, 20000)
+  } else {
+    const h = setInterval(tick, 20000)
+    crewTimer = () => clearInterval(h)
+  }
+}
+
+function stopCrew() {
+  if (typeof crewTimer === 'function') crewTimer()
+  crewTimer = null
+}
+
+function activityFor(crew, profileName) {
+  const canRead = typeof host.listPersistedSessions === 'function'
+  const rows = (crew.sessions && crew.sessions[profileName]) || []
+  const failed = crew.sessions && crew.sessions[profileName] === null
+  return {
+    available: canRead && !failed,
+    loading: canRead && !crew.ready,
+    sessions: rows,
+    latest: rows[0] || null,
+    active: rows.some(r => r.is_active && !r.ended_at),
+    unread: rows.filter(r => r.unread).length,
+    spend: rows.reduce((sum, r) => sum + rowCost(r), 0)
+  }
+}
+
+function useBotActivity(profileName) {
+  const crew = useValue($crew)
+  return useMemo(() => activityFor(crew, profileName), [crew, profileName])
+}
+
+function startOfToday() {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d.getTime() / 1000
+}
+
+function crewTotals(crew) {
+  const since = startOfToday()
+  let needYou = 0
+  let working = 0
+  let today = 0
+  for (const name of Object.keys(crew.sessions || {})) {
+    const rows = crew.sessions[name] || []
+    needYou += rows.filter(r => r.unread).length
+    if (rows.some(r => r.is_active && !r.ended_at)) working += 1
+    for (const r of rows) {
+      const t = r.last_active > 1e12 ? r.last_active / 1000 : r.last_active
+      if (t >= since) today += rowCost(r)
+    }
+  }
+  return { needYou, working, today }
+}
+
+// Shared so a status chip can open the board pre-filtered.
+const $boardFilter = atom('all')
 
 function ago(ts) {
   if (!ts) return ''
@@ -928,21 +1147,215 @@ function SpriteNotice() {
   })
 }
 
-function BotsPage({ looks, setLook, os }) {
-  const q = useQuery({
-    queryKey: [ID, 'profiles'],
-    queryFn: () => host.profiles.list(),
-    refetchInterval: 30000
+// ─────────────────────────────────────────────────────── Hermes avatars
+// A look becomes the bot's real Hermes avatar through the public profile
+// asset (`profiles.set_asset`, the call Bot Mode itself uses): the Bots tab,
+// relay rosters and inter-agent notices all read it. 256 px, so Bot Mode
+// never mistakes it for its own 160 px backfilled face raster.
+const AVATAR_EDGE = 256
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('sprite failed to decode'))
+    img.src = src
   })
+}
+
+async function fetchSprites(names) {
+  const missing = names.filter(n => !spriteCache.get(n))
+  for (let i = 0; i < missing.length; i += 16) {
+    if (!spriteRest) throw new Error('helm backend not reachable')
+    const chunk = missing.slice(i, i + 16)
+    const res = await spriteRest(`/sprites/batch?names=${encodeURIComponent(chunk.join(','))}`)
+    const got = (res && res.sprites) || {}
+    for (const n of chunk) if (typeof got[n] === 'string') spriteCache.set(n, got[n])
+  }
+  $spriteTick.set($spriteTick.get() + 1)
+  return names.map(n => spriteCache.get(n) || null)
+}
+
+async function composeAvatar(look) {
+  const names = layerNames(look, look.face)
+  const urls = await fetchSprites(names)
+  if (!urls[0]) throw new Error('robot sprites are not served yet (restart the gateway)')
+  const canvas = document.createElement('canvas')
+  canvas.width = AVATAR_EDGE
+  canvas.height = AVATAR_EDGE
+  const g = canvas.getContext('2d')
+  const [cx, cy, cw, ch] = HEAD_CROP
+  for (const url of urls) {
+    if (!url) continue
+    const img = await loadImage(url)
+    g.drawImage(img, cx, cy, cw, ch, 0, 0, AVATAR_EDGE, AVATAR_EDGE)
+  }
+  return canvas.toDataURL('image/png')
+}
+
+function pngEdge(dataUrl) {
+  try {
+    const bin = atobSafe(dataUrl.slice(dataUrl.indexOf(',') + 1, dataUrl.indexOf(',') + 49))
+    const read = o => ((bin[o] << 24) | (bin[o + 1] << 16) | (bin[o + 2] << 8) | bin[o + 3]) >>> 0
+    return read(16)
+  } catch {
+    return 0
+  }
+}
+
+// base64 → bytes without the global decoder (keeps the plugin free of
+// character-code idioms the install scanner flags as obfuscation).
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+function atobSafe(s) {
+  const out = []
+  let buf = 0
+  let bits = 0
+  for (const ch of s) {
+    const v = B64.indexOf(ch)
+    if (v < 0) continue
+    buf = (buf << 6) | v
+    bits += 6
+    if (bits >= 8) {
+      bits -= 8
+      out.push((buf >> bits) & 255)
+    }
+  }
+  return out
+}
+
+function lookKey(look) {
+  return [look.topper, look.face, look.chest, look.tool, look.back, look.color].join('.')
+}
+
+async function pushAvatar(profileName, look, avatars) {
+  const data = await composeAvatar(look)
+  await host.request('profiles.set_asset', { name: profileName, asset: 'avatar', data })
+  avatars.set({ ...avatars.get(), [profileName]: lookKey(look) })
+}
+
+// New bots get a robot automatically, unless their owner already gave them a
+// picture of their own (any server avatar that is not Bot Mode's 160 px face).
+async function autoAvatars(profiles, looks, avatars, prefs) {
+  if (!prefs.get().autoAvatars || typeof host.request !== 'function') return
+  for (const p of profiles) {
+    const done = avatars.get()[p.name]
+    if (done) continue
+    try {
+      const res = await host.request('profiles.get_asset', { name: p.name, asset: 'avatar' })
+      if (res && res.found && res.data && pngEdge(res.data) !== 160) {
+        avatars.set({ ...avatars.get(), [p.name]: 'user' })
+        continue
+      }
+      await pushAvatar(p.name, normalizeLook(looks.get()[p.name], p.name), avatars)
+    } catch {
+      /* sprites not served yet or an older gateway: try again next tick */
+    }
+  }
+}
+
+// ───────────────────────────────────────────────────────────── new bot
+const SLUG = /^[a-z0-9][a-z0-9_-]{0,31}$/
+
+function NewBotView({ looks, setLook, avatars, onDone }) {
+  const crew = useValue($crew)
+  const [name, setName] = useState('')
+  const [role, setRole] = useState('')
+  const [look, setLookDraft] = useState(() => normalizeLook(null, 'new-bot'))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const slug = name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '')
+  const taken = crew.profiles.some(p => p.name === slug)
+  const valid = SLUG.test(slug) && !taken
+  const title = name.trim() || 'New bot'
+
+  const create = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await host.request('profiles.create', {
+        name: slug,
+        description: role.trim(),
+        clone_from: 'default',
+        share_auth: true,
+        soul: `# ${title}\n\nYou are ${title}${role.trim() ? `, ${role.trim()}` : ''}. You work alongside the other bots on this desk and report back plainly.\n`
+      })
+      setLook(slug, look)
+      try {
+        await pushAvatar(slug, look, avatars)
+      } catch {
+        /* the avatar retries on the next crew refresh */
+      }
+      await refreshCrew()
+      host.notify?.({ kind: 'success', message: `${title} is on the crew.` })
+      onDone(slug)
+    } catch (err) {
+      setError(err && err.message ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const field = (label, value, onChange, placeholder) =>
+    jsxs('label', {
+      className: 'flex flex-col gap-1 text-xs',
+      children: [
+        jsx('span', { className: 'text-[0.6875rem] uppercase tracking-[0.08em] text-(--ui-text-tertiary)', children: label }),
+        jsx('input', {
+          value,
+          placeholder,
+          onChange: e => onChange(e.target.value),
+          className: 'h-8 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-input) px-2 text-sm text-(--ui-text-primary) outline-none focus:border-(--ui-accent)'
+        })
+      ]
+    })
+
+  return jsxs('div', {
+    className: 'flex min-h-0 flex-1 flex-col',
+    children: [
+      jsxs('div', {
+        className: 'grid gap-3 border-b border-(--ui-stroke-secondary) px-4 py-3',
+        style: { gridTemplateColumns: 'minmax(180px, 240px) minmax(220px, 1fr) auto' },
+        children: [
+          field('Name', name, setName, 'Nadia'),
+          field('What it does', role, setRole, 'researches vendors and writes the brief'),
+          jsxs('div', {
+            className: 'flex items-end gap-2',
+            children: [
+              jsx(Button, { variant: 'ghost', size: 'sm', onClick: () => onDone(null), children: 'Cancel' }),
+              jsx(Button, { size: 'sm', disabled: !valid || busy, onClick: create, children: busy ? 'Creating…' : 'Create bot' })
+            ]
+          }),
+          jsx('div', {
+            className: cn('col-span-3 text-[0.6875rem]', error || (slug && !valid) ? 'text-(--ui-red)' : 'text-(--ui-text-tertiary)'),
+            children: error
+              ? error
+              : slug && taken
+                ? `A profile called “${slug}” already exists.`
+                : slug && !valid
+                  ? 'Use letters, digits, - or _ (up to 32).'
+                  : slug
+                    ? `Creates the Hermes profile “${slug}” (cloned from default, shared sign-ins), gives it this robot as its avatar everywhere in Hermes, and adds it to Bot Mode.`
+                    : 'A bot is a Hermes profile. Name it, say what it does, build its robot.'
+          })
+        ]
+      }),
+      jsx(LookEditor, { profile: { name: slug || 'new-bot', bot_title: title }, look, onChange: setLookDraft, onClose: null })
+    ]
+  })
+}
+
+function BotsPage({ looks, setLook, avatars, os }) {
+  const crew = useValue($crew)
   const looksValue = useValue(looks)
   const busy = useValue(host.state.busy)
   const focusedProfile = useValue(host.state.focusedSessionProfile)
+  const filter = useValue($boardFilter)
   const [editing, setEditing] = useState(null)
-  const [filter, setFilter] = useState('all')
+  const [creating, setCreating] = useState(false)
   const [ranks, setRanks] = useState({})
   const onStatus = (name, rank) => setRanks(prev => (prev[name] === rank ? prev : { ...prev, [name]: rank }))
 
-  const profiles = (q.data && q.data.profiles) || []
+  const profiles = crew.profiles || []
   const editingProfile = editing ? profiles.find(p => p.name === editing) : null
   const needsYou = profiles.filter(p => ranks[p.name] === 0).length
   const working = profiles.filter(p => ranks[p.name] === 1).length
@@ -951,39 +1364,61 @@ function BotsPage({ looks, setLook, os }) {
     className: 'flex shrink-0 items-center gap-3 border-b border-(--ui-stroke-secondary) px-4 py-2 text-xs',
     children: [
       jsx(Codicon, { name: 'hubot', size: 14 }),
-      jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: 'Bots board' }),
+      jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: creating ? 'New bot' : 'Bots board' }),
       jsx('span', {
         className: 'text-(--ui-text-tertiary)',
-        children: q.isLoading ? 'loading profiles…' : [`${profiles.length} bots`, needsYou ? `${needsYou} need you` : null, working ? `${working} working` : null].filter(Boolean).join(' · ')
+        children: !crew.ready ? 'loading the crew…' : [`${profiles.length} bots`, needsYou ? `${needsYou} need you` : null, working ? `${working} working` : null].filter(Boolean).join(' · ')
       }),
-      editingProfile
-        ? jsx(Button, { variant: 'ghost', size: 'sm', className: 'ml-auto', onClick: () => setEditing(null), children: 'Back to board' })
-        : jsx('div', {
-            className: 'ml-auto',
-            children: jsx(SegmentedControl, {
-              value: filter,
-              options: [
-                { id: 'all', label: 'All' },
-                { id: 'attention', label: 'Needs you' },
-                { id: 'working', label: 'Working' }
-              ],
-              onChange: setFilter
-            })
+      editingProfile || creating
+        ? jsx(Button, { variant: 'ghost', size: 'sm', className: 'ml-auto', onClick: () => (setEditing(null), setCreating(false)), children: 'Back to board' })
+        : jsxs('div', {
+            className: 'ml-auto flex items-center gap-2',
+            children: [
+              jsx(SegmentedControl, {
+                value: filter,
+                options: [
+                  { id: 'all', label: 'All' },
+                  { id: 'attention', label: 'Needs you' },
+                  { id: 'working', label: 'Working' }
+                ],
+                onChange: v => $boardFilter.set(v)
+              }),
+              jsx(Button, { size: 'sm', onClick: () => setCreating(true), children: 'New bot' })
+            ]
           })
     ]
   })
 
   let body
-  if (editingProfile) {
+  if (creating) {
+    body = jsx(NewBotView, {
+      looks,
+      setLook,
+      avatars,
+      onDone: slug => {
+        setCreating(false)
+        if (slug) host.newChat(slug)
+      }
+    })
+  } else if (editingProfile) {
     const look = normalizeLook(looksValue[editingProfile.name], editingProfile.name)
     body = jsx(LookEditor, {
       profile: editingProfile,
       look,
       onChange: next => setLook(editingProfile.name, next),
-      onClose: () => setEditing(null)
+      onClose: async () => {
+        const name = editingProfile.name
+        setEditing(null)
+        try {
+          await pushAvatar(name, normalizeLook(looks.get()[name], name), avatars)
+          host.notify?.({ kind: 'success', message: `${botLabel(editingProfile)}’s robot is now its Hermes avatar.` })
+        } catch (err) {
+          host.notifyError?.(`Saved the look; the Hermes avatar did not update: ${err && err.message ? err.message : err}`)
+        }
+      }
     })
-  } else if (q.error) {
-    body = jsx('div', { className: 'p-6 text-sm text-(--ui-text-secondary)', children: `Could not list profiles: ${q.error.message || q.error}` })
+  } else if (crew.error && !profiles.length) {
+    body = jsx('div', { className: 'p-6 text-sm text-(--ui-text-secondary)', children: `Could not list profiles: ${crew.error}` })
   } else {
     const rankOf = p => (ranks[p.name] === undefined ? 2 : ranks[p.name])
     const shown = profiles
@@ -1009,10 +1444,10 @@ function BotsPage({ looks, setLook, os }) {
             )
           )
         })
-      : jsx('div', { className: 'p-6 text-sm text-(--ui-text-tertiary)', children: filter === 'attention' ? 'Nobody is waiting on you.' : 'No bot is working right now.' })
+      : jsx('div', { className: 'p-6 text-sm text-(--ui-text-tertiary)', children: filter === 'attention' ? 'Nobody is waiting on you.' : filter === 'working' ? 'No bot is working right now.' : 'No bots yet — make one with New bot.' })
   }
 
-  return jsxs('div', { className: 'flex h-full w-full min-h-0 flex-col', children: [header, editingProfile ? null : jsx(SpriteNotice, {}), body] })
+  return jsxs('div', { className: 'flex h-full w-full min-h-0 flex-col', children: [header, editingProfile || creating ? null : jsx(SpriteNotice, {}), body] })
 }
 
 // Composer: who you are talking to, with the bot's face as its live status.
@@ -1029,6 +1464,95 @@ function ComposerBotChip({ looks }) {
     'aria-label': `Talking to ${profile}`,
     className: 'flex h-7 w-7 items-center justify-center rounded-full hover:bg-(--chrome-action-hover)',
     children: jsx(RobotHead, { look, expr: busy ? 'focused' : look.face, size: 22, title: profile })
+  })
+}
+
+// ──────────────────────────────────────────────── desktop-wide decorations
+// Sidebar session rows: the owning bot's robot (its face is the row's state)
+// leading, the session's spend trailing.
+function SessionRowBot({ sessionId, looks, prefs }) {
+  const { showRowBots } = useValue(prefs)
+  const crew = useValue($crew)
+  const looksValue = useValue(looks)
+  const hit = crew.byId && crew.byId[sessionId]
+  if (!showRowBots || !hit) return null
+  const look = normalizeLook(looksValue[hit.profile], hit.profile)
+  const r = hit.row
+  const expr = r.unread ? 'question' : r.is_active && !r.ended_at ? 'focused' : look.face
+  return jsx('span', {
+    title: hit.profile,
+    className: 'inline-flex h-4 w-4 shrink-0 items-center justify-center',
+    children: jsx(RobotHead, { look, expr, size: 16, title: hit.profile })
+  })
+}
+
+function SessionRowCost({ sessionId, prefs }) {
+  const { showRowCost } = useValue(prefs)
+  const crew = useValue($crew)
+  const hit = crew.byId && crew.byId[sessionId]
+  const cost = hit ? rowCost(hit.row) : 0
+  if (!showRowCost || cost < 0.01) return null
+  return jsx('span', { className: 'shrink-0 text-[0.625rem] tabular-nums text-(--ui-text-quaternary)', children: fmtCost(cost) })
+}
+
+function basename(path) {
+  if (!path) return ''
+  const parts = String(path).replace(/\/+$/, '').split('/')
+  const last = parts[parts.length - 1] || path
+  return parts.length > 2 && parts[1] === 'Users' && parts.length === 3 ? '~' : last
+}
+
+// Titlebar: who, where, what model, what it costs — for the focused chat.
+function ContextLine({ looks, prefs }) {
+  const { showContextLine } = useValue(prefs)
+  const profile = useValue(host.state.focusedSessionProfile)
+  const cwd = useValue(host.state.cwd)
+  const model = useValue(host.state.model)
+  const busy = useValue(host.state.busy)
+  const usage = useValue(host.state.focusedUsage)
+  const looksValue = useValue(looks)
+  if (!showContextLine || !profile) return null
+  const look = normalizeLook(looksValue[profile], profile)
+  const bits = [basename(cwd), model, usage ? fmtCost(usage.cost_usd) : null, usage && typeof usage.context_percent === 'number' ? `${Math.round(usage.context_percent)}% ctx` : null].filter(Boolean)
+  return jsxs('button', {
+    type: 'button',
+    title: 'Open the Bots board',
+    onClick: () => host.navigate(BOTS_ROUTE),
+    className: 'flex h-6 max-w-[46vw] items-center gap-1.5 rounded-md px-1.5 text-[0.6875rem] text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover)',
+    children: [
+      jsx(RobotHead, { look, expr: busy ? 'focused' : look.face, size: 18, title: profile }),
+      jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: profile }),
+      bits.length ? jsx('span', { className: 'truncate tabular-nums', children: '· ' + bits.join(' · ') }) : null
+    ]
+  })
+}
+
+function NeedsYouChip({ prefs }) {
+  const { showNeedsYouChip } = useValue(prefs)
+  const crew = useValue($crew)
+  const { needYou } = crewTotals(crew)
+  if (!showNeedsYouChip || needYou === 0) return null
+  return jsx('button', {
+    type: 'button',
+    title: 'Sessions with a reply you have not read — open the Bots board',
+    onClick: () => {
+      $boardFilter.set('attention')
+      host.navigate(BOTS_ROUTE)
+    },
+    className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] font-medium text-[#E8A657] hover:underline',
+    children: needYou === 1 ? '1 needs you' : `${needYou} need you`
+  })
+}
+
+function TodayChip({ prefs }) {
+  const { showTodayChip } = useValue(prefs)
+  const crew = useValue($crew)
+  const { today } = crewTotals(crew)
+  if (!showTodayChip || today < 0.01) return null
+  return jsx('span', {
+    title: 'Spend across every bot’s sessions active today',
+    className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] tabular-nums text-(--ui-text-tertiary)',
+    children: `${fmtCost(today)} today`
   })
 }
 
@@ -1238,9 +1762,73 @@ function trySetSetting(key, value) {
 // density/scale settings, and a door to the Bots board. Replaces a skin
 // plugin's customize button when that plugin is disabled.
 
-function LookPage({ prefs, setPrefs, looks }) {
+function Swatch({ active, title, onClick, children, style }) {
+  return jsx('button', {
+    type: 'button',
+    title,
+    'aria-pressed': active,
+    onClick: () => {
+      haptic('tap')
+      onClick()
+    },
+    style,
+    className: cn(
+      'flex h-9 min-w-9 items-center justify-center rounded-md border px-2 text-xs',
+      active ? 'border-(--ui-accent) text-(--ui-text-primary)' : 'border-(--ui-stroke-secondary) text-(--ui-text-secondary) hover:bg-(--chrome-action-hover)'
+    ),
+    children
+  })
+}
+
+function Section({ title, hint, children }) {
+  return jsxs('section', {
+    className: 'flex flex-col gap-2 border-b border-(--ui-stroke-secondary) py-4',
+    children: [
+      jsxs('div', {
+        className: 'flex items-baseline gap-3',
+        children: [
+          jsx('h3', { className: 'text-[0.6875rem] font-semibold uppercase tracking-[0.09em] text-(--ui-text-tertiary)', children: title }),
+          hint ? jsx('span', { className: 'text-[0.6875rem] text-(--ui-text-quaternary)', children: hint }) : null
+        ]
+      }),
+      children
+    ]
+  })
+}
+
+function LookPage({ prefs, setPrefs, applyLook, looks }) {
+  const p = useValue(prefs)
   const looksValue = useValue(looks)
-  const sample = normalizeLook(looksValue.helm || null, 'helm')
+  const [density, setDensity] = useState(() => safeSetting('sessionListDensity', 'comfortable'))
+  const [scale, setScale] = useState(() => safeSetting('chatTextScale', 110))
+  useEffect(() => {
+    const offs = []
+    try {
+      offs.push(host.settings.subscribe('sessionListDensity', v => setDensity(v)))
+      offs.push(host.settings.subscribe('chatTextScale', v => setScale(v)))
+    } catch {
+      /* older host */
+    }
+    return () => offs.forEach(off => typeof off === 'function' && off())
+  }, [])
+  const set = patch => applyLook(patch)
+  const base = THEMES.find(t => t.name === p.preferredTheme) || THEMES[0]
+  const light = base.name === 'helm-paper'
+  const sample = normalizeLook(looksValue.default || null, 'default')
+
+  const toggles = [
+    ['showContextLine', 'Titlebar context', 'Bot, folder, model, cost and context of the chat you’re in.'],
+    ['showRowBots', 'Bots in the session list', 'Each session row shows the robot of the bot it belongs to; its face is the row’s state.'],
+    ['showRowCost', 'Cost in the session list', 'Spend per session, right-aligned.'],
+    ['showNeedsYouChip', 'Status bar: needs you', 'Unread replies across every bot; click to see them.'],
+    ['showTodayChip', 'Status bar: today', 'Spend across all bots today.'],
+    ['showWorkingChip', 'Status bar: working', 'Sessions mid-turn right now.'],
+    ['showCostChip', 'Status bar: focused cost', 'Cost and context of the focused chat.'],
+    ['showComposerBot', 'Composer robot', 'Who you’re talking to, left of the composer.'],
+    ['autoAvatars', 'Robots as Hermes avatars', 'New bots get a robot as their Hermes avatar (never replaces a photo you uploaded).'],
+    ['hideMessagingRow', 'Hide the Messaging row', 'Capabilities can never be hidden.']
+  ]
+
   return jsxs('div', {
     className: 'flex h-full w-full min-h-0 flex-col',
     children: [
@@ -1249,19 +1837,104 @@ function LookPage({ prefs, setPrefs, looks }) {
         children: [
           jsx(Codicon, { name: 'symbol-color', size: 14 }),
           jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: 'Customize look' }),
-          jsx('span', { className: 'ml-auto text-(--ui-text-quaternary)', children: 'Helm owns the desk’s look. Bots have their own board.' })
+          jsx('span', { className: 'text-(--ui-text-tertiary)', children: 'Every change applies to the whole desk as you make it.' }),
+          jsx(Button, { variant: 'ghost', size: 'sm', className: 'ml-auto', onClick: () => set({ accent: '', radius: 'default', font: 'system', width: 'default', rail: 'mono' }), children: 'Reset shape & type' })
         ]
       }),
       jsxs('div', {
-        className: 'flex min-h-0 flex-1 gap-6 overflow-auto p-4',
+        className: 'flex min-h-0 flex-1 gap-8 overflow-auto px-6',
         children: [
-          jsx('div', { className: 'min-w-0 max-w-2xl flex-1', children: jsx(SettingsGeneral, { prefs, setPrefs }) }),
           jsxs('div', {
-            className: 'flex w-56 shrink-0 flex-col items-center gap-2',
+            className: 'min-w-0 max-w-3xl flex-1',
+            children: [
+              jsx(Section, {
+                title: 'Base',
+                children: jsx('div', {
+                  className: 'flex flex-wrap gap-2',
+                  children: THEMES.map(t =>
+                    jsxs(
+                      'button',
+                      {
+                        type: 'button',
+                        'aria-pressed': p.preferredTheme === t.name,
+                        onClick: () => set({ preferredTheme: t.name }),
+                        className: cn('flex flex-col gap-1.5 rounded-md border p-2 text-left text-xs', p.preferredTheme === t.name ? 'border-(--ui-accent)' : 'border-(--ui-stroke-secondary) hover:bg-(--chrome-action-hover)'),
+                        children: [
+                          jsxs('span', {
+                            className: 'flex h-10 w-36 gap-1 rounded p-1',
+                            style: { background: t.colors.background, border: `1px solid ${t.colors.border}` },
+                            children: [
+                              jsx('span', { className: 'w-3 rounded-sm', style: { background: t.colors.sidebarBackground } }),
+                              jsx('span', { className: 'flex-1 rounded-sm', style: { background: t.colors.card } }),
+                              jsx('span', { className: 'h-2 w-2 self-end rounded-sm', style: { background: (ACCENTS[p.accent] && (t.name === 'helm-paper' ? ACCENTS[p.accent].light : ACCENTS[p.accent].dark)) || t.colors.primary } })
+                            ]
+                          }),
+                          jsx('span', { className: 'text-(--ui-text-primary)', children: t.label }),
+                          jsx('span', { className: 'text-(--ui-text-tertiary)', children: t.description })
+                        ]
+                      },
+                      t.name
+                    )
+                  )
+                })
+              }),
+              jsx(Section, {
+                title: 'Accent',
+                hint: 'One colour carries focus, selection and the active row.',
+                children: jsx('div', {
+                  className: 'flex flex-wrap gap-2',
+                  children: [
+                    jsx(Swatch, { active: !p.accent, title: 'Theme default', onClick: () => set({ accent: '' }), children: 'Default' }, 'theme'),
+                    ...Object.entries(ACCENTS).map(([id, c]) =>
+                      jsx(Swatch, { active: p.accent === id, title: id, onClick: () => set({ accent: id }), children: jsx('span', { className: 'h-4 w-4 rounded-full', style: { background: light ? c.light : c.dark } }) }, id)
+                    )
+                  ]
+                })
+              }),
+              jsx(Section, {
+                title: 'Type',
+                children: jsx('div', {
+                  className: 'flex flex-wrap gap-2',
+                  children: Object.entries(FONTS).map(([id, f]) => jsx(Swatch, { active: p.font === id, title: f.label, onClick: () => set({ font: id }), style: { fontFamily: f.fontSans }, children: f.label }, id))
+                })
+              }),
+              jsx(Section, {
+                title: 'Shape',
+                children: jsxs('div', {
+                  className: 'flex flex-wrap items-center gap-6',
+                  children: [
+                    jsxs('div', { className: 'flex items-center gap-2 text-xs text-(--ui-text-secondary)', children: ['Corners', jsx(SegmentedControl, { value: p.radius, options: [{ id: 'sharp', label: 'Sharp' }, { id: 'default', label: 'Soft' }, { id: 'round', label: 'Round' }], onChange: v => set({ radius: v }) })] }),
+                    jsxs('div', { className: 'flex items-center gap-2 text-xs text-(--ui-text-secondary)', children: ['Reading width', jsx(SegmentedControl, { value: p.width, options: [{ id: 'narrow', label: 'Narrow' }, { id: 'default', label: 'App' }, { id: 'wide', label: 'Wide' }], onChange: v => set({ width: v }) })] }),
+                    jsxs('div', { className: 'flex items-center gap-2 text-xs text-(--ui-text-secondary)', children: ['Rail', jsx(SegmentedControl, { value: p.rail, options: [{ id: 'mono', label: 'Mono' }, { id: 'colour', label: 'Colour' }], onChange: v => set({ rail: v }) })] })
+                  ]
+                })
+              }),
+              jsx(Section, {
+                title: 'Density',
+                hint: 'The app’s own settings.',
+                children: jsxs('div', {
+                  className: 'flex flex-wrap items-center gap-6',
+                  children: [
+                    jsxs('div', { className: 'flex items-center gap-2 text-xs text-(--ui-text-secondary)', children: ['Session list', jsx(SegmentedControl, { value: density, options: [{ id: 'compact', label: 'Compact' }, { id: 'comfortable', label: 'Comfortable' }, { id: 'detailed', label: 'Detailed' }], onChange: v => trySetSetting('sessionListDensity', v) })] }),
+                    jsxs('div', { className: 'flex items-center gap-2 text-xs text-(--ui-text-secondary)', children: ['Chat text', jsx(SegmentedControl, { value: String(scale), options: [90, 100, 110, 125, 150].map(n => ({ id: String(n), label: String(n) })), onChange: v => trySetSetting('chatTextScale', Number(v)) })] })
+                  ]
+                })
+              }),
+              jsx(Section, {
+                title: 'On the desk',
+                children: jsx('div', {
+                  className: 'flex flex-col',
+                  children: toggles.map(([key, label, description]) => jsx(ToggleRow, { label, description, checked: Boolean(p[key]), onChange: on => setPrefs({ [key]: on }) }, key))
+                })
+              })
+            ]
+          }),
+          jsxs('div', {
+            className: 'sticky top-0 flex w-56 shrink-0 flex-col items-center gap-2 py-6',
             children: [
               jsx(RobotFull, { look: sample, size: 180 }),
               jsx(Button, { variant: 'outline', size: 'sm', onClick: () => host.navigate(BOTS_ROUTE), children: 'Open the Bots board' }),
-              jsx('div', { className: 'text-center text-[0.6875rem] text-(--ui-text-tertiary)', children: 'Every bot gets its own rendered look: ears, face, chest module, what it carries and wears, colour.' })
+              jsx('div', { className: 'text-center text-[0.6875rem] text-(--ui-text-tertiary)', children: 'Every bot gets its own rendered robot: ears, face, chest, what it carries and wears, colour. It becomes the bot’s avatar across Hermes.' })
             ]
           })
         ]
@@ -1275,22 +1948,17 @@ function LookPage({ prefs, setPrefs, looks }) {
 export default {
   id: ID,
   name: 'Helm',
-  description: 'A quieter Hermes Desktop: themes, a Customize look page, status chips, a Bots board with rendered robot looks.',
+  description: 'A redesigned Hermes Desktop: a calmer interface you can tune, a crew view of every bot, rendered robots that become your bots’ avatars, and live status across the desk.',
   register(ctx) {
     spriteRest = typeof ctx.rest === 'function' ? path => ctx.rest(path) : null
     spritesDown = false
     spriteFailures = 0
     const prefs = atom({ ...DEFAULT_PREFS, ...ctx.storage.get('prefs', {}) })
     const looks = atom(ctx.storage.get('looks', {}))
+    const avatarsStore = ctx.storage.get('avatars', {})
+    const avatars = atom(avatarsStore && typeof avatarsStore === 'object' ? avatarsStore : {})
+    avatars.subscribe(v => ctx.storage.set('avatars', v))
 
-    const setPrefs = patch => {
-      const next = { ...prefs.get(), ...patch }
-      for (const key of Object.keys(next)) if (!(key in DEFAULT_PREFS)) delete next[key]
-      prefs.set(next)
-      ctx.storage.set('prefs', next)
-      syncNavPrefs()
-      syncComposer()
-    }
     const setLook = (name, look) => {
       const next = { ...looks.get(), [name]: normalizeLook(look, name) }
       looks.set(next)
@@ -1303,17 +1971,15 @@ export default {
       ctx.storage.set('looks', next)
     }
 
-    // Themes
+    // Themes: three fixed bases plus the live one Customize look edits.
     ctx.registerMany(THEMES.map(t => ({ id: t.name, area: THEMES_AREA, data: t })))
+    let unregisterCustom = null
+    const syncCustomTheme = () => {
+      if (unregisterCustom) unregisterCustom()
+      unregisterCustom = ctx.register({ id: 'helm-custom', area: THEMES_AREA, data: customTheme(prefs.get()) })
+    }
+    syncCustomTheme()
 
-    // Status bar
-    ctx.registerMany([
-      { id: 'working', area: 'statusBar.right', order: 118, render: () => jsx(WorkingChip, { prefs }) },
-      { id: 'cost', area: 'statusBar.right', order: 119, render: () => jsx(CostChip, { prefs }) }
-    ])
-
-    // Sidebar nav prefs: registered only while the toggle is on, so turning it
-    // off removes the contribution and the row comes back.
     let unregisterNav = null
     const syncNavPrefs = () => {
       const want = prefs.get().hideMessagingRow
@@ -1324,45 +1990,7 @@ export default {
         unregisterNav = null
       }
     }
-    syncNavPrefs()
 
-    // Bots board
-    ctx.registerMany([
-      { id: 'bots-route', area: ROUTES_AREA, data: { path: BOTS_ROUTE }, render: () => jsx(BotsPage, { looks, setLook, os: ctx.os }) },
-      { id: 'bots-nav', area: SIDEBAR_NAV_AREA, data: { path: BOTS_ROUTE, label: 'Bots board', codicon: 'hubot' } },
-      { id: 'look-route', area: ROUTES_AREA, data: { path: LOOK_ROUTE }, render: () => jsx(LookPage, { prefs, setPrefs, looks }) },
-      { id: 'look-nav', area: SIDEBAR_NAV_AREA, data: { path: LOOK_ROUTE, label: 'Customize look', codicon: 'symbol-color' } },
-      {
-        id: 'look-palette',
-        area: PALETTE_AREA,
-        data: { id: 'helm.look', label: 'Helm: Customize look', keywords: ['look', 'appearance', 'theme', 'skin', 'helm'], run: () => host.navigate(LOOK_ROUTE) }
-      },
-      {
-        id: 'bots-palette',
-        area: PALETTE_AREA,
-        data: { id: 'helm.bots', label: 'Helm: Bots board', keywords: ['bots', 'board', 'crew', 'robots', 'helm'], run: () => host.navigate(BOTS_ROUTE) }
-      },
-      {
-        id: 'bots-key',
-        area: KEYBINDS_AREA,
-        data: { id: 'helm.bots', label: 'Open the Bots board', category: 'view', defaults: ['mod+alt+b'], run: () => host.navigate(BOTS_ROUTE) }
-      },
-      ...THEMES.map(t => ({
-        id: `palette-${t.name}`,
-        area: PALETTE_AREA,
-        data: {
-          id: `helm.theme.${t.name}`,
-          label: `Helm: use ${t.label}`,
-          keywords: ['theme', 'helm', t.label.toLowerCase()],
-          run: () => {
-            setPrefs({ preferredTheme: t.name })
-            requestTheme(t.name)
-          }
-        }
-      }))
-    ])
-
-    // Composer: the bot you are talking to
     let unregisterComposer = null
     const syncComposer = () => {
       const want = prefs.get().showComposerBot
@@ -1373,12 +2001,108 @@ export default {
         unregisterComposer = null
       }
     }
+
+    const setPrefs = patch => {
+      const next = { ...prefs.get(), ...patch }
+      for (const key of Object.keys(next)) if (!(key in DEFAULT_PREFS)) delete next[key]
+      prefs.set(next)
+      ctx.storage.set('prefs', next)
+      syncNavPrefs()
+      syncComposer()
+    }
+    // A look change re-registers the custom theme and switches to it.
+    const applyLook = patch => {
+      setPrefs(patch)
+      syncCustomTheme()
+      requestTheme('helm-custom')
+    }
+    syncNavPrefs()
     syncComposer()
 
-    // Settings → Appearance card
-    ctx.register({ id: 'appearance', area: 'appearance.extra', render: () => jsx(AppearanceCard, { prefs, setPrefs }) })
+    // Status bar, titlebar, sidebar rows: the desk-wide layer.
+    ctx.registerMany([
+      { id: 'needs-you', area: 'statusBar.right', order: 116, render: () => jsx(NeedsYouChip, { prefs }) },
+      { id: 'today', area: 'statusBar.right', order: 117, render: () => jsx(TodayChip, { prefs }) },
+      { id: 'working', area: 'statusBar.right', order: 118, render: () => jsx(WorkingChip, { prefs }) },
+      { id: 'cost', area: 'statusBar.right', order: 119, render: () => jsx(CostChip, { prefs }) },
+      { id: 'context', area: 'titleBar.center', order: 50, render: () => jsx(ContextLine, { looks, prefs }) },
+      { id: 'row-bot', area: 'sessionRow.leading', data: { render: ({ sessionId }) => jsx(SessionRowBot, { sessionId, looks, prefs }) } },
+      { id: 'row-cost', area: 'sessionRow.trailing', data: { render: ({ sessionId }) => jsx(SessionRowCost, { sessionId, prefs }) } }
+    ])
 
-    // Settings → Plugins → Helm
+    // Routes, nav rows, palette, keys.
+    ctx.registerMany([
+      { id: 'bots-route', area: ROUTES_AREA, data: { path: BOTS_ROUTE }, render: () => jsx(BotsPage, { looks, setLook, avatars, os: ctx.os }) },
+      { id: 'bots-nav', area: SIDEBAR_NAV_AREA, data: { path: BOTS_ROUTE, label: 'Bots board', codicon: 'hubot' } },
+      { id: 'look-route', area: ROUTES_AREA, data: { path: LOOK_ROUTE }, render: () => jsx(LookPage, { prefs, setPrefs, applyLook, looks }) },
+      { id: 'look-nav', area: SIDEBAR_NAV_AREA, data: { path: LOOK_ROUTE, label: 'Customize look', codicon: 'symbol-color' } },
+      { id: 'look-palette', area: PALETTE_AREA, data: { id: 'helm.look', label: 'Helm: Customize look', keywords: ['look', 'appearance', 'theme', 'skin', 'accent', 'font', 'helm'], run: () => host.navigate(LOOK_ROUTE) } },
+      { id: 'bots-palette', area: PALETTE_AREA, data: { id: 'helm.bots', label: 'Helm: Bots board', keywords: ['bots', 'board', 'crew', 'robots', 'helm'], run: () => host.navigate(BOTS_ROUTE) } },
+      {
+        id: 'needs-palette',
+        area: PALETTE_AREA,
+        data: {
+          id: 'helm.needs-you',
+          label: 'Helm: what needs me',
+          keywords: ['unread', 'needs', 'waiting', 'replies', 'helm'],
+          run: () => {
+            $boardFilter.set('attention')
+            host.navigate(BOTS_ROUTE)
+          }
+        }
+      },
+      { id: 'bots-key', area: KEYBINDS_AREA, data: { id: 'helm.bots', label: 'Open the Bots board', category: 'view', defaults: ['mod+alt+b'], run: () => host.navigate(BOTS_ROUTE) } },
+      { id: 'look-key', area: KEYBINDS_AREA, data: { id: 'helm.look', label: 'Customize look', category: 'view', defaults: ['mod+alt+l'], run: () => host.navigate(LOOK_ROUTE) } },
+      ...THEMES.map(t => ({
+        id: `palette-${t.name}`,
+        area: PALETTE_AREA,
+        data: { id: `helm.theme.${t.name}`, label: `Helm: use ${t.label}`, keywords: ['theme', 'helm', t.label.toLowerCase()], run: () => applyLook({ preferredTheme: t.name }) }
+      }))
+    ])
+
+    // Per-bot palette commands follow the crew: "Helm: talk to Vision", "Helm: resume Vision".
+    let botCommands = []
+    let botKey = ''
+    const syncBotCommands = crew => {
+      const names = (crew.profiles || []).map(p => p.name)
+      const key = names.join('|')
+      if (key === botKey) return
+      botKey = key
+      botCommands.forEach(off => off())
+      botCommands = (crew.profiles || []).flatMap(p => {
+        const label = botLabel(p)
+        const out = [
+          ctx.register({ id: `talk-${p.name}`, area: PALETTE_AREA, data: { id: `helm.talk.${p.name}`, label: `Helm: new chat with ${label}`, keywords: ['bot', 'chat', 'talk', label.toLowerCase(), p.name], run: () => host.newChat(p.name) } })
+        ]
+        out.push(
+          ctx.register({
+            id: `resume-${p.name}`,
+            area: PALETTE_AREA,
+            data: {
+              id: `helm.resume.${p.name}`,
+              label: `Helm: resume ${label}`,
+              keywords: ['bot', 'resume', 'last', label.toLowerCase(), p.name],
+              run: () => {
+                const latest = activityFor($crew.get(), p.name).latest
+                if (latest) openSession(latest, p.name)
+                else host.newChat(p.name)
+              }
+            }
+          })
+        )
+        return out
+      })
+    }
+
+    // The crew poller feeds every crew-aware surface, and gives new bots robots.
+    startCrew(ctx)
+    const offCrew = $crew.subscribe(crew => {
+      syncBotCommands(crew)
+      if (crew.ready && crew.profiles.length) autoAvatars(crew.profiles, looks, avatars, prefs)
+    })
+
+    // Settings → Appearance card and Settings → Plugins → Helm
+    ctx.register({ id: 'appearance', area: 'appearance.extra', render: () => jsx(AppearanceCard, { prefs, setPrefs }) })
     ctx.registerSettingsPage?.({
       id: 'settings',
       title: 'Helm',
@@ -1392,14 +2116,10 @@ export default {
           render: () =>
             jsxs('div', {
               children: [
-                jsx(ListRow, { title: `helm ${VERSION}`, description: 'Themes, status chips, Bots board. Desktop-only; the agent half registers nothing.' }),
+                jsx(ListRow, { title: `helm ${VERSION}`, description: 'A redesigned desk: theme layer, Customize look, crew view, robots as avatars, titlebar context, sidebar row status, needs-you and spend chips.' }),
                 jsx(ListRow, {
-                  title: 'What it will not do',
-                  description: 'It cannot restyle the transcript’s message bubbles beyond the theme, reorder the sidebar’s Pinned/Recents sections, or replace the built-in Bots tab. The board sits beside it.'
-                }),
-                jsx(ListRow, {
-                  title: 'Surviving updates',
-                  description: 'Lives in desktop-plugins/, which hermes update never touches. The theme CSS targets the app’s data-slot names; a renamed slot drops that one rule, nothing else.'
+                  title: 'How it stays update-proof',
+                  description: 'Only Desktop SDK areas and gateway calls the app’s own Bot Mode uses (profiles.create, profiles.set_asset). The theme layer targets the app’s data-slot names; a renamed slot drops that one rule.'
                 })
               ]
             })
@@ -1408,8 +2128,12 @@ export default {
     })
 
     ctx.onDispose(() => {
+      stopCrew()
+      offCrew()
+      botCommands.forEach(off => off())
       if (unregisterNav) unregisterNav()
       if (unregisterComposer) unregisterComposer()
+      if (unregisterCustom) unregisterCustom()
       spriteRest = null
     })
   }

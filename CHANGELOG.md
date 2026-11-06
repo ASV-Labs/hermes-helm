@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.0 — 2026-11-06
+
+The whole desk, not just the bots.
+
+- **Redesign layer** across the app: one-colour line rail, tracked-caps section labels and tabs with an accent underline, an accent edge on the open row, a calmer reading column, framed tool activity, approvals with an amber decision edge, a flat hairline composer that lights on focus, a tabular status bar, hairline menus and dialogs, thin scrollbars.
+- **Customize look** drives the whole desk live: base (Dark, Graphite, Paper), accent (7), type (System, Inter, Grotesk, Mono), corners, reading width, rail colour, session density, chat text size, and every helm surface on/off. Backed by a live `Helm Custom` theme.
+- **Titlebar context**: bot, folder, model, cost and context for the chat you're in.
+- **Session list**: each row shows the robot of the bot it belongs to (its face is the row's state) and its spend.
+- **Status bar**: *N need you* (unread replies across all bots, click to see them) and *$ today*.
+- **Palette**: *new chat with <bot>*, *resume <bot>*, *what needs me*; `⌘⌥L` for Customize look.
+- **Bots**: *New bot* creates a real Hermes bot (`profiles.create`) with its robot; every robot becomes the bot's Hermes avatar (`profiles.set_asset`), and new bots get one automatically unless you uploaded a photo.
+
 ## 0.3.1 — 2026-11-06
 
 Found by testing on a real desk (Hermes Desktop 0.23.0, macOS):
