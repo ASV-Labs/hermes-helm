@@ -2022,7 +2022,7 @@ function DeskNeedsYou({ looks, lookOf }) {
           ...n.questions.map(item => jsx(QuestionRow, { item, looks }, `q:${item.sessionId}`)),
           ...n.unread.slice(0, 5).map(entry => jsx(NeedsYouRow, { entry, look: lookOf(entry.profile.name) }, `${entry.profile.name}:${entry.row.id}`))
         ]
-      : jsx(Quiet, { children: 'Nothing is waiting on you.' })
+      : jsx(Quiet, { children: `Nothing is waiting on you.${n.live ? ` Watching ${n.live} live chat${n.live === 1 ? '' : 's'}.` : ''}` })
   })
 }
 
@@ -2184,7 +2184,7 @@ function DeskStrip({ looks, prefs }) {
 // approval.pending) and answered with approval.respond. Nothing is ever
 // answered without a click.
 
-const $inbox = atom({ ready: false, approvals: [], questions: [], reach: 'unknown', at: 0 })
+const $inbox = atom({ ready: false, approvals: [], questions: [], reach: 'unknown', live: 0, waiting: 0, error: null, at: 0 })
 let inboxInflight = false
 let inboxTimer = null
 const answered = new Set() // request ids answered from helm, hidden until the backend drops them
@@ -2200,12 +2200,13 @@ async function refreshInbox() {
     const crew = $crew.get()
     const seen = new Map()
     let reach = 'none'
+    let error = null
     const collect = rows => rows.forEach(r => seen.set(r.id, r))
     try {
       collect(liveRows(await host.request('session.active_list', {})))
       reach = 'primary'
-    } catch {
-      /* gateway not up yet */
+    } catch (err) {
+      error = err && err.message ? err.message : String(err)
     }
     // Bots served by the primary gateway answer with their profile scoped in;
     // a bot on its own gateway errors here and is reported as unreachable.
@@ -2246,7 +2247,8 @@ async function refreshInbox() {
         questions.push(base) // waiting with no approval queued: a question for you
       }
     }
-    $inbox.set({ ready: true, approvals, questions, reach, at: Date.now() })
+    const waiting = [...seen.values()].filter(r => r.status === 'waiting').length
+    $inbox.set({ ready: true, approvals, questions, reach, live: seen.size, waiting, error, at: Date.now() })
   } finally {
     inboxInflight = false
   }
@@ -2298,7 +2300,7 @@ function needsYouOf(inbox, crew) {
   // A chat that is waiting on an approval or a question is shown once, as that.
   const waitingIds = new Set(inbox.approvals.concat(inbox.questions).map(a => a.storedId))
   const unread = waitingAcross(crew).filter(e => !waitingIds.has(e.row.id) && !waitingIds.has(e.row._lineage_root_id))
-  return { approvals: inbox.approvals, questions: inbox.questions, unread, total: inbox.approvals.length + inbox.questions.length + unread.length, reach: inbox.reach }
+  return { approvals: inbox.approvals, questions: inbox.questions, unread, total: inbox.approvals.length + inbox.questions.length + unread.length, reach: inbox.reach, live: inbox.live || 0 }
 }
 
 function useNeedsYou() {
@@ -2392,7 +2394,7 @@ function NeedsYouPane({ looks }) {
 
 // ── task plan: the focused chat's latest todo list, from its transcript ──
 
-const $plan = atom({ sessionId: null, items: null, at: 0 })
+const $plan = atom({ sessionId: null, items: null, messages: 0, error: null, at: 0 })
 let planInflight = null
 
 function parseTodoList(value) {
@@ -2437,10 +2439,11 @@ async function refreshPlan(sessionId) {
   planInflight = sessionId
   try {
     const res = await host.request('session.history', { session_id: sessionId }, 15000)
-    const items = latestPlan(Array.isArray(res && res.messages) ? res.messages : [])
-    if (atomGet(host.state.focusedSessionId) === sessionId) $plan.set({ sessionId, items, at: Date.now() })
-  } catch {
-    if (atomGet(host.state.focusedSessionId) === sessionId) $plan.set({ sessionId, items: null, at: Date.now() })
+    const messages = Array.isArray(res && res.messages) ? res.messages : []
+    const items = latestPlan(messages)
+    if (atomGet(host.state.focusedSessionId) === sessionId) $plan.set({ sessionId, items, messages: messages.length, error: null, at: Date.now() })
+  } catch (err) {
+    if (atomGet(host.state.focusedSessionId) === sessionId) $plan.set({ sessionId, items: null, messages: 0, error: err && err.message ? err.message : String(err), at: Date.now() })
   } finally {
     planInflight = null
   }
@@ -2457,6 +2460,18 @@ function usePlan() {
     return () => clearInterval(h)
   }, [sessionId, busy])
   return plan.sessionId === sessionId ? plan.items : null
+}
+
+function PlanStatus() {
+  const pl = useValue($plan)
+  const sid = useValue(host.state.focusedSessionId)
+  if (pl.sessionId !== sid) return null
+  return jsxs('div', {
+    children: [
+      jsx(PaneHead, { children: 'Plan' }),
+      jsx('div', { style: { fontSize: 12, color: V.t4 }, children: pl.error ? 'Plan unavailable for this chat.' : 'No plan in this chat yet. One appears when the bot breaks the work into steps.' })
+    ]
+  })
 }
 
 const PLAN_MARK = { completed: '✓', in_progress: '●', pending: '○', cancelled: '–' }
@@ -2556,7 +2571,7 @@ function SessionPane({ looks }) {
           })
         ]
       }),
-      plan && plan.length ? jsx(PlanList, { items: plan }) : null,
+      plan && plan.length ? jsx(PlanList, { items: plan }) : storedId ? jsx(PlanStatus, {}) : null,
       jsx(PaneHead, { children: busy ? 'Session · working' : 'Session' }),
       jsx(KV, { k: 'Model', v: (r && r.model) || model }),
       jsx(KV, { k: 'Folder', v: basename((r && r.cwd) || cwd), mono: true }),
@@ -3089,6 +3104,25 @@ export default {
     ctx.registerMany([
       { id: 'desk-route', area: ROUTES_AREA, data: { path: DESK_ROUTE }, render: () => jsx(DeskPage, { looks, prefs, setPrefs }) },
       { id: 'desk-nav', area: SIDEBAR_NAV_AREA, data: { path: DESK_ROUTE, label: 'Desk', codicon: 'home' } },
+      {
+        id: 'diag-palette',
+        area: PALETTE_AREA,
+        data: {
+          id: 'helm.diagnostics',
+          label: 'Helm: diagnostics',
+          keywords: ['helm', 'debug', 'diagnostics', 'inbox', 'plan'],
+          run: async () => {
+            await refreshInbox()
+            await refreshPlan(atomGet(host.state.focusedSessionId))
+            const i = $inbox.get()
+            const pl = $plan.get()
+            host.notify?.({
+              kind: 'info',
+              message: `helm ${VERSION} · inbox: ${i.live} live chats (${i.reach}${i.error ? `, ${i.error}` : ''}), ${i.waiting} waiting, ${i.approvals.length} approvals, ${i.questions.length} questions · plan: ${pl.error ? `error ${pl.error}` : `${pl.messages} transcript rows, ${pl.items ? pl.items.length : 0} steps`} for ${pl.sessionId || 'no focused chat'}`
+            })
+          }
+        }
+      },
       { id: 'desk-palette', area: PALETTE_AREA, data: { id: 'helm.desk', label: 'Helm: Desk', keywords: ['home', 'desk', 'dashboard', 'today', 'continue', 'helm'], run: () => host.navigate(DESK_ROUTE) } },
       { id: 'desk-key', area: KEYBINDS_AREA, data: { id: 'helm.desk', label: 'Open the Desk', category: 'view', defaults: ['mod+alt+0'], run: () => host.navigate(DESK_ROUTE) } },
       { id: 'desk-strip', area: 'composer.top', order: 5, render: () => jsx(DeskStrip, { looks, prefs }) },
