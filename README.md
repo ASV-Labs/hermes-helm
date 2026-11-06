@@ -2,7 +2,7 @@
 
 A quieter Hermes Desktop, as a plugin. Same app, same rail, same sidebar — helm changes how it looks and adds three things Hermes doesn't show you: what's working, what the session costs, and a Bots board where every bot is a rendered little robot you build yourself: ears, face, chest module, what it carries, what it wears, colour.
 
-![Helm robots](docs/robots.png)
+![helm](docs/banner.png)
 
 ```
 hermes plugins install P0GL0L/hermes-helm

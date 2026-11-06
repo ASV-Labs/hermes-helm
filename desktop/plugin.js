@@ -796,6 +796,12 @@ function ago(ts) {
 
 // One status per bot, most urgent first. The face shows it.
 function botStatus(activity, focusedWorking) {
+  if (!activity.available) {
+    // Older Desktop without persisted-session reads: only the focused chat's busy flag is known.
+    return focusedWorking
+      ? { key: 'working', label: 'working', expr: 'focused', tone: 'accent', rank: 1 }
+      : { key: 'idle', label: 'ready', expr: null, tone: 'muted', rank: 2 }
+  }
   if (activity.unread > 0) return { key: 'needs-you', label: activity.unread === 1 ? 'reply waiting' : `${activity.unread} replies waiting`, expr: 'question', tone: 'amber', rank: 0 }
   if (focusedWorking || activity.active) return { key: 'working', label: 'working', expr: 'focused', tone: 'accent', rank: 1 }
   if (activity.latest) return { key: 'idle', label: `idle · ${ago(activity.latest.last_active)}`, expr: null, tone: 'muted', rank: 2 }
