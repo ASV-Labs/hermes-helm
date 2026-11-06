@@ -1031,7 +1031,7 @@ function botStatus(activity, focusedWorking) {
 }
 
 const TONE = {
-  amber: 'text-[#E8A657]',
+  amber: 'text-(--ui-yellow)',
   accent: 'text-(--ui-accent)',
   muted: 'text-(--ui-text-tertiary)'
 }
@@ -1058,7 +1058,7 @@ function BotCard({ profile, look, focusedWorking, onEdit, onStatus, os }) {
   const latest = activity.latest
   return jsxs('div', {
     className: cn(
-      'flex flex-col gap-2 rounded-lg border bg-(--ui-bg-card) px-3 py-2.5',
+      'flex flex-col gap-2 rounded-lg border border-(--ui-stroke-tertiary) bg-(--ui-bg-elevated) px-3 py-2.5',
       status.key === 'needs-you' ? 'border-[#E8A657]/60' : 'border-(--ui-stroke-secondary)'
     ),
     children: [
@@ -1123,7 +1123,7 @@ function SpriteNotice() {
   const [busy, setBusy] = useState(false)
   if (!spritesDown) return null
   return jsxs('div', {
-    className: 'mx-4 mt-3 flex items-center gap-3 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-card) px-3 py-2 text-xs',
+    className: 'mx-4 mt-3 flex items-center gap-3 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-elevated) px-3 py-2 text-xs',
     children: [
       jsx(Codicon, { name: 'info', size: 13 }),
       jsx('span', { className: 'flex-1 text-(--ui-text-secondary)', children: 'Showing flat robots: the rendered ones are served by helm’s backend, which mounts when the gateway restarts after install.' }),
@@ -1308,7 +1308,7 @@ function NewBotView({ looks, setLook, avatars, onDone }) {
           value,
           placeholder,
           onChange: e => onChange(e.target.value),
-          className: 'h-8 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-input) px-2 text-sm text-(--ui-text-primary) outline-none focus:border-(--ui-accent)'
+          className: 'h-8 rounded-md border border-(--ui-stroke-secondary) bg-transparent px-2 text-sm text-(--ui-text-primary) outline-none focus-visible:border-(--ui-accent)'
         })
       ]
     })
@@ -1330,7 +1330,8 @@ function NewBotView({ looks, setLook, avatars, onDone }) {
             ]
           }),
           jsx('div', {
-            className: cn('col-span-3 text-[0.6875rem]', error || (slug && !valid) ? 'text-(--ui-red)' : 'text-(--ui-text-tertiary)'),
+            className: cn('text-[0.6875rem]', error || (slug && !valid) ? 'text-(--ui-red)' : 'text-(--ui-text-tertiary)'),
+            style: { gridColumn: '1 / -1' },
             children: error
               ? error
               : slug && taken
@@ -1522,7 +1523,7 @@ function ContextLine({ looks, prefs }) {
     type: 'button',
     title: 'Open the Bots board',
     onClick: () => host.navigate(BOTS_ROUTE),
-    className: 'flex h-6 max-w-[46vw] items-center gap-1.5 rounded-md px-1.5 text-[0.6875rem] text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover)',
+    className: 'flex h-6 max-w-md items-center gap-1.5 rounded-md px-1.5 text-[0.6875rem] text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover)',
     children: [
       jsx(RobotHead, { look, expr: busy ? 'focused' : look.face, size: 18, title: profile }),
       jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: profile }),
@@ -1543,7 +1544,7 @@ function NeedsYouChip({ prefs }) {
       $boardFilter.set('attention')
       host.navigate(BOTS_ROUTE)
     },
-    className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] font-medium text-[#E8A657] hover:underline',
+    className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] font-medium text-(--ui-yellow) hover:underline',
     children: needYou === 1 ? '1 needs you' : `${needYou} need you`
   })
 }
@@ -1608,7 +1609,7 @@ function greeting(now = new Date()) {
 function recentAcross(crew, limit = 6) {
   const out = []
   for (const p of crew.profiles || []) {
-    for (const r of (crew.sessions && crew.sessions[p.name]) || []) out.push({ profile: p, row: r })
+    for (const r of (crew.sessions && crew.sessions[p.name]) || []) if (r.message_count !== 0 || r.title) out.push({ profile: p, row: r })
   }
   out.sort((a, b) => toMs(b.row.last_active) - toMs(a.row.last_active))
   return out.slice(0, limit)
@@ -1630,7 +1631,10 @@ function rowState(r) {
 }
 
 function sessionTitle(r) {
-  return r.title || r.preview || 'Untitled session'
+  if (r.title || r.preview) return r.title || r.preview
+  const src = (r.handoff_platform || r.source || '').toLowerCase()
+  const where = src && !['desktop', 'tui', 'cli'].includes(src) ? `${src.charAt(0).toUpperCase()}${src.slice(1)} chat` : 'Untitled chat'
+  return r.started_at ? `${where} · ${new Date(toMs(r.started_at)).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : where
 }
 
 function minutesSince(t) {
@@ -1732,16 +1736,34 @@ function replyDraft(entry, text) {
   setTimeout(attempt, 150)
 }
 
+// Plugin code is not compiled by the app's Tailwind, so only utility classes the
+// app itself already uses are safe. Layout, sizes and colours here are inline.
+const V = {
+  t1: 'var(--ui-text-primary)',
+  t2: 'var(--ui-text-secondary)',
+  t3: 'var(--ui-text-tertiary)',
+  t4: 'var(--ui-text-quaternary)',
+  accent: 'var(--ui-accent)',
+  hair: 'var(--ui-stroke-tertiary)',
+  hair2: 'var(--ui-stroke-secondary)',
+  raised: 'var(--ui-bg-elevated)',
+  hover: 'var(--ui-row-hover-background)',
+  amber: 'var(--ui-yellow, #E8A657)',
+  red: 'var(--ui-red, #E5534B)',
+  green: 'var(--ui-green, #57AB5A)',
+  mono: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  radius: n => `calc(var(--radius-scalar, 1) * ${n}px)`
+}
+const TONE_COLOR = { amber: V.amber, accent: V.accent, muted: V.t3 }
+const CAPS = { fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: V.t3 }
+
 function DeskSection({ title, action, children }) {
   return jsxs('section', {
-    className: 'mt-7',
+    style: { marginTop: 28 },
     children: [
       jsxs('div', {
-        className: 'mb-1 flex items-center justify-between border-b border-(--helm-hair,var(--ui-border)) pb-1.5',
-        children: [
-          jsx('h2', { className: 'text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-(--ui-text-tertiary)', children: title }),
-          action || null
-        ]
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${V.hair}`, paddingBottom: 6, marginBottom: 2 },
+        children: [jsx('h2', { style: CAPS, children: title }), action || null]
       }),
       children
     ]
@@ -1752,34 +1774,59 @@ function LinkButton({ onClick, children, tone }) {
   return jsx('button', {
     type: 'button',
     onClick,
-    className: cn('rounded px-1 text-xs hover:underline', tone === 'muted' ? 'text-(--ui-text-tertiary)' : 'text-(--ui-accent)'),
+    className: 'hover:underline',
+    style: { fontSize: 12, color: tone === 'muted' ? V.t3 : V.accent, padding: '0 4px', background: 'none', border: 0, cursor: 'pointer' },
     children
   })
 }
 
-function DeskRow({ lead, title, sub, meta, actions }) {
+function SmallButton({ onClick, children, primary, disabled, title }) {
+  return jsx('button', {
+    type: 'button',
+    onClick,
+    disabled,
+    title,
+    style: {
+      height: 26,
+      padding: '0 10px',
+      fontSize: 12,
+      fontWeight: 500,
+      borderRadius: V.radius(7),
+      border: primary ? '1px solid transparent' : `1px solid ${V.hair2}`,
+      background: primary ? V.t1 : 'transparent',
+      color: primary ? 'var(--ui-base, #0d1117)' : V.t1,
+      opacity: disabled ? 0.45 : 1,
+      cursor: disabled ? 'default' : 'pointer',
+      whiteSpace: 'nowrap'
+    },
+    children
+  })
+}
+
+function DeskRow({ lead, title, sub, meta, actions, dot }) {
   return jsxs('div', {
-    className: 'group flex items-center gap-3 border-b border-(--helm-hair,var(--ui-border)) py-2.5 last:border-b-0',
+    style: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: `1px solid ${V.hair}` },
     children: [
+      dot !== undefined ? jsx('span', { style: { width: 6, height: 6, borderRadius: 3, flexShrink: 0, background: dot || 'transparent' } }) : null,
       lead,
       jsxs('div', {
-        className: 'min-w-0 flex-1',
+        style: { minWidth: 0, flex: 1 },
         children: [
-          jsx('div', { className: 'truncate text-sm text-(--ui-text-primary)', children: title }),
-          sub ? jsx('div', { className: 'truncate text-xs text-(--ui-text-tertiary)', children: sub }) : null
+          jsx('div', { className: 'truncate', style: { fontSize: 14, color: V.t1 }, children: title }),
+          sub ? jsx('div', { className: 'truncate', style: { fontSize: 12, color: V.t3, marginTop: 1 }, children: sub }) : null
         ]
       }),
-      meta ? jsx('div', { className: 'shrink-0 text-xs tabular-nums text-(--ui-text-quaternary)', children: meta }) : null,
-      actions ? jsx('div', { className: 'flex shrink-0 items-center gap-1.5', children: actions }) : null
+      meta ? jsx('div', { style: { flexShrink: 0, fontSize: 12, color: V.t4, fontFamily: V.mono, fontVariantNumeric: 'tabular-nums' }, children: meta }) : null,
+      actions ? jsx('div', { style: { display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }, children: actions }) : null
     ]
   })
 }
 
 function BotPicker({ profiles, value, onPick, looks }) {
   return jsx('div', {
-    className: 'flex min-w-0 flex-wrap items-center gap-1',
     role: 'radiogroup',
     'aria-label': 'Bot',
+    style: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, minWidth: 0 },
     children: profiles.map(p => {
       const on = p.name === value
       const look = normalizeLook(looks[p.name], p.name)
@@ -1791,13 +1838,20 @@ function BotPicker({ profiles, value, onPick, looks }) {
           'aria-checked': on,
           title: `Hand it to ${botLabel(p)}`,
           onClick: () => onPick(p.name),
-          className: cn(
-            'flex h-7 items-center gap-1.5 rounded-full border px-1.5 pr-2.5 text-xs transition-colors',
-            on
-              ? 'border-(--ui-accent) bg-[color-mix(in_srgb,var(--ui-accent)_14%,transparent)] text-(--ui-text-primary)'
-              : 'border-(--helm-hair,var(--ui-border)) text-(--ui-text-tertiary) hover:text-(--ui-text-secondary)'
-          ),
-          children: [jsx(RobotHead, { look, expr: on ? 'happy' : look.face, size: 18, title: p.name }), botLabel(p)]
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            height: 28,
+            padding: '0 10px 0 4px',
+            fontSize: 12,
+            borderRadius: 999,
+            cursor: 'pointer',
+            border: `1px solid ${on ? V.accent : V.hair}`,
+            background: on ? 'color-mix(in srgb, var(--ui-accent) 14%, transparent)' : 'transparent',
+            color: on ? V.t1 : V.t3
+          },
+          children: [jsx(RobotHead, { look, expr: on ? 'happy' : look.face, size: 20, title: p.name }), botLabel(p)]
         },
         p.name
       )
@@ -1811,6 +1865,7 @@ function DeskPrompt({ crew, looks }) {
   const profiles = crew.profiles || []
   const [bot, setBot] = useState(null)
   const [text, setText] = useState('')
+  const [focus, setFocus] = useState(false)
   const chosen = bot || (profiles.some(p => p.name === focusedProfile) ? focusedProfile : profiles[0] && profiles[0].name) || 'default'
   const go = mode => {
     const t = text.trim()
@@ -1819,18 +1874,25 @@ function DeskPrompt({ crew, looks }) {
     setText('')
   }
   return jsxs('div', {
-    className:
-      'rounded-[calc(var(--radius-scalar,1)*14px)] border border-(--helm-hair,var(--ui-border)) bg-(--ui-surface-raised,transparent) p-3 shadow-[0_1px_0_rgba(0,0,0,0.2)] focus-within:border-(--ui-accent)',
+    style: {
+      borderRadius: V.radius(14),
+      border: `1px solid ${focus ? V.accent : V.hair2}`,
+      background: V.raised,
+      padding: '12px 14px',
+      transition: 'border-color 120ms'
+    },
     children: [
       jsxs('div', {
-        className: 'mb-1 flex items-center gap-1.5 font-mono text-[0.6875rem] text-(--ui-text-quaternary)',
-        children: [jsx(Codicon, { name: 'folder', size: 11 }), jsx('span', { className: 'truncate', children: cwd || 'no folder' })]
+        style: { display: 'flex', alignItems: 'center', gap: 6, fontFamily: V.mono, fontSize: 11, color: V.t4, marginBottom: 4 },
+        children: [jsx(Codicon, { name: 'folder', size: 11 }), jsx('span', { className: 'truncate', children: cwd ? cwd.replace(/^\/Users\/[^/]+/, '~') : 'no folder' })]
       }),
       jsx('textarea', {
         value: text,
         rows: 2,
         placeholder: 'What should we tackle?',
         'aria-label': 'What should we tackle?',
+        onFocus: () => setFocus(true),
+        onBlur: () => setFocus(false),
         onChange: e => setText(e.target.value),
         onKeyDown: e => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -1838,15 +1900,15 @@ function DeskPrompt({ crew, looks }) {
             go('send')
           }
         },
-        className: 'w-full resize-none bg-transparent py-1 text-[0.95rem] text-(--ui-text-primary) outline-none placeholder:text-(--ui-text-quaternary)'
+        style: { width: '100%', resize: 'none', background: 'transparent', border: 0, outline: 'none', padding: '4px 0', fontSize: 15, lineHeight: 1.5, color: V.t1 }
       }),
       jsxs('div', {
-        className: 'mt-2 flex items-center gap-2',
+        style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 },
         children: [
           jsx(BotPicker, { profiles, value: chosen, onPick: setBot, looks }),
-          jsx('span', { className: 'ml-auto hidden text-[0.6875rem] text-(--ui-text-quaternary) md:inline', children: '↵ send · ⇧↵ new line' }),
-          jsx(Button, { variant: 'outline', size: 'sm', title: 'Open a new chat with this text in the composer, unsent', onClick: () => go('draft'), children: 'Draft' }),
-          jsx(Button, { size: 'sm', disabled: !text.trim(), onClick: () => go('send'), children: 'Send' })
+          jsx('span', { style: { marginLeft: 'auto', fontSize: 11, color: V.t4, whiteSpace: 'nowrap' }, children: '↵ send · ⇧↵ new line' }),
+          jsx(SmallButton, { title: 'Open a new chat with this text in the composer, unsent', onClick: () => go('draft'), children: 'Draft' }),
+          jsx(SmallButton, { primary: true, disabled: !text.trim(), onClick: () => go('send'), children: 'Send' })
         ]
       })
     ]
@@ -1856,10 +1918,12 @@ function DeskPrompt({ crew, looks }) {
 function NeedsYouRow({ entry, look }) {
   const [reply, setReply] = useState('')
   const r = entry.row
+  const send = () => (reply.trim() ? replyDraft(entry, reply.trim()) : openSession(r, entry.profile.name))
   return jsx(DeskRow, {
-    lead: jsx(RobotHead, { look, expr: 'question', size: 26, title: entry.profile.name }),
+    dot: V.amber,
+    lead: jsx(RobotHead, { look, expr: 'question', size: 28, title: entry.profile.name }),
     title: sessionTitle(r),
-    sub: `${botLabel(entry.profile)} · replied ${ago(r.last_active)}${r.preview && r.title ? ` · ${r.preview}` : ''}`,
+    sub: jsxs('span', { children: [jsx('span', { style: { color: V.amber }, children: `${botLabel(entry.profile)} replied` }), ` · ${ago(r.last_active)}${r.preview && r.title ? ` · ${r.preview}` : ''}`] }),
     actions: [
       jsx(
         'input',
@@ -1869,29 +1933,21 @@ function NeedsYouRow({ entry, look }) {
           'aria-label': `Reply to ${botLabel(entry.profile)}`,
           onChange: e => setReply(e.target.value),
           onKeyDown: e => {
-            if (e.key === 'Enter' && reply.trim()) {
-              replyDraft(entry, reply.trim())
+            if (e.key === 'Enter') {
+              send()
               setReply('')
             }
           },
-          className:
-            'h-7 w-44 rounded-md border border-(--helm-hair,var(--ui-border)) bg-transparent px-2 text-xs text-(--ui-text-primary) outline-none placeholder:text-(--ui-text-quaternary) focus:border-(--ui-accent)'
+          style: { height: 26, width: 180, borderRadius: V.radius(7), border: `1px solid ${V.hair2}`, background: 'transparent', padding: '0 8px', fontSize: 12, color: V.t1, outline: 'none' }
         },
         'reply'
       ),
-      jsx(Button, { size: 'sm', onClick: () => (reply.trim() ? replyDraft(entry, reply.trim()) : openSession(r, entry.profile.name)), children: 'Open' }, 'open')
+      jsx(SmallButton, { onClick: send, children: reply.trim() ? 'Reply' : 'Open' }, 'open')
     ]
   })
 }
 
-const JOB_TONE = {
-  failed: 'text-[#E5534B]',
-  error: 'text-[#E5534B]',
-  done: 'text-[#57AB5A]',
-  ok: 'text-[#57AB5A]',
-  running: 'text-(--ui-accent)',
-  scheduled: 'text-(--ui-text-tertiary)'
-}
+const JOB_COLOR = { failed: V.red, done: V.green, running: V.accent, scheduled: V.t3 }
 
 function jobRow(job) {
   const last = toMs(job.last_run_at)
@@ -1899,9 +1955,13 @@ function jobRow(job) {
   const since = startOfToday() * 1000
   const until = since + 86400000
   if (job.running) return { at: last || Date.now(), word: 'running', job }
-  if (last >= since) return { at: last, word: job.last_status === 'error' || job.last_error ? 'failed' : 'done', job }
+  if (last >= since) return { at: last, word: job.last_status === 'error' ? 'failed' : 'done', job }
   if (job.enabled !== false && next >= Date.now() && next < until) return { at: next, word: 'scheduled', job }
   return null
+}
+
+function Quiet({ children }) {
+  return jsx('p', { style: { padding: '12px 0', fontSize: 12, color: V.t3 }, children })
 }
 
 function TodayList() {
@@ -1912,22 +1972,16 @@ function TodayList() {
     return () => clearInterval(h)
   }, [])
   const rows = useMemo(() => today.jobs.map(jobRow).filter(Boolean).sort((a, b) => a.at - b.at), [today])
-  if (!today.ready) return jsx('p', { className: 'py-3 text-xs text-(--ui-text-quaternary)', children: 'Reading scheduled jobs…' })
-  if (!today.available)
-    return jsx('p', {
-      className: 'py-3 text-xs text-(--ui-text-tertiary)',
-      children: 'Scheduled jobs show here once Hermes has loaded helm’s backend (it loads when Hermes starts).'
-    })
-  if (!rows.length) return jsx('p', { className: 'py-3 text-xs text-(--ui-text-tertiary)', children: 'Nothing ran or is due today.' })
+  if (!today.ready) return jsx(Quiet, { children: 'Reading scheduled jobs…' })
+  if (!today.available) return jsx(Quiet, { children: 'Scheduled jobs show here once Hermes has loaded helm’s backend (it loads when Hermes starts).' })
+  if (!rows.length) return jsx(Quiet, { children: `Nothing ran or is due today${today.jobs.length ? ` · ${today.jobs.length} scheduled job${today.jobs.length === 1 ? '' : 's'} in all` : ''}.` })
   return jsx('div', {
     children: rows.map(({ at, word, job }) =>
       jsx(
         DeskRow,
         {
-          lead: jsx('span', { className: 'w-16 shrink-0 font-mono text-xs tabular-nums text-(--ui-text-tertiary)', children: clock(at) }),
-          title: jsxs('span', {
-            children: [job.name || 'Scheduled job', ' ', jsx('span', { className: cn('text-xs', JOB_TONE[word]), children: word })]
-          }),
+          lead: jsx('span', { style: { width: 64, flexShrink: 0, fontFamily: V.mono, fontSize: 12, color: V.t3 }, children: clock(at) }),
+          title: jsxs('span', { children: [job.name || 'Scheduled job', ' ', jsx('span', { style: { fontSize: 12, color: JOB_COLOR[word] }, children: word })] }),
           sub: [job.profile, job.schedule_display, word === 'failed' && job.last_error ? `“${String(job.last_error).slice(0, 120)}”` : null].filter(Boolean).join(' · '),
           actions: jsx(LinkButton, { onClick: () => host.navigate('/cron'), children: word === 'failed' ? 'Log' : 'Open' })
         },
@@ -1949,12 +2003,12 @@ function DeskPage({ looks, prefs, setPrefs }) {
   const name = (p.deskName || '').trim()
 
   return jsx('div', {
-    className: 'h-full overflow-y-auto',
+    style: { height: '100%', overflowY: 'auto' },
     children: jsxs('div', {
-      className: 'mx-auto w-full max-w-[46rem] px-6 pb-16 pt-14',
+      style: { margin: '0 auto', width: '100%', maxWidth: 760, padding: '64px 28px 72px' },
       children: [
         jsxs('div', {
-          className: 'mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1',
+          style: { display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 14, rowGap: 4, marginBottom: 18 },
           children: [
             naming
               ? jsx('input', {
@@ -1969,15 +2023,15 @@ function DeskPage({ looks, prefs, setPrefs }) {
                   onKeyDown: e => {
                     if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
                   },
-                  className: 'h-8 rounded-md border border-(--ui-accent) bg-transparent px-2 text-lg text-(--ui-text-primary) outline-none'
+                  style: { height: 34, borderRadius: V.radius(7), border: `1px solid ${V.accent}`, background: 'transparent', padding: '0 8px', fontSize: 20, color: V.t1, outline: 'none' }
                 })
               : jsx('h1', {
-                  className: 'cursor-text text-[1.35rem] font-medium tracking-[-0.01em] text-(--ui-text-primary)',
-                  title: 'Click to set the name the desk greets',
+                  title: 'Click to set the name the Desk greets',
                   onClick: () => setNaming(true),
+                  style: { fontSize: 24, fontWeight: 500, letterSpacing: '-0.01em', color: V.t1, cursor: 'text', margin: 0 },
                   children: `${greeting()}${name ? `, ${name}` : ''}.`
                 }),
-            jsx('p', { className: 'text-sm text-(--ui-text-tertiary)', children: statusSentence(crew) })
+            jsx('p', { style: { fontSize: 14, color: V.t3, margin: 0 }, children: statusSentence(crew) })
           ]
         }),
         jsx(DeskPrompt, { crew, looks: looksValue }),
@@ -1988,29 +2042,34 @@ function DeskPage({ looks, prefs, setPrefs }) {
             ? recent.map(entry => {
                 const r = entry.row
                 const st = rowState(r)
+                const look = lookOf(entry.profile.name)
+                const folder = basename(r.cwd)
+                const label = botLabel(entry.profile)
                 return jsx(
                   DeskRow,
                   {
-                    lead: jsx(RobotHead, { look: lookOf(entry.profile.name), expr: r.unread ? 'question' : r.is_active && !r.ended_at ? 'focused' : lookOf(entry.profile.name).face, size: 26, title: entry.profile.name }),
+                    dot: st.word === 'done' ? '' : st.dot,
+                    lead: jsx(RobotHead, { look, expr: r.unread ? 'question' : r.is_active && !r.ended_at ? 'focused' : look.face, size: 28, title: entry.profile.name }),
                     title: sessionTitle(r),
                     sub: jsxs('span', {
                       children: [
-                        botLabel(entry.profile),
+                        label,
                         ' · ',
-                        jsx('span', { className: TONE[st.tone], children: st.word }),
-                        r.cwd ? ` · ${basename(r.cwd)}` : ''
+                        jsx('span', { style: { color: TONE_COLOR[st.tone] }, children: st.word }),
+                        folder && folder.toLowerCase() !== label.toLowerCase() ? ` · ${folder}` : '',
+                        r.message_count ? ` · ${r.message_count} msg` : ''
                       ]
                     }),
                     meta: [ago(r.last_active), rowCost(r) >= 0.01 ? fmtCost(rowCost(r)) : null].filter(Boolean).join(' · '),
-                    actions: jsx(Button, { variant: 'outline', size: 'sm', onClick: () => openSession(r, entry.profile.name), children: r.unread ? 'Review' : 'Open' })
+                    actions: jsx(SmallButton, { onClick: () => openSession(r, entry.profile.name), children: r.unread ? 'Review' : 'Open' })
                   },
                   `${entry.profile.name}:${r.id}`
                 )
               })
-            : jsx('p', { className: 'py-3 text-xs text-(--ui-text-tertiary)', children: crew.ready ? 'No sessions yet. Start one above.' : 'Loading sessions…' })
+            : jsx(Quiet, { children: crew.ready ? 'No sessions yet. Start one above.' : 'Loading sessions…' })
         }),
         jsx(DeskSection, {
-          title: waiting.length ? `Needs you · ${waiting.length}` : 'Needs you',
+          title: jsxs('span', { children: ['Needs you', waiting.length ? jsx('span', { style: { color: V.amber, marginLeft: 6 }, children: waiting.length }) : null] }),
           action: waiting.length
             ? jsx(LinkButton, {
                 onClick: () => {
@@ -2022,7 +2081,7 @@ function DeskPage({ looks, prefs, setPrefs }) {
             : null,
           children: waiting.length
             ? waiting.slice(0, 5).map(entry => jsx(NeedsYouRow, { entry, look: lookOf(entry.profile.name) }, `${entry.profile.name}:${entry.row.id}`))
-            : jsx('p', { className: 'py-3 text-xs text-(--ui-text-tertiary)', children: 'Nothing is waiting on you.' })
+            : jsx(Quiet, { children: 'Nothing is waiting on you.' })
         }),
         jsx(DeskSection, {
           title: 'Today',
@@ -2030,7 +2089,7 @@ function DeskPage({ looks, prefs, setPrefs }) {
           children: jsx(TodayList, {})
         }),
         jsxs('div', {
-          className: 'mt-8 flex flex-wrap items-center gap-2',
+          style: { marginTop: 32, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
           children: [
             ...[
               ['hubot', 'Bots board', BOTS_ROUTE],
@@ -2038,10 +2097,14 @@ function DeskPage({ looks, prefs, setPrefs }) {
               ['files', 'Artifacts', '/artifacts'],
               ['symbol-color', 'Customize look', LOOK_ROUTE]
             ].map(([icon, label, path]) =>
-              jsx(Button, { variant: 'outline', size: 'sm', onClick: () => host.navigate(path), children: jsxs('span', { className: 'flex items-center gap-1.5', children: [jsx(Codicon, { name: icon, size: 13 }), label] }) }, path)
+              jsx(
+                SmallButton,
+                { onClick: () => host.navigate(path), children: jsxs('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 6 }, children: [jsx(Codicon, { name: icon, size: 13 }), label] }) },
+                path
+              )
             ),
             jsx('span', {
-              className: 'ml-auto text-xs tabular-nums text-(--ui-text-quaternary)',
+              style: { marginLeft: 'auto', fontSize: 12, color: V.t4, fontVariantNumeric: 'tabular-nums' },
               children: [`${totals.working} working`, totals.today >= 0.01 ? `${fmtCost(totals.today)} today` : null].filter(Boolean).join(' · ')
             })
           ]
@@ -2061,31 +2124,143 @@ function DeskStrip({ looks, prefs }) {
   if (!showDeskStrip || active || !recent.length) return null
   const waiting = crewTotals(crew).needYou
   return jsxs('div', {
-    className: 'flex min-w-0 items-center gap-1.5 px-2 pb-1 pt-1.5 text-[0.6875rem] text-(--ui-text-tertiary)',
+    style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, padding: '6px 8px 2px', fontSize: 11, color: V.t3 },
     children: [
-      jsx('span', { className: 'shrink-0 font-semibold uppercase tracking-[0.1em] text-(--ui-text-quaternary)', children: 'Continue' }),
-      ...recent.map(entry =>
-        jsxs(
+      jsx('span', { style: { ...CAPS, fontSize: 10, color: V.t4, flexShrink: 0 }, children: 'Continue' }),
+      ...recent.map(entry => {
+        const look = normalizeLook(looksValue[entry.profile.name], entry.profile.name)
+        return jsxs(
           'button',
           {
             type: 'button',
             title: `${botLabel(entry.profile)} · ${sessionTitle(entry.row)}`,
             onClick: () => openSession(entry.row, entry.profile.name),
-            className: 'flex min-w-0 max-w-[13rem] items-center gap-1 rounded-full border border-(--helm-hair,var(--ui-border)) py-0.5 pl-0.5 pr-2 hover:text-(--ui-text-primary)',
-            children: [
-              jsx(RobotHead, { look: normalizeLook(looksValue[entry.profile.name], entry.profile.name), expr: entry.row.unread ? 'question' : normalizeLook(looksValue[entry.profile.name], entry.profile.name).face, size: 16, title: entry.profile.name }),
-              jsx('span', { className: 'truncate', children: sessionTitle(entry.row) })
-            ]
+            style: { display: 'flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: 210, borderRadius: 999, border: `1px solid ${V.hair}`, padding: '1px 8px 1px 2px', background: 'transparent', color: V.t2, cursor: 'pointer', fontSize: 11 },
+            children: [jsx(RobotHead, { look, expr: entry.row.unread ? 'question' : look.face, size: 16, title: entry.profile.name }), jsx('span', { className: 'truncate', children: sessionTitle(entry.row) })]
           },
           entry.row.id
         )
-      ),
+      }),
       jsx('button', {
         type: 'button',
         onClick: () => host.navigate(DESK_ROUTE),
-        className: cn('ml-auto shrink-0 rounded px-1 hover:underline', waiting ? 'text-[#E8A657]' : 'text-(--ui-accent)'),
+        className: 'hover:underline',
+        style: { marginLeft: 'auto', flexShrink: 0, background: 'none', border: 0, cursor: 'pointer', fontSize: 11, color: waiting ? V.amber : V.accent },
         children: waiting ? `${waiting} need${waiting === 1 ? 's' : ''} you · Desk` : 'Desk'
       })
+    ]
+  })
+}
+
+// ───────────────────────────────────────────────────────── the Session pane
+// A right-sidebar tab beside Files: the focused chat at a glance (who, where,
+// what it has cost), the rest of the crew, and the next scheduled job.
+
+function KV({ k, v, mono }) {
+  if (v === null || v === undefined || v === '') return null
+  return jsxs('div', {
+    style: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, padding: '3px 0', fontSize: 12 },
+    children: [
+      jsx('span', { style: { flexShrink: 0, color: V.t3 }, children: k }),
+      jsx('span', { className: 'truncate', style: { minWidth: 0, textAlign: 'right', color: V.t2, fontFamily: mono ? V.mono : undefined }, title: String(v), children: v })
+    ]
+  })
+}
+
+function PaneHead({ children }) {
+  return jsx('h3', { style: { ...CAPS, fontSize: 10, color: V.t4, margin: '18px 0 4px' }, children })
+}
+
+function fmtTokens(n) {
+  const v = Number(n) || 0
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`
+  if (v >= 1e3) return `${Math.round(v / 1e3)}k`
+  return String(v)
+}
+
+function SessionPane({ looks }) {
+  const crew = useValue($crew)
+  const today = useValue($today)
+  const looksValue = useValue(looks)
+  const storedId = useValue(host.state.focusedStoredSessionId)
+  const profile = useValue(host.state.focusedSessionProfile)
+  const model = useValue(host.state.model)
+  const cwd = useValue(host.state.cwd)
+  const usage = useValue(host.state.focusedUsage)
+  const busy = useValue(host.state.busy)
+  useEffect(() => {
+    if (!$today.get().ready) refreshToday()
+  }, [])
+  const hit = storedId && crew.byId ? crew.byId[storedId] : null
+  const r = hit ? hit.row : null
+  const owner = (hit && hit.profile) || profile
+  const ownerProfile = (crew.profiles || []).find(p => p.name === owner)
+  const look = normalizeLook(looksValue[owner], owner || 'default')
+  const cost = usage && typeof usage.cost_usd === 'number' ? usage.cost_usd : r ? rowCost(r) : 0
+  const ctxPct = usage && typeof usage.context_percent === 'number' ? Math.round(usage.context_percent) : null
+  const nextJob = today.jobs
+    .filter(j => j.enabled !== false && toMs(j.next_run_at) > Date.now())
+    .sort((a, b) => toMs(a.next_run_at) - toMs(b.next_run_at))[0]
+  const others = (crew.profiles || []).filter(p => p.name !== owner)
+
+  return jsxs('div', {
+    style: { height: '100%', overflowY: 'auto', padding: '14px 14px 20px' },
+    children: [
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 },
+        children: [
+          jsx(RobotHead, { look, expr: busy ? 'focused' : r && r.unread ? 'question' : look.face, size: 34, title: owner || 'bot' }),
+          jsxs('div', {
+            style: { minWidth: 0 },
+            children: [
+              jsx('div', { className: 'truncate', style: { fontSize: 14, fontWeight: 500, color: V.t1 }, children: ownerProfile ? botLabel(ownerProfile) : owner || 'New chat' }),
+              jsx('div', { className: 'truncate', style: { fontSize: 12, color: V.t3 }, children: r ? sessionTitle(r) : storedId ? 'This session' : 'Nothing sent yet' })
+            ]
+          })
+        ]
+      }),
+      jsx(PaneHead, { children: busy ? 'Session · working' : 'Session' }),
+      jsx(KV, { k: 'Model', v: (r && r.model) || model }),
+      jsx(KV, { k: 'Folder', v: basename((r && r.cwd) || cwd), mono: true }),
+      jsx(KV, { k: 'Branch', v: r && r.git_branch, mono: true }),
+      jsx(KV, { k: 'Started', v: r && r.started_at ? `${clock(toMs(r.started_at))} · ${ago(r.started_at)}` : null }),
+      jsx(KV, { k: 'Messages', v: r ? String(r.message_count || 0) : null, mono: true }),
+      jsx(KV, { k: 'Tool calls', v: r ? String(r.tool_call_count || 0) : null, mono: true }),
+      jsx(KV, { k: 'Tokens', v: r ? `${fmtTokens(r.input_tokens)} in · ${fmtTokens(r.output_tokens)} out` : null, mono: true }),
+      jsx(KV, { k: 'Cost', v: [cost >= 0.005 ? fmtCost(cost) : null, ctxPct !== null ? `${ctxPct}% ctx` : null].filter(Boolean).join(' · ') || null, mono: true }),
+      others.length ? jsx(PaneHead, { children: 'Crew' }) : null,
+      ...others.map(p => {
+        const act = activityFor(crew, p.name)
+        const st = botStatus(act, false)
+        const lk = normalizeLook(looksValue[p.name], p.name)
+        return jsxs(
+          'button',
+          {
+            type: 'button',
+            title: act.latest ? `Open ${sessionTitle(act.latest)}` : `New chat with ${botLabel(p)}`,
+            onClick: () => (act.latest ? openSession(act.latest, p.name) : host.newChat(p.name)),
+            style: { display: 'flex', width: '100%', alignItems: 'center', gap: 8, padding: '4px 2px', textAlign: 'left', fontSize: 12, background: 'none', border: 0, cursor: 'pointer', borderRadius: V.radius(6) },
+            children: [
+              jsx(RobotHead, { look: lk, expr: st.expr || lk.face, size: 18, title: p.name }),
+              jsx('span', { className: 'truncate', style: { minWidth: 0, flex: 1, color: V.t2 }, children: botLabel(p) }),
+              jsx('span', { style: { flexShrink: 0, color: TONE_COLOR[st.tone] }, children: st.label })
+            ]
+          },
+          p.name
+        )
+      }),
+      jsx(PaneHead, { children: 'Scheduled jobs' }),
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12, color: V.t3 },
+        children: [
+          jsx('span', {
+            className: 'truncate', style: { minWidth: 0 },
+            children: !today.available ? 'Not loaded yet' : nextJob ? `${today.jobs.length} · next ${clock(toMs(nextJob.next_run_at))} ${nextJob.name || ''}` : `${today.jobs.length} · none due`
+          }),
+          jsx(LinkButton, { onClick: () => host.navigate('/cron'), children: 'Open' })
+        ]
+      }),
+      jsx('div', { style: { marginTop: 20 }, children: jsx(LinkButton, { onClick: () => host.navigate(DESK_ROUTE), children: '← Desk' }) })
     ]
   })
 }
@@ -2236,7 +2411,7 @@ function SettingsBackup({ prefs, setPrefs, looks, setAllLooks, os }) {
         onChange: e => setText(e.target.value),
         rows: 6,
         placeholder: 'Paste a helm export here to import it',
-        className: 'w-full rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-input) p-2 font-mono text-xs text-(--ui-text-primary)'
+        className: 'w-full rounded-md border border-(--ui-stroke-secondary) bg-transparent p-2 font-mono text-xs text-(--ui-text-primary)'
       }),
       jsxs(Row, {
         children: [
@@ -2321,7 +2496,7 @@ function Section({ title, hint, children }) {
       jsxs('div', {
         className: 'flex items-baseline gap-3',
         children: [
-          jsx('h3', { className: 'text-[0.6875rem] font-semibold uppercase tracking-[0.09em] text-(--ui-text-tertiary)', children: title }),
+          jsx('h3', { className: 'text-[0.6875rem] font-semibold uppercase tracking-wider text-(--ui-text-tertiary)', children: title }),
           hint ? jsx('span', { className: 'text-[0.6875rem] text-(--ui-text-quaternary)', children: hint }) : null
         ]
       }),
@@ -2378,7 +2553,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
         ]
       }),
       jsxs('div', {
-        className: 'flex min-h-0 flex-1 gap-8 overflow-auto px-6',
+        className: 'flex min-h-0 flex-1 gap-6 overflow-auto px-6',
         children: [
           jsxs('div', {
             className: 'min-w-0 max-w-3xl flex-1',
@@ -2575,6 +2750,13 @@ export default {
       { id: 'desk-palette', area: PALETTE_AREA, data: { id: 'helm.desk', label: 'Helm: Desk', keywords: ['home', 'desk', 'dashboard', 'today', 'continue', 'helm'], run: () => host.navigate(DESK_ROUTE) } },
       { id: 'desk-key', area: KEYBINDS_AREA, data: { id: 'helm.desk', label: 'Open the Desk', category: 'view', defaults: ['mod+alt+h'], run: () => host.navigate(DESK_ROUTE) } },
       { id: 'desk-strip', area: 'composer.top', order: 5, render: () => jsx(DeskStrip, { looks, prefs }) },
+      {
+        id: 'session-pane',
+        area: 'panes',
+        title: 'Session',
+        data: { placement: 'right', collapsible: true, dock: { pane: 'files', pos: 'center' }, tabTitleText: () => 'Session', width: '280px', minWidth: '240px' },
+        render: () => jsx(SessionPane, { looks })
+      },
       { id: 'bots-route', area: ROUTES_AREA, data: { path: BOTS_ROUTE }, render: () => jsx(BotsPage, { looks, setLook, avatars, os: ctx.os }) },
       { id: 'bots-nav', area: SIDEBAR_NAV_AREA, data: { path: BOTS_ROUTE, label: 'Bots board', codicon: 'hubot' } },
       { id: 'look-route', area: ROUTES_AREA, data: { path: LOOK_ROUTE }, render: () => jsx(LookPage, { prefs, setPrefs, applyLook, looks }) },

@@ -100,8 +100,10 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
 {
   const desk = byArea('routes').find(c => c.data.path === '/helm/desk')
   const html = renderToString(desk.render())
-  for (const word of ['Good ', 'What should we tackle?', 'Continue', 'Needs you · 1', 'Today', 'Refactor the auth flow', 'Install helm', 'Vision is', 'One thing is waiting on you.', 'Draft', 'Send', 'Scheduled jobs', 'Reply…'])
+  for (const word of ['Good ', 'Needs you', 'What should we tackle?', 'Continue', 'Today', 'Refactor the auth flow', 'Install helm', 'Vision is', 'One thing is waiting on you.', 'Draft', 'Send', 'Scheduled jobs', 'Reply…'])
     assert.ok(html.includes(word), `desk: ${word}`)
+  const pane = renderToString(contributions.find(c => c.area === 'panes').render())
+  for (const word of ['Session', 'Model', 'Crew', 'BUILDER', 'reply waiting', 'Scheduled jobs']) assert.ok(pane.includes(word), `session pane: ${word}`)
   const strip = renderToString(byArea('composer.top')[0].render())
   assert.ok(strip.includes('Continue') && strip.includes('Install helm') && strip.includes('1 needs you'), `desk strip: ${strip.slice(0, 300)}`)
 }
