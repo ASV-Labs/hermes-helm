@@ -9,18 +9,18 @@ hermes plugins install P0GL0L/hermes-helm
 hermes plugins enable helm
 ```
 
-Then in Hermes Desktop: **Settings → Plugins → Desktop plugins → enable helm**, and restart Hermes once so the gateway mounts helm's backend (robot renders, the Desk's scheduled-jobs list). Pick a look in **Customize look** (`⌘⌥L`).
+Then in Hermes Desktop: **Settings → Plugins → Desktop plugins → enable helm**, and restart Hermes once so the gateway mounts helm's backend (robot renders, the Desk's scheduled-jobs list). Pick a look in **Customize look** (`⌘⌥U`).
 
 ## What you get
 
 | | |
 |---|---|
-| **Desk** (`⌘⌥H`, opens at launch) | A greeting and a one-line status of the crew (*Vision is 4 min into "deploy package". Two things are waiting on you.*), a prompt that hands work to any bot (pick its robot, ↵ sends, *Draft* fills the new chat unsent), **Continue** (latest sessions across every bot with state, folder, age, cost), **Needs you** (unread replies, with an inline reply that opens the chat with your reply drafted), **Today** (scheduled jobs that ran, failed or are due today), and shortcuts. |
+| **Desk** (`⌘⌥0`, opens at launch) | A greeting and a one-line status of the crew (*Vision is 4 min into "deploy package". Two things are waiting on you.*), a prompt that hands work to any bot (pick its robot, ↵ sends, *Draft* fills the new chat unsent), **Continue** (latest sessions across every bot with state, folder, age, cost), **Needs you** (unread replies, with an inline reply that opens the chat with your reply drafted), **Today** (scheduled jobs that ran, failed or are due today), and shortcuts. |
 | **Continue strip** | On a fresh chat, the three latest sessions sit above the composer, one click back in, plus *N need you · Desk*. |
 | **Redesign layer** | Across the whole app: one-colour rail, tracked-caps section labels and tabs with an accent underline, an accent edge on the open row, a calmer reading column, framed tool activity, approvals with an amber decision edge, a hairline composer that lights on focus, tabular status bar, hairline menus and dialogs, thin scrollbars. |
 | **Customize look** | One page for the whole desk, applied live: base (Dark, Graphite, Paper), 7 accents, 4 type families, corners, reading width, rail colour, session density, chat text size, and every helm surface on or off. |
 | **Live status everywhere** | Titlebar: bot, folder, model, cost and context of the chat you're in. Session rows: the owning bot's robot (its face is the row's state) and spend. Status bar: *N need you*, *$ today*, *N working*, focused cost. |
-| **Bots board** (`⌘⌥B`) | Every bot with its robot and live status (*reply waiting*, *working*, *idle · 12m ago*), needs-you-first, latest session with *Resume*, *New chat*, spend, and the look editor. *New bot* creates a real Hermes bot. |
+| **Bots board** (`⌘⌥R`) | Every bot with its robot and live status (*reply waiting*, *working*, *idle · 12m ago*), needs-you-first, latest session with *Resume*, *New chat*, spend, and the look editor. *New bot* creates a real Hermes bot. |
 | **Robots** | 191 PNG layers rendered in Blender (Cycles), composed live: 10 toppers · 10 faces · 8 chest modules · 6 tools · 6 things to wear · 7 colours. Each robot becomes its bot's Hermes avatar; new bots get one automatically unless you uploaded a photo. |
 | **Palette** | *Desk*, *what needs me*, *new chat with <bot>*, *resume <bot>*, every theme. |
 | **Settings** | Settings → Plugins → Helm, plus export/import of everything as JSON. |

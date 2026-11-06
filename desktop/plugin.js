@@ -9,7 +9,7 @@
 //   ROUTES_AREA        /helm/bots — the Bots board with robot looks
 //   SIDEBAR_NAV_AREA   a "Bots board" row under the core rows
 //   PALETTE_AREA       Helm: Bots board · Helm: theme …
-//   KEYBINDS_AREA      helm.bots (mod+alt+b)
+//   KEYBINDS_AREA      helm.desk (mod+alt+0), helm.bots (mod+alt+r), helm.look (mod+alt+u) — none collide with the app's or macOS's
 //   appearance.extra   a card on Settings → Appearance with the three themes
 //   registerSettingsPage  Settings → Plugins → Helm
 //
@@ -1633,7 +1633,7 @@ function rowState(r) {
 function sessionTitle(r) {
   if (r.title || r.preview) return r.title || r.preview
   const src = (r.handoff_platform || r.source || '').toLowerCase()
-  const where = src && !['desktop', 'tui', 'cli'].includes(src) ? `${src.charAt(0).toUpperCase()}${src.slice(1)} chat` : 'Untitled chat'
+  const where = src === 'cron' || r.scheduler_owned ? 'Scheduled run' : src && !['desktop', 'tui', 'cli'].includes(src) ? `${src.charAt(0).toUpperCase()}${src.slice(1)} chat` : 'Untitled chat'
   return r.started_at ? `${where} · ${new Date(toMs(r.started_at)).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : where
 }
 
@@ -1794,7 +1794,7 @@ function SmallButton({ onClick, children, primary, disabled, title }) {
       borderRadius: V.radius(7),
       border: primary ? '1px solid transparent' : `1px solid ${V.hair2}`,
       background: primary ? V.t1 : 'transparent',
-      color: primary ? 'var(--ui-base, #0d1117)' : V.t1,
+      color: primary ? 'var(--ui-bg-chrome, #0b0f14)' : V.t1,
       opacity: disabled ? 0.45 : 1,
       cursor: disabled ? 'default' : 'pointer',
       whiteSpace: 'nowrap'
@@ -2056,7 +2056,7 @@ function DeskPage({ looks, prefs, setPrefs }) {
                         label,
                         ' · ',
                         jsx('span', { style: { color: TONE_COLOR[st.tone] }, children: st.word }),
-                        folder && folder.toLowerCase() !== label.toLowerCase() ? ` · ${folder}` : '',
+                        folder && folder.length > 1 && folder.toLowerCase() !== label.toLowerCase() ? ` · ${folder}` : '',
                         r.message_count ? ` · ${r.message_count} msg` : ''
                       ]
                     }),
@@ -2748,7 +2748,7 @@ export default {
       { id: 'desk-route', area: ROUTES_AREA, data: { path: DESK_ROUTE }, render: () => jsx(DeskPage, { looks, prefs, setPrefs }) },
       { id: 'desk-nav', area: SIDEBAR_NAV_AREA, data: { path: DESK_ROUTE, label: 'Desk', codicon: 'home' } },
       { id: 'desk-palette', area: PALETTE_AREA, data: { id: 'helm.desk', label: 'Helm: Desk', keywords: ['home', 'desk', 'dashboard', 'today', 'continue', 'helm'], run: () => host.navigate(DESK_ROUTE) } },
-      { id: 'desk-key', area: KEYBINDS_AREA, data: { id: 'helm.desk', label: 'Open the Desk', category: 'view', defaults: ['mod+alt+h'], run: () => host.navigate(DESK_ROUTE) } },
+      { id: 'desk-key', area: KEYBINDS_AREA, data: { id: 'helm.desk', label: 'Open the Desk', category: 'view', defaults: ['mod+alt+0'], run: () => host.navigate(DESK_ROUTE) } },
       { id: 'desk-strip', area: 'composer.top', order: 5, render: () => jsx(DeskStrip, { looks, prefs }) },
       {
         id: 'session-pane',
@@ -2776,8 +2776,8 @@ export default {
           }
         }
       },
-      { id: 'bots-key', area: KEYBINDS_AREA, data: { id: 'helm.bots', label: 'Open the Bots board', category: 'view', defaults: ['mod+alt+b'], run: () => host.navigate(BOTS_ROUTE) } },
-      { id: 'look-key', area: KEYBINDS_AREA, data: { id: 'helm.look', label: 'Customize look', category: 'view', defaults: ['mod+alt+l'], run: () => host.navigate(LOOK_ROUTE) } },
+      { id: 'bots-key', area: KEYBINDS_AREA, data: { id: 'helm.bots', label: 'Open the Bots board', category: 'view', defaults: ['mod+alt+r'], run: () => host.navigate(BOTS_ROUTE) } },
+      { id: 'look-key', area: KEYBINDS_AREA, data: { id: 'helm.look', label: 'Customize look', category: 'view', defaults: ['mod+alt+u'], run: () => host.navigate(LOOK_ROUTE) } },
       ...THEMES.map(t => ({
         id: `palette-${t.name}`,
         area: PALETTE_AREA,

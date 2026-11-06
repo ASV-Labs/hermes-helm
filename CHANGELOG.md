@@ -4,9 +4,12 @@
 
 The Desk: a home for the whole app.
 
-- **Desk** (`/helm/desk`, `⌘⌥H`, sidebar row under *New session*, opens at launch): greeting and crew status sentence; a prompt that hands work to any bot (robot picker, ↵ sends, *Draft* fills the new chat unsent, never sends before the app has switched to that bot); **Continue**, **Needs you** with inline reply-as-draft, **Today** from scheduled jobs; shortcuts and live totals.
+- **Desk** (`/helm/desk`, `⌘⌥0`, sidebar row under *New session*, opens at launch): greeting and crew status sentence; a prompt that hands work to any bot (robot picker, ↵ sends, *Draft* fills the new chat unsent, never sends before the app has switched to that bot); **Continue**, **Needs you** with inline reply-as-draft, **Today** from scheduled jobs; shortcuts and live totals.
 - **Continue strip** above the composer on a fresh chat.
 - Backend: `GET /desk/today` lists scheduled jobs through the dashboard's own cron listing, trimmed; any failure hides the list instead of erroring.
+- **Session pane**: a right-sidebar tab beside Files with the focused chat's bot, model, folder, branch, start, messages, tool calls, tokens and cost, the rest of the crew's status, and the next scheduled job.
+- Shortcuts moved off keys the app or macOS already own: Desk `⌘⌥0`, Bots board `⌘⌥R`, Customize look `⌘⌥U`.
+- Every class helm uses is one the app itself compiles; the Desk and pane lay out with inline styles, so nothing renders unstyled.
 - Both new surfaces can be turned off in Customize look.
 
 ## 0.4.0 — 2026-11-06
