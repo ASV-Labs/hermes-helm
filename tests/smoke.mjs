@@ -82,8 +82,13 @@ for (const c of contributions) {
     rendered.push([c.id, html.length])
   }
 }
+const now = Date.now() / 1000
+globalThis.__helmSessions = {
+  builder: [{ id: 's1', title: 'Refactor the auth flow', last_active: now - 120, is_active: false, unread: true, actual_cost_usd: 0.31 }],
+  vision: [{ id: 's2', title: 'Install helm', last_active: now - 30, is_active: true, unread: false, estimated_cost_usd: 0.05 }]
+}
 globalThis.__helmQuery = {
-  data: { profiles: [{ name: 'vision', bot_title: 'Vision', model: 'grok-4.7', provider: 'xai', skill_count: 12, is_default: false, has_env: true, path: '' }, { name: 'default', is_default: true, model: null, provider: null, skill_count: 3, has_env: true, path: '' }] },
+  data: { profiles: [{ name: 'vision', bot_title: 'Vision', model: 'grok-4.7', provider: 'xai', skill_count: 12, is_default: false, has_env: true, path: '' }, { name: 'default', is_default: true, model: null, provider: null, skill_count: 3, has_env: true, path: '' }, { name: 'builder', bot_title: 'BUILDER', model: 'claude-opus-5-5', provider: 'anthropic', skill_count: 7, is_default: false, has_env: false, path: '/Users/x/.hermes/profiles/builder' }] },
   isLoading: false,
   error: null
 }
@@ -92,6 +97,13 @@ const boardHtml = renderToString(route.render())
 assert.ok(boardHtml.includes('Vision'), 'board lists the bot title')
 assert.ok(boardHtml.includes('<svg') || boardHtml.includes('<img'), 'board draws robot heads')
 assert.ok(boardHtml.includes('working'), 'focused busy profile shows working')
+assert.ok(boardHtml.includes('reply waiting'), 'unread session shows reply waiting')
+assert.ok(boardHtml.includes('Refactor the auth flow') && boardHtml.includes('Resume'), 'latest session + resume')
+assert.ok(boardHtml.includes('$0.31 recent'), 'recent spend')
+assert.ok(boardHtml.includes('Needs you'), 'filter control')
+const composer = contributions.find(c => c.area === 'composer.leading')
+assert.ok(composer, 'composer bot chip registered')
+assert.ok(renderToString(composer.render()).includes('Talking to vision'), 'composer chip names the focused bot')
 
 const settingsHtml = renderToString(settingsPage.render())
 assert.ok(settingsHtml.includes('Helm Dark'), 'settings shows themes')

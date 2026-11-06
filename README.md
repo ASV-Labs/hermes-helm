@@ -17,7 +17,8 @@ Then in Hermes Desktop: **Settings → Plugins → Desktop plugins → enable he
 |---|---|
 | **Three themes** | Helm Dark (cyan accent), Helm Graphite (no hue), Helm Paper (warm light). Each ships a terminal palette and a small CSS layer that removes the noise texture, calms the profile rail, tracks the tab labels, and flattens the composer. |
 | **Status-bar chips** | *N working* — how many sessions are mid-turn, from the app's own busy map. *$0.42 · 18% ctx* — cost and context of the session you're looking at. Each can be turned off. |
-| **Bots board** | `⌘⌥B` or the sidebar row. Every profile as a card with its robot, model, skill count, a *Chat* button that opens its Bot Mode chat, and a *Look* editor. The face is the status: focused eyes while working. |
+| **Bots board** | `⌘⌥B` or the sidebar row. A crew view: every bot with its robot, live status (*reply waiting*, *working*, *idle · 12m ago*) read from its own sessions, needs-you-first sorting and filters, its latest session with *Resume*, *New chat*, recent spend, and a *Look* editor. The face is the status. |
+| **Composer robot** | The bot you're talking to, left of the composer; its face works while it works. Click for the board. |
 | **Robot looks** | Real renders, not icons: 191 PNG layers rendered in Blender (Cycles) from one fixed camera, composed live. 10 toppers (antenna, cat ears, sprout, cap, goggles, dish, bunny, beanie, crown, headphones) · 10 faces · 8 chest modules · 6 things to carry (wrench, claw, drill, flashlight, magnet, camera) · 6 things to wear (backpack, jetpack, cape, satchel, scarf, bow) · 7 colours. 235,200 combinations. |
 | **Customize look** | A sidebar row and `/helm/look` page that owns the desk's appearance: themes, chrome toggles, density and text scale, and the door to the Bots board. Made to replace a skin plugin's customize button. |
 | **Settings page** | Settings → Plugins → Helm: theme, chips, hide the Messaging row, session-list density and chat text scale (the app's own settings, surfaced), export/import everything as JSON. |
@@ -41,7 +42,7 @@ Requires Hermes Desktop ≥ 0.22.0. Tested on 0.23.0 (macOS).
 
 ## Disclosure
 
-The agent half (`__init__.py`) registers nothing: no tools, hooks, commands or settings. The dashboard half is a read-only file server for the bundled PNGs (names validated against a fixed pattern; no path traversal, no writes). No outbound network requests. No shell. Reads the profile list through `host.profiles.list()` (the same endpoint the profile rail uses) and the app's busy/usage state through `host.state`. Writes only to its own plugin storage and, when you change them on its settings page, the app's `sessionListDensity` and `chatTextScale` settings.
+The agent half (`__init__.py`) registers nothing: no tools, hooks, commands or settings. The dashboard half is a read-only file server for the bundled PNGs (names validated against a fixed pattern; no path traversal, no writes). No outbound network requests. No shell. Reads the profile list through `host.profiles.list()` (the same endpoint the profile rail uses), each bot's recent session rows (title, timestamps, unread/active flags, cost) through `host.listPersistedSessions` — the sidebar's own read, kept in memory only — and the app's busy/usage state through `host.state`. Opens sessions and chats only when you click. Writes only to its own plugin storage and, when you change them on its settings page, the app's `sessionListDensity` and `chatTextScale` settings.
 
 ## Development
 

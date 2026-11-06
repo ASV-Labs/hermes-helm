@@ -28,8 +28,12 @@ export function atom(initial) {
   return a
 }
 export const useValue = a => a.get()
-export const useQuery = ({ queryFn }) => {
-  // synchronous stand-in: resolve from the mock's preset
+export const useQuery = ({ queryKey }) => {
+  // synchronous stand-in: resolve from the mock's presets
+  if (queryKey && queryKey[1] === 'bot-sessions') {
+    const sessions = (globalThis.__helmSessions || {})[queryKey[2]] || []
+    return { data: { sessions, total: sessions.length }, isLoading: false, error: null }
+  }
   return globalThis.__helmQuery || { data: undefined, isLoading: true, error: null }
 }
 export const cn = (...xs) => xs.flat().filter(Boolean).join(' ')
@@ -70,5 +74,10 @@ export const host = {
   navigate: path => {
     globalThis.__navigated = path
   },
-  notifyError: () => {}
+  notifyError: () => {},
+  listPersistedSessions: async () => ({ sessions: [] }),
+  openSession: (id, opts) => {
+    globalThis.__opened = [id, opts]
+  },
+  restartGateway: async () => true
 }

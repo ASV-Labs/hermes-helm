@@ -42,7 +42,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '0.2.0'
+const VERSION = '0.3.0'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 
@@ -261,6 +261,7 @@ const DEFAULT_PREFS = {
   showWorkingChip: true,
   showCostChip: true,
   hideMessagingRow: false,
+  showComposerBot: true,
   preferredTheme: 'helm-dark'
 }
 
@@ -754,46 +755,175 @@ function randomLook() {
   }
 }
 
-function BotCard({ profile, look, working, onEdit }) {
+// Per-bot activity, from the bot's own persisted sessions (the same
+// /api/profiles/sessions read the sidebar uses; no gateway dial). is_active is
+// the backend's 300 s activity window, unread its read-watermark flag.
+function useBotActivity(profileName) {
+  const canRead = typeof host.listPersistedSessions === 'function'
+  const q = useQuery({
+    queryKey: [ID, 'bot-sessions', profileName],
+    queryFn: () => host.listPersistedSessions(null, { profile: profileName, limit: 25 }),
+    enabled: canRead,
+    refetchInterval: 20000,
+    staleTime: 10000
+  })
+  return useMemo(() => {
+    const rows = ((q.data && q.data.sessions) || []).filter(r => r && !r.hidden && !r.is_internal_child)
+    rows.sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
+    const spend = rows.reduce((sum, r) => sum + (Number(r.actual_cost_usd) || Number(r.estimated_cost_usd) || 0), 0)
+    return {
+      available: canRead && !q.error,
+      loading: canRead && q.isLoading,
+      sessions: rows,
+      latest: rows[0] || null,
+      active: rows.some(r => r.is_active && !r.ended_at),
+      unread: rows.filter(r => r.unread).length,
+      spend,
+      total: (q.data && q.data.total) || rows.length
+    }
+  }, [q.data, q.error, q.isLoading, canRead])
+}
+
+function ago(ts) {
+  if (!ts) return ''
+  const ms = ts > 1e12 ? ts : ts * 1000
+  const s = Math.max(0, (Date.now() - ms) / 1000)
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  return `${Math.floor(s / 86400)}d ago`
+}
+
+// One status per bot, most urgent first. The face shows it.
+function botStatus(activity, focusedWorking) {
+  if (activity.unread > 0) return { key: 'needs-you', label: activity.unread === 1 ? 'reply waiting' : `${activity.unread} replies waiting`, expr: 'question', tone: 'amber', rank: 0 }
+  if (focusedWorking || activity.active) return { key: 'working', label: 'working', expr: 'focused', tone: 'accent', rank: 1 }
+  if (activity.latest) return { key: 'idle', label: `idle · ${ago(activity.latest.last_active)}`, expr: null, tone: 'muted', rank: 2 }
+  return { key: 'new', label: 'no sessions yet', expr: 'sleep', tone: 'muted', rank: 3 }
+}
+
+const TONE = {
+  amber: 'text-[#E8A657]',
+  accent: 'text-(--ui-accent)',
+  muted: 'text-(--ui-text-tertiary)'
+}
+
+function openSession(row, profileName) {
+  haptic('tap')
+  try {
+    host.openSession(row._lineage_root_id || row.id, { profile: profileName })
+  } catch (err) {
+    host.notifyError?.(`Could not open the session: ${err && err.message ? err.message : err}`)
+  }
+}
+
+function BotCard({ profile, look, focusedWorking, onEdit, onStatus, os }) {
   const label = botLabel(profile)
-  const expr = working ? 'focused' : look.face
-  const meta = [profile.model, profile.provider].filter(Boolean).join(' · ')
+  const activity = useBotActivity(profile.name)
+  const status = botStatus(activity, focusedWorking)
+  useEffect(() => {
+    onStatus(profile.name, status.rank)
+  }, [status.rank])
+  const expr = status.expr || look.face
+  const meta = [profile.model || 'no model pinned', `${profile.skill_count ?? 0} skills`]
+  if (activity.spend > 0) meta.push(`${fmtCost(activity.spend)} recent`)
+  const latest = activity.latest
   return jsxs('div', {
-    className: 'flex items-center gap-3 rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-card) px-3 py-2.5',
+    className: cn(
+      'flex flex-col gap-2 rounded-lg border bg-(--ui-bg-card) px-3 py-2.5',
+      status.key === 'needs-you' ? 'border-[#E8A657]/60' : 'border-(--ui-stroke-secondary)'
+    ),
     children: [
-      jsx(RobotHead, { look, expr, size: 48, title: label }),
       jsxs('div', {
-        className: 'flex min-w-0 flex-1 flex-col',
+        className: 'flex items-center gap-3',
         children: [
+          jsx(RobotHead, { look, expr, size: 52, title: label }),
           jsxs('div', {
-            className: 'flex items-center gap-2 text-sm',
+            className: 'flex min-w-0 flex-1 flex-col',
             children: [
-              jsx('span', { className: 'truncate font-medium', children: label }),
-              profile.is_default ? jsx('span', { className: 'text-[0.625rem] uppercase tracking-[0.08em] text-(--ui-text-quaternary)', children: 'default' }) : null,
-              working ? jsx('span', { className: 'text-[0.6875rem] text-(--ui-accent)', children: 'working' }) : null
+              jsxs('div', {
+                className: 'flex items-center gap-2 text-sm',
+                children: [
+                  jsx('span', { className: 'truncate font-medium', children: label }),
+                  profile.is_default ? jsx('span', { className: 'text-[0.625rem] uppercase tracking-[0.08em] text-(--ui-text-quaternary)', children: 'default' }) : null,
+                  profile.has_env ? jsx('span', { title: 'This profile has its own .env', className: 'rounded border border-(--ui-stroke-secondary) px-1 text-[0.625rem] text-(--ui-text-quaternary)', children: '.env' }) : null
+                ]
+              }),
+              jsx('div', { className: cn('truncate text-xs', TONE[status.tone]), children: activity.loading ? 'checking…' : status.label }),
+              jsx('div', { className: 'truncate text-[0.6875rem] text-(--ui-text-tertiary)', children: [profile.name !== label ? profile.name : null, ...meta].filter(Boolean).join(' · ') })
             ]
-          }),
-          jsx('div', {
-            className: 'truncate text-xs text-(--ui-text-tertiary)',
-            children: [profile.name !== label ? profile.name : null, meta || 'no model pinned', `${profile.skill_count ?? 0} skills`].filter(Boolean).join(' · ')
           })
         ]
       }),
-      jsx(Button, {
-        variant: 'outline',
-        size: 'sm',
-        onClick: () => {
-          haptic('tap')
-          host.newChat(profile.name)
-        },
-        children: 'Chat'
-      }),
-      jsx(Button, { variant: 'ghost', size: 'sm', onClick: onEdit, children: 'Look' })
+      latest
+        ? jsxs('button', {
+            type: 'button',
+            onClick: () => openSession(latest, profile.name),
+            title: 'Open this session',
+            className: 'flex items-center gap-2 rounded-md px-2 py-1 text-left text-xs hover:bg-(--chrome-action-hover)',
+            children: [
+              jsx(Codicon, { name: latest.unread ? 'circle-filled' : 'comment', size: 12 }),
+              jsx('span', { className: 'min-w-0 flex-1 truncate text-(--ui-text-secondary)', children: latest.title || latest.preview || 'Untitled session' }),
+              jsx('span', { className: 'shrink-0 text-(--ui-text-quaternary)', children: ago(latest.last_active) })
+            ]
+          })
+        : null,
+      jsxs(Row, {
+        children: [
+          jsx(Button, {
+            variant: 'outline',
+            size: 'sm',
+            onClick: () => {
+              haptic('tap')
+              host.newChat(profile.name)
+            },
+            children: 'New chat'
+          }),
+          latest ? jsx(Button, { variant: 'outline', size: 'sm', onClick: () => openSession(latest, profile.name), children: 'Resume' }) : null,
+          jsx(Button, { variant: 'ghost', size: 'sm', onClick: onEdit, children: 'Look' }),
+          profile.path && os && os.revealPath
+            ? jsx(Button, { variant: 'ghost', size: 'sm', className: 'ml-auto', title: 'Show this bot’s profile folder', onClick: () => os.revealPath(profile.path), children: jsx(Codicon, { name: 'folder', size: 13 }) })
+            : null
+        ]
+      })
     ]
   })
 }
 
-function BotsPage({ looks, setLook }) {
+function SpriteNotice() {
+  useValue($spriteTick)
+  const [busy, setBusy] = useState(false)
+  if (!spritesDown) return null
+  return jsxs('div', {
+    className: 'mx-4 mt-3 flex items-center gap-3 rounded-md border border-(--ui-stroke-secondary) bg-(--ui-bg-card) px-3 py-2 text-xs',
+    children: [
+      jsx(Codicon, { name: 'info', size: 13 }),
+      jsx('span', { className: 'flex-1 text-(--ui-text-secondary)', children: 'Showing flat robots: the rendered ones are served by helm’s backend, which mounts when the gateway restarts after install.' }),
+      jsx(Button, {
+        variant: 'outline',
+        size: 'sm',
+        disabled: busy,
+        onClick: async () => {
+          setBusy(true)
+          try {
+            await host.restartGateway()
+            spritesDown = false
+            spriteFailures = 0
+            spriteCache.clear()
+            $spriteTick.set($spriteTick.get() + 1)
+          } catch (err) {
+            host.notifyError?.(`Gateway restart failed: ${err && err.message ? err.message : err}`)
+          } finally {
+            setBusy(false)
+          }
+        },
+        children: busy ? 'Restarting…' : 'Restart gateway'
+      })
+    ]
+  })
+}
+
+function BotsPage({ looks, setLook, os }) {
   const q = useQuery({
     queryKey: [ID, 'profiles'],
     queryFn: () => host.profiles.list(),
@@ -803,19 +933,38 @@ function BotsPage({ looks, setLook }) {
   const busy = useValue(host.state.busy)
   const focusedProfile = useValue(host.state.focusedSessionProfile)
   const [editing, setEditing] = useState(null)
+  const [filter, setFilter] = useState('all')
+  const [ranks, setRanks] = useState({})
+  const onStatus = (name, rank) => setRanks(prev => (prev[name] === rank ? prev : { ...prev, [name]: rank }))
 
   const profiles = (q.data && q.data.profiles) || []
   const editingProfile = editing ? profiles.find(p => p.name === editing) : null
+  const needsYou = profiles.filter(p => ranks[p.name] === 0).length
+  const working = profiles.filter(p => ranks[p.name] === 1).length
 
   const header = jsxs('div', {
     className: 'flex shrink-0 items-center gap-3 border-b border-(--ui-stroke-secondary) px-4 py-2 text-xs',
     children: [
       jsx(Codicon, { name: 'hubot', size: 14 }),
       jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: 'Bots board' }),
-      jsx('span', { className: 'text-(--ui-text-tertiary)', children: q.isLoading ? 'loading profiles…' : `${profiles.length} profiles` }),
+      jsx('span', {
+        className: 'text-(--ui-text-tertiary)',
+        children: q.isLoading ? 'loading profiles…' : [`${profiles.length} bots`, needsYou ? `${needsYou} need you` : null, working ? `${working} working` : null].filter(Boolean).join(' · ')
+      }),
       editingProfile
         ? jsx(Button, { variant: 'ghost', size: 'sm', className: 'ml-auto', onClick: () => setEditing(null), children: 'Back to board' })
-        : jsx('span', { className: 'ml-auto text-(--ui-text-quaternary)', children: 'A bot is a profile. Looks are helm’s; chats open in Bot Mode.' })
+        : jsx('div', {
+            className: 'ml-auto',
+            children: jsx(SegmentedControl, {
+              value: filter,
+              options: [
+                { id: 'all', label: 'All' },
+                { id: 'attention', label: 'Needs you' },
+                { id: 'working', label: 'Working' }
+              ],
+              onChange: setFilter
+            })
+          })
     ]
   })
 
@@ -831,25 +980,51 @@ function BotsPage({ looks, setLook }) {
   } else if (q.error) {
     body = jsx('div', { className: 'p-6 text-sm text-(--ui-text-secondary)', children: `Could not list profiles: ${q.error.message || q.error}` })
   } else {
-    body = jsx('div', {
-      className: 'grid gap-2 overflow-auto p-4',
-      style: { gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' },
-      children: profiles.map(p =>
-        jsx(
-          BotCard,
-          {
-            profile: p,
-            look: normalizeLook(looksValue[p.name], p.name),
-            working: Boolean(busy) && focusedProfile === p.name,
-            onEdit: () => setEditing(p.name)
-          },
-          p.name
-        )
-      )
-    })
+    const rankOf = p => (ranks[p.name] === undefined ? 2 : ranks[p.name])
+    const shown = profiles
+      .filter(p => (filter === 'attention' ? rankOf(p) === 0 : filter === 'working' ? rankOf(p) === 1 : true))
+      .slice()
+      .sort((a, b) => rankOf(a) - rankOf(b) || botLabel(a).localeCompare(botLabel(b)))
+    body = shown.length
+      ? jsx('div', {
+          className: 'grid content-start gap-2 overflow-auto p-4',
+          style: { gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' },
+          children: shown.map(p =>
+            jsx(
+              BotCard,
+              {
+                profile: p,
+                look: normalizeLook(looksValue[p.name], p.name),
+                focusedWorking: Boolean(busy) && focusedProfile === p.name,
+                onEdit: () => setEditing(p.name),
+                onStatus,
+                os
+              },
+              p.name
+            )
+          )
+        })
+      : jsx('div', { className: 'p-6 text-sm text-(--ui-text-tertiary)', children: filter === 'attention' ? 'Nobody is waiting on you.' : 'No bot is working right now.' })
   }
 
-  return jsxs('div', { className: 'flex h-full w-full min-h-0 flex-col', children: [header, body] })
+  return jsxs('div', { className: 'flex h-full w-full min-h-0 flex-col', children: [header, editingProfile ? null : jsx(SpriteNotice, {}), body] })
+}
+
+// Composer: who you are talking to, with the bot's face as its live status.
+function ComposerBotChip({ looks }) {
+  const profile = useValue(host.state.focusedSessionProfile)
+  const busy = useValue(host.state.busy)
+  const looksValue = useValue(looks)
+  if (!profile) return null
+  const look = normalizeLook(looksValue[profile], profile)
+  return jsx('button', {
+    type: 'button',
+    title: `Talking to ${profile} — open the Bots board`,
+    onClick: () => host.navigate(BOTS_ROUTE),
+    'aria-label': `Talking to ${profile}`,
+    className: 'flex h-7 w-7 items-center justify-center rounded-full hover:bg-(--chrome-action-hover)',
+    children: jsx(RobotHead, { look, expr: busy ? 'focused' : look.face, size: 22, title: profile })
+  })
 }
 
 // ─────────────────────────────────────────────────────────── settings page
@@ -933,6 +1108,12 @@ function SettingsGeneral({ prefs, setPrefs }) {
         description: 'Cost so far and context used for the session you are looking at.',
         checked: p.showCostChip,
         onChange: on => setPrefs({ showCostChip: on })
+      }),
+      jsx(ToggleRow, {
+        label: 'Composer: who you are talking to',
+        description: 'A small robot left of the composer showing the focused bot, its face working while it is busy. Click it for the Bots board.',
+        checked: p.showComposerBot,
+        onChange: on => setPrefs({ showComposerBot: on })
       }),
       jsx(ToggleRow, {
         label: 'Hide the Messaging row',
@@ -1103,6 +1284,7 @@ export default {
       prefs.set(next)
       ctx.storage.set('prefs', next)
       syncNavPrefs()
+      syncComposer()
     }
     const setLook = (name, look) => {
       const next = { ...looks.get(), [name]: normalizeLook(look, name) }
@@ -1141,7 +1323,7 @@ export default {
 
     // Bots board
     ctx.registerMany([
-      { id: 'bots-route', area: ROUTES_AREA, data: { path: BOTS_ROUTE }, render: () => jsx(BotsPage, { looks, setLook }) },
+      { id: 'bots-route', area: ROUTES_AREA, data: { path: BOTS_ROUTE }, render: () => jsx(BotsPage, { looks, setLook, os: ctx.os }) },
       { id: 'bots-nav', area: SIDEBAR_NAV_AREA, data: { path: BOTS_ROUTE, label: 'Bots board', codicon: 'hubot' } },
       { id: 'look-route', area: ROUTES_AREA, data: { path: LOOK_ROUTE }, render: () => jsx(LookPage, { prefs, setPrefs, looks }) },
       { id: 'look-nav', area: SIDEBAR_NAV_AREA, data: { path: LOOK_ROUTE, label: 'Customize look', codicon: 'symbol-color' } },
@@ -1174,6 +1356,19 @@ export default {
         }
       }))
     ])
+
+    // Composer: the bot you are talking to
+    let unregisterComposer = null
+    const syncComposer = () => {
+      const want = prefs.get().showComposerBot
+      if (want && !unregisterComposer) {
+        unregisterComposer = ctx.register({ id: 'composer-bot', area: 'composer.leading', order: 5, render: () => jsx(ComposerBotChip, { looks }) })
+      } else if (!want && unregisterComposer) {
+        unregisterComposer()
+        unregisterComposer = null
+      }
+    }
+    syncComposer()
 
     // Settings → Appearance card
     ctx.register({ id: 'appearance', area: 'appearance.extra', render: () => jsx(AppearanceCard, { prefs, setPrefs }) })
@@ -1209,6 +1404,7 @@ export default {
 
     ctx.onDispose(() => {
       if (unregisterNav) unregisterNav()
+      if (unregisterComposer) unregisterComposer()
       spriteRest = null
     })
   }
