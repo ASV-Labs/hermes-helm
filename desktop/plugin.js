@@ -42,7 +42,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '1.0.0'
+const VERSION = '1.0.1'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -2021,7 +2021,7 @@ function TodayList() {
   }, [])
   const rows = useMemo(() => today.jobs.map(jobRow).filter(Boolean).sort((a, b) => a.at - b.at), [today])
   if (!today.ready) return jsx(Quiet, { children: 'Reading scheduled jobs…' })
-  if (!today.available) return jsx(Quiet, { children: 'Scheduled jobs show here once Hermes has loaded helm’s backend (it loads when Hermes starts).' })
+  if (!today.available) return jsx(Quiet, { children: 'Couldn’t read scheduled jobs: the gateway didn’t answer. Retrying every 30 seconds.' })
   if (!rows.length) return jsx(Quiet, { children: `Nothing ran or is due today${today.jobs.length ? ` · ${today.jobs.length} scheduled job${today.jobs.length === 1 ? '' : 's'} in all` : ''}.` })
   return jsx('div', {
     children: rows.map(({ at, word, job }) =>

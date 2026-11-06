@@ -1,6 +1,6 @@
 name: helm
 manifest_version: 2
-version: "1.0.0"
+version: "1.0.1"
 description: "A redesigned Hermes Desktop: a Desk home page (what is running, what needs you, what ran today), approvals and questions from every bot answered in one place, a session pane with the live task plan, a themeable redesign layer across the app, and rendered robots that become your bots' avatars. Desktop-only; the agent half registers nothing."
 author: "ASV Labs"
 license: "MIT"

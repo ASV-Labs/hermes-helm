@@ -136,6 +136,8 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
 }
 // The Desk: greeting, status sentence, prompt, continue, needs you, today
 {
+  // HELM_SCREEN=1 also writes each surface's HTML for the README screenshots (tools/screens/).
+  const dump = (name, html) => { if (process.env.HELM_SCREEN) writeFileSync(join(here, '.tmp', name + '.html'), html) }
   const desk = byArea('routes').find(c => c.data.path === '/helm/desk')
   const html = renderToString(desk.render())
   for (const word of ['Good ', 'Needs you', 'What should we tackle?', 'Continue', 'Today', 'Refactor the auth flow', 'Install helm', 'Vision is', '2 things are waiting on you.', 'Draft', 'Send', 'Scheduled jobs', 'Answer'])
@@ -163,15 +165,19 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
     assert.equal(today.jobs.find(j => j.id === 'j-b').last_error.length, 300)
     const deskT = renderToString(byArea('routes').find(c => c.data.path === '/helm/desk').render())
     assert.ok(deskT.includes('Nightly build check') && deskT.includes('failed') && deskT.includes('Morning digest'), `today list: ${deskT.slice(0, 200)}`)
-    if (process.env.HELM_SCREEN) writeFileSync(join(here, '.tmp', 'desk.html'), deskT)
+    host_set_stored('s2')
+    dump('session-pane', renderToString(contributions.find(c => c.area === 'panes' && c.id === 'session-pane').render()))
+    host_set_stored(null)
   }
 
   // Inbox: the approval and the question surface on the Desk, with buttons
   const desk2 = renderToString(byArea('routes').find(c => c.data.path === '/helm/desk').render())
   for (const word of ['Shell command', 'gh release create v0.1.6', 'Approve', 'Deny', 'Allow session', 'is waiting for your answer']) assert.ok(desk2.includes(word), `desk inbox: ${word}`)
+  dump('desk', desk2)
   assert.ok(contributions.find(c => c.area === 'panes' && c.id === 'needs-you-pane'), 'sidebar Needs you pane registers while something waits')
   const needsPane = renderToString(contributions.find(c => c.id === 'needs-you-pane').render())
   assert.ok(needsPane.includes('gh release create') && needsPane.includes('Approve'), `needs pane: ${needsPane.slice(0, 200)}`)
+  dump('needs-pane', needsPane)
   const strip = renderToString(byArea('composer.top')[0].render())
   assert.ok(strip.includes('Continue') && strip.includes('Install helm') && strip.includes('1 needs you'), `desk strip: ${strip.slice(0, 300)}`)
 }
@@ -188,6 +194,7 @@ assert.ok(boardHtml.includes('Vision'), 'board lists the bot title')
 assert.ok(boardHtml.includes('<svg') || boardHtml.includes('<img'), 'board draws robot heads')
 assert.ok(boardHtml.includes('working'), 'active profile shows working')
 assert.ok(boardHtml.includes('reply waiting'), 'unread session shows reply waiting')
+if (process.env.HELM_SCREEN) writeFileSync(join(here, '.tmp', 'bots.html'), boardHtml)
 assert.ok(boardHtml.includes('Refactor the auth flow') && boardHtml.includes('Resume'), 'latest session + resume')
 assert.ok(boardHtml.includes('$0.31 recent'), 'recent spend')
 assert.ok(boardHtml.includes('Needs you') && boardHtml.includes('New bot'), 'filter + new bot')
@@ -217,6 +224,7 @@ for (const child of settingsPage.children) renderToString(child.render())
 const lookRoute = byArea('routes').find(r => r.data.path === '/helm/look')
 const lookHtml = renderToString(lookRoute.render())
 for (const word of ['Customize look', 'Accent', 'Type', 'Corners', 'Reading width', 'Rail', 'Session list', 'Titlebar context', 'Open the Bots board']) assert.ok(lookHtml.includes(word), `look page: ${word}`)
+if (process.env.HELM_SCREEN) writeFileSync(join(here, '.tmp', 'look.html'), lookHtml)
 
 // Customize look rebuilds the live theme and switches to it
 const cmd = byArea('palette').find(c => c.data.id === 'helm.theme.helm-paper')

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1 — 2026-11-06
+
+- Moved to the **ASV Labs** organization: `ASV-Labs/hermes-helm`. Old links redirect.
+- **Guides** in `docs/guides/`: getting started, Needs you, the Session pane and task plan, Customize look, Bots board and robots, and troubleshooting (including how to read *Helm: diagnostics*).
+- The README is now a product page: a demo GIF, screenshots rendered from the real components with demo data, and full disclosure.
+- `tools/screens/render.sh` re-renders the README screenshots.
+- The Desk's *Today* list now says plainly when the gateway didn't answer `cron.manage`, and retries every 30 s. Before this, it pointed at the backend, which Today no longer uses.
+- Added `CONTRIBUTING.md`, `SECURITY.md` (private vulnerability reporting), issue forms and a PR template.
+
 ## 1.0.0 — 2026-11-06
 
 First stable release, submitted to the Hermes plugin catalog.

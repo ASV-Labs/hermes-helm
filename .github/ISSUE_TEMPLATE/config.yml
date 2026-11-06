@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Guides
+    url: https://github.com/ASV-Labs/hermes-helm/tree/main/docs/guides
+    about: Install, approvals, the task plan, looks, robots and troubleshooting.
+  - name: Report a security vulnerability
+    url: https://github.com/ASV-Labs/hermes-helm/security/advisories/new
+    about: Please report vulnerabilities privately, not as an issue.

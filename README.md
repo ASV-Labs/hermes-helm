@@ -1,70 +1,225 @@
-# helm
+<p align="center">
+  <img src="docs/hero.png" alt="helm — one desk for every Hermes bot. By ASV Labs." width="100%">
+</p>
 
-A redesigned Hermes Desktop, as a plugin. helm replaces the look of the whole app and adds the views Hermes doesn't have: a **Desk** that opens on what's running, what needs you and what ran today; live status for every bot across the sidebar, titlebar and status bar; a **Customize look** page that tunes the entire interface; and a crew of rendered robots that become your bots' Hermes avatars.
+<p align="center">
+  <a href="https://github.com/ASV-Labs/hermes-helm/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/ASV-Labs/hermes-helm?style=flat-square&color=62C6D3&label=release"></a>
+  <a href="https://github.com/ASV-Labs/hermes-helm/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/ASV-Labs/hermes-helm/ci.yml?branch=main&style=flat-square&label=ci"></a>
+  <img alt="Hermes 0.22+" src="https://img.shields.io/badge/hermes-%E2%89%A5%200.22.0-1F2730?style=flat-square">
+  <img alt="Desktop plugin" src="https://img.shields.io/badge/plugin-desktop-1F2730?style=flat-square">
+  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-1F2730?style=flat-square"></a>
+  <a href="https://asv-labs.com"><img alt="by ASV Labs" src="https://img.shields.io/badge/by-ASV%20Labs-E6EBF0?style=flat-square"></a>
+</p>
 
-![helm](docs/banner.png)
+<p align="center">
+  <b>A complete redesign of Hermes Desktop, shipped as a plugin.</b><br>
+  See what every bot is doing, answer what's waiting on you, and follow the plan as it happens — from one desk.
+</p>
 
-**Launch film (33 s):** [![helm launch film](docs/launch-poster.jpg)](https://github.com/ASV-Labs/hermes-helm/releases/latest/download/helm-launch.mp4)
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#whats-inside">What's inside</a> ·
+  <a href="docs/guides/README.md">Guides</a> ·
+  <a href="https://github.com/ASV-Labs/hermes-helm/releases/latest/download/helm-launch.mp4">Launch film</a> ·
+  <a href="#privacy-and-permissions">Privacy</a>
+</p>
 
-```
-hermes plugins install helm            # from the Hermes plugin catalog
-# or straight from GitHub:
+<p align="center">
+  <img src="docs/demo.gif" alt="helm in motion: the Desk, approving a command from the Desk, the live plan and robots" width="100%">
+</p>
+
+---
+
+## Why helm
+
+Running several Hermes bots means opening chat after chat to find out who is busy, who finished and who is waiting on you. helm turns Hermes Desktop into a control desk:
+
+- **One place for what needs you.** Tool approvals and questions from every bot's live chats, answered with one click.
+- **One glance at the crew.** Who is working, who replied, what it cost, what ran today.
+- **A plan you can watch.** The focused bot's task list, checked off live beside the chat.
+- **An interface you can make yours.** A redesign layer across the whole app, tuned on one page.
+
+helm uses only the public Hermes Desktop plugin SDK and the gateway calls the app itself makes. It changes no Hermes core files and never answers anything without your click.
+
+## Install
+
+```bash
 hermes plugins install ASV-Labs/hermes-helm
 hermes plugins enable helm
 ```
 
-Then in Hermes Desktop: **Settings → Plugins → Desktop plugins → enable helm**, and restart Hermes once so the gateway mounts helm's small backend (it serves the robot renders). Pick a look in **Customize look** (`⌘⌥U`).
+Then in Hermes Desktop:
 
-| Desk | Bots board |
-|---|---|
-| ![Desk](docs/desk.png) | ![Bots board](docs/robots-dark.png) |
+1. **Settings → Plugins → Desktop plugins → enable helm.**
+2. **Restart Hermes once**, so its gateway mounts helm's small backend for the robot renders.
+3. Press **`⌘⌥U`** and pick a look.
 
-## What you get
+Requires **Hermes ≥ 0.22.0**. The step-by-step version, including updating, backing up your setup and uninstalling, is in **[Getting started](docs/guides/getting-started.md)**.
+
+> **Official Hermes plugin catalog.** helm has been submitted to the catalog ([NousResearch/hermes-agent#150160](https://github.com/NousResearch/hermes-agent/pull/150160)). Once it's listed, `hermes plugins install helm` installs the same code.
+
+## What's inside
+
+### The Desk — `⌘⌥0`
+
+Hermes opens on the Desk.
+
+- **Greeting:** a one-line status of the whole crew.
+- **Prompt:** hands work to any bot. **↵** sends; **Draft** opens the chat with your text unsent.
+- **Continue:** your latest sessions across every bot.
+- **Needs you:** approvals, questions and unread replies.
+- **Today:** scheduled jobs that ran, failed or are due.
+
+<p align="center"><img src="docs/screens/desk.png" alt="The Desk: greeting, prompt, Continue, Needs you with Approve / Allow session / Deny, Today's scheduled jobs" width="88%"></p>
+
+### Needs you, everywhere — and the live plan
+
+Approvals and questions from every bot appear on the Desk. They also appear in a sidebar pane, which shows up only while something is waiting.
+
+The **Session** pane beside your chat shows the bot's task plan as it works (*Plan · 1 of 4*, with the current step marked *now*), along with model, folder, tokens, cost and the rest of your crew.
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="docs/screens/needs-pane.png" alt="Needs you sidebar pane with an approval and a question"><br><sub><b>Needs you</b> — <a href="docs/guides/needs-you.md">what each button sends and what helm can see</a></sub></td>
+    <td width="50%" valign="top"><img src="docs/screens/session-pane.png" alt="Session pane with the live task plan, session details, crew and scheduled jobs"><br><sub><b>Session pane</b> — <a href="docs/guides/task-plan.md">where the plan comes from</a></sub></td>
+  </tr>
+</table>
+
+### Robots you build — `⌘⌥R`
+
+The **Bots board** lists every bot with its rendered robot and live state (*working*, *reply waiting*, *idle*), its latest session and its spend.
+
+Each robot is assembled from **191 Blender-rendered layers**: toppers, faces, chest modules, tools, things to wear and seven colours. Its face follows the bot's state, and the robot becomes the bot's Hermes avatar. helm never replaces a photo you uploaded. **New bot** creates a real Hermes bot. → [Robots guide](docs/guides/robots.md)
+
+<p align="center"><img src="docs/robots-dark.png" alt="A crew of helm robots" width="88%"></p>
+
+### A redesign you can tune — `⌘⌥U`
+
+The redesign layer runs across the whole app:
+
+- a one-colour rail
+- tracked-caps labels and tabs with an accent underline
+- an accent edge on the open row
+- a calmer reading column
+- framed tool activity
+- approvals with an amber decision edge
+- a hairline composer that lights up on focus
+- a tabular status bar
+- thin scrollbars
+
+**Customize look** tunes all of it live:
+
+- **Base:** Dark, Graphite or Paper
+- **Accent:** seven accents
+- **Type:** four type families
+- **Layout:** corners, reading width and rail colour
+- **Density:** session list density and chat text size
+- **Surfaces:** every helm surface can be switched on or off
+
+→ [Customize look guide](docs/guides/customize-look.md)
+
+### Status everywhere
+
+- **Titlebar:** bot, folder, model, cost and context of the chat you're in.
+- **Session rows:** the owning bot's robot and spend.
+- **Status bar:** *N need you*, *$ today*, *N working* and the focused chat's cost.
+- **Command palette:** *Desk*, *what needs me*, *new chat with ‹bot›*, *resume ‹bot›*, every theme and *Helm: diagnostics*.
+
+## Guides
+
+The guides cover the details specific to helm: what it can and can't see, and what to do when something looks off.
 
 | | |
 |---|---|
-| **Desk** (`⌘⌥0`, opens at launch) | A greeting and a one-line status of the crew (*Vision is 4 min into "deploy package". Two things are waiting on you.*), a prompt that hands work to any bot (pick its robot, ↵ sends, *Draft* fills the new chat unsent), **Continue** (latest sessions across every bot with state, folder, age, cost), **Needs you** (unread replies, with an inline reply that opens the chat with your reply drafted), **Today** (scheduled jobs that ran, failed or are due today), and shortcuts. |
-| **Needs you** | Pending tool approvals from every bot's live chats, with *Approve* / *Allow session* / *Deny*, questions a bot is waiting on, and unread replies: on the Desk and in a sidebar pane above Sessions that appears only while something waits. Nothing is answered without your click. |
-| **Continue strip** | On a fresh chat, the three latest sessions sit above the composer, one click back in, plus *N need you · Desk*. |
-| **Redesign layer** | Across the whole app: one-colour rail, tracked-caps section labels and tabs with an accent underline, an accent edge on the open row, a calmer reading column, framed tool activity, approvals with an amber decision edge, a hairline composer that lights on focus, tabular status bar, hairline menus and dialogs, thin scrollbars. |
-| **Customize look** | One page for the whole desk, applied live: base (Dark, Graphite, Paper), 7 accents, 4 type families, corners, reading width, rail colour, session density, chat text size, and every helm surface on or off. |
-| **Session pane** | Right sidebar, beside Files: the focused chat's task plan (*Plan · 3 of 5*, the current step marked), bot, model, folder, branch, messages, tool calls, tokens, cost, the rest of the crew, the next scheduled job. |
-| **Live status everywhere** | Titlebar: bot, folder, model, cost and context of the chat you're in. Session rows: the owning bot's robot (its face is the row's state) and spend. Status bar: *N need you*, *$ today*, *N working*, focused cost. |
-| **Bots board** (`⌘⌥R`) | Every bot with its robot and live status (*reply waiting*, *working*, *idle · 12m ago*), needs-you-first, latest session with *Resume*, *New chat*, spend, and the look editor. *New bot* creates a real Hermes bot. |
-| **Robots** | 191 PNG layers rendered in Blender (Cycles), composed live: 10 toppers · 10 faces · 8 chest modules · 6 tools · 6 things to wear · 7 colours. Each robot becomes its bot's Hermes avatar; new bots get one automatically unless you uploaded a photo. |
-| **Palette** | *Desk*, *what needs me*, *new chat with <bot>*, *resume <bot>*, every theme. |
-| **Settings** | Settings → Plugins → Helm, plus export/import of everything as JSON. |
+| [Getting started](docs/guides/getting-started.md) | Install, first run, shortcuts, updating, backup and uninstall |
+| [Needs you](docs/guides/needs-you.md) | Approvals and questions: what each button sends, and coverage across gateways |
+| [Session pane & task plan](docs/guides/task-plan.md) | Where the plan comes from and why a chat can show "No plan yet" |
+| [Customize look](docs/guides/customize-look.md) | Themes, accents, toggles, and what happens after a Hermes update |
+| [Bots board & robots](docs/guides/robots.md) | Robots, avatars, flat-robot fallback, rebuilding the renders |
+| [Troubleshooting](docs/guides/troubleshooting.md) | Symptoms and fixes, and how to read *Helm: diagnostics* |
 
-## What it will not do
+## Launch film
 
-- Replace core views. The Desk is its own page; chats, Scheduled jobs and Bot Mode are the app's own.
-- Send anything you didn't send. The Desk prompt sends only on ↵ or *Send*; *Reply* only drafts.
-- Reorder the sidebar's Pinned / Projects sections.
-- Overwrite a bot avatar you uploaded yourself.
+<a href="https://github.com/ASV-Labs/hermes-helm/releases/latest/download/helm-launch.mp4"><img src="docs/launch-poster.jpg" alt="Watch the 33-second helm launch film" width="100%"></a>
 
-## How the robots are served
+## Privacy and permissions
 
-The package has two halves. `desktop/plugin.js` is the UI. `dashboard/plugin_api.py` is a tiny FastAPI router the Hermes gateway mounts at `/api/plugins/helm/`; it serves the PNG layers in `dashboard/sprites/` as data URLs (`/sprites/batch?names=…`). The desktop half asks for the six layers a look needs, caches them, and stacks them as `<img>`s. If the gateway is down or the routes aren't mounted yet (a restart mounts them), the board falls back to flat SVG robots so nothing breaks. The renderer is in `tools/render/` and is never run by Hermes. To rebuild the layers, use Python 3.13 with Blender's `bpy` 5.2 module, Pillow and NumPy, then run `python3 tools/render/build_all.py dashboard/sprites` (about 7 minutes on an M-series Mac) and `python3 tools/render/shrink.py dashboard/sprites`. `render_one.py` previews a single bot.
+helm is built to be audited.
 
-## Surviving updates
+- **No network calls of its own.** No telemetry, no shell, no self-updater.
+- **No credentials.** helm never reads `.env`, `auth.json` or any token store.
+- **Nothing is sent or answered without you.** The Desk prompt sends only on **↵** / **Send**. Approvals and questions are answered only when you click.
+- **Agent half:** registers nothing (no tools, hooks or commands).
+- **Dashboard half:** a read-only router that serves the bundled PNGs.
 
-helm lives in `~/.hermes/desktop-plugins/helm/` (or `plugins/helm/desktop/`), which `hermes update` never touches. It uses only `@hermes/plugin-sdk` areas; the one app-DOM dependency is the themes' `customCSS`, which targets `data-slot` names the app ships. If a release renames one, that rule stops applying and the palette alone remains. Preferences are in `ctx.storage` under `hermes.plugin.helm.`; **Export** copies them as JSON.
+<details>
+<summary><b>Full disclosure: every call helm makes</b></summary>
 
-Requires Hermes ≥ 0.22.0 (declared as `requires_hermes` in `plugin.yaml`). Tested on macOS.
+<br>
 
-## Disclosure
+The agent half (`__init__.py`) registers nothing: no tools, hooks, commands or settings.
 
-The agent half (`__init__.py`) registers nothing: no tools, hooks, commands or settings. The dashboard half is read-only and does one thing: it serves the bundled PNGs (names validated against a fixed pattern; no path traversal, no writes, no imports of Hermes internals). No outbound network requests. No shell. No credentials: helm never reads `.env`, `auth.json` or any token store. No telemetry. Reads the profile list through `host.profiles.list()` (the same endpoint the profile rail uses), each bot's recent session rows (title, timestamps, unread/active flags, cost) through `host.listPersistedSessions` — the sidebar's own read, kept in memory only — and the app's busy/usage state through `host.state`. Lists each bot's scheduled jobs for the Desk's *Today* list through the gateway's public `cron.manage` (`action: list` only — helm never adds, pauses or removes a job). Listens to the app's gateway event stream (`host.onEvent`) for approval, question and plan events, lists live sessions and their pending approvals (`session.active_list`, `approval.pending`), and answers an approval or question (`approval.respond`, `clarify.respond`) only when you click *Approve*, *Allow session*, *Deny* or *Send*. Reads the focused chat's transcript (`session.history`) to show its task plan, in memory only. Opens sessions and chats only when you click; sends a message only from the Desk prompt when you press ↵ or *Send*. Creates a bot (`profiles.create`) only from *New bot*, and sets a bot's avatar (`profiles.set_asset`) to its robot, never over a photo you uploaded. Writes otherwise only to its own plugin storage and, when you change them, the app's `sessionListDensity` and `chatTextScale` settings. The redesign layer is CSS supplied through the SDK's theme `customCSS`; it selects the app's `data-slot` names (CSS only — helm never queries, observes or rewrites the app's DOM), and it switches off with the theme.
+The dashboard half is read-only and does one thing. It serves the bundled PNGs, with names validated against a fixed pattern. It has no path traversal, no writes and no imports of Hermes internals.
+
+**Reads**
+
+- The profile list, through `host.profiles.list()`. This is the same endpoint the profile rail uses.
+- Each bot's recent session rows (title, timestamps, unread/active flags, cost), through `host.listPersistedSessions`. This is the sidebar's own read, and helm keeps it in memory only.
+- The app's busy/usage state, through `host.state`.
+- Each bot's scheduled jobs, through the gateway's public `cron.manage`. helm calls it with `action: list` only and never adds, pauses or removes a job.
+- Live sessions and their pending approvals, through `session.active_list` and `approval.pending`.
+- The focused chat's transcript (`session.history`), to build its task plan. helm keeps this in memory only.
+
+**Listens**
+
+- The app's gateway event stream (`host.onEvent`), for approval, question and plan events.
+
+**Acts only when you click**
+
+- Answers an approval or question (`approval.respond`, `clarify.respond`) when you click *Approve*, *Allow session*, *Deny* or *Send*.
+- Opens sessions and chats.
+- Sends a message from the Desk prompt when you press **↵** or *Send*.
+- Creates a bot (`profiles.create`) from *New bot*.
+- Sets a bot's avatar (`profiles.set_asset`) to its robot, but never over a photo you uploaded.
+
+**Writes**
+
+- Its own plugin storage.
+- The app's `sessionListDensity` and `chatTextScale` settings, when you change them.
+
+**Styling**
+
+The redesign layer is CSS supplied through the SDK's theme `customCSS`. It selects the app's `data-slot` names in CSS only. helm never queries, observes or rewrites the app's DOM. The layer switches off when you switch to another theme.
+
+</details>
+
+## How it fits together
+
+| Part | Role |
+|---|---|
+| `desktop/plugin.js` | The interface, written against `@hermes/plugin-sdk` only. |
+| `dashboard/plugin_api.py` | A tiny read-only FastAPI router that the gateway mounts at `/api/plugins/helm/`. It serves the robot layers in `dashboard/sprites/`. |
+| `__init__.py` | The agent half. It registers nothing. |
+| `tools/render/` | The Blender source that produced the layers. Hermes never runs it. |
+| `tools/screens/` | Re-renders the README screenshots from the real components, using demo data. |
+
+helm lives in `~/.hermes/desktop-plugins/helm/`, which `hermes update` never touches. Preferences live in plugin storage under `hermes.plugin.helm.`, and you can export or import them in **Settings → Plugins → Helm**.
 
 ## Development
 
-```
+```bash
 node --check desktop/plugin.js
 cd tests && npm ci && npm test     # loads the plugin against an SDK mock and renders every contribution
 python3 tests/test_plugin_api.py   # the sprite router against FastAPI's TestClient
 hermes plugins validate .          # the catalog's admission checks
+bash tools/screens/render.sh       # re-render docs/screens from the real components
 ```
 
-Drop the folder into `~/.hermes/desktop-plugins/helm/` and the app hot-reloads it on save.
+Drop the folder into `~/.hermes/desktop-plugins/helm/` and the app hot-reloads it on save. See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute and [SECURITY.md](SECURITY.md) to report a vulnerability.
 
-MIT · ASV Labs
+---
+
+<p align="center">
+  <b>helm</b> is made by <a href="https://asv-labs.com"><b>ASV Labs</b></a> — independent software, made with intent.<br>
+  <sub>© 2026 A Salty Vet, a product of ASV Labs · MIT License · Not affiliated with Nous Research.</sub>
+</p>
