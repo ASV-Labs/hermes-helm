@@ -2189,6 +2189,107 @@ let inboxInflight = false
 let inboxTimer = null
 const answered = new Set() // request ids answered from helm, hidden until the backend drops them
 
+// On the shared gateway (Hermes' canonical runtime) approvals and questions
+// arrive as `approval.request` / `clarify.request` EVENTS and plans as `todo_list`
+// tool events; helm hears the same stream the app does through host.onEvent.
+const eventPrompts = new Map() // request id → approval or question
+const $liveTodos = atom({}) // session id → todo items, from tool events
+
+function payloadOf(e) {
+  return (e && e.payload && typeof e.payload === 'object' ? e.payload : {}) || {}
+}
+
+function eventSessionId(e, p) {
+  return String((e && e.session_id) || p.session_id || '')
+}
+
+function onPromptEvent(e) {
+  const p = payloadOf(e)
+  const requestId = String(p.request_id || p.prompt_id || '')
+  if (!requestId) return
+  const sessionId = eventSessionId(e, p)
+  const crew = $crew.get()
+  const hit = (crew.byId && crew.byId[sessionId]) || null
+  const base = {
+    sessionId,
+    storedId: hit ? hit.row.id : sessionId,
+    profile: (hit && hit.profile) || (typeof e.profile === 'string' && e.profile) || (typeof p.profile === 'string' && p.profile) || null,
+    title: (hit && sessionTitle(hit.row)) || 'Session',
+    row: hit ? hit.row : null,
+    requestId,
+    viaEvent: true,
+    routeProfile: (typeof e.profile === 'string' && e.profile) || (typeof p.profile === 'string' && p.profile) || null
+  }
+  if (e.type === 'approval.request') {
+    eventPrompts.set(requestId, {
+      ...base,
+      kind: 'approval',
+      command: typeof p.command === 'string' ? p.command : '',
+      description: typeof p.description === 'string' ? p.description : 'wants to run a command',
+      toolName: typeof p.tool_name === 'string' ? p.tool_name : null,
+      choices: Array.isArray(p.choices) ? p.choices.filter(c => typeof c === 'string') : p.smart_denied ? ['once', 'deny'] : null,
+      allowPermanent: p.allow_permanent !== false
+    })
+  } else {
+    eventPrompts.set(requestId, {
+      ...base,
+      kind: 'question',
+      question: typeof p.question === 'string' ? p.question : typeof p.prompt === 'string' ? p.prompt : '',
+      choices: Array.isArray(p.choices) ? p.choices.filter(c => typeof c === 'string') : null
+    })
+  }
+  mergeEventPrompts()
+}
+
+function onPromptGone(e) {
+  const p = payloadOf(e)
+  const requestId = String(p.request_id || p.prompt_id || '')
+  if (requestId && eventPrompts.delete(requestId)) mergeEventPrompts()
+}
+
+function mergeEventPrompts() {
+  const cur = $inbox.get()
+  const fromEvents = [...eventPrompts.values()].filter(x => !answered.has(x.requestId))
+  const approvals = cur.approvals.filter(a => !a.viaEvent && !eventPrompts.has(a.requestId)).concat(fromEvents.filter(x => x.kind === 'approval'))
+  const eventQuestionSessions = new Set(fromEvents.filter(x => x.kind === 'question').map(x => x.sessionId))
+  const questions = cur.questions.filter(q => !q.viaEvent && !eventQuestionSessions.has(q.sessionId)).concat(fromEvents.filter(x => x.kind === 'question'))
+  $inbox.set({ ...cur, approvals, questions })
+}
+
+function onToolEvent(e) {
+  const p = payloadOf(e)
+  if (p.name !== 'todo_list' && p.name !== 'todo') return
+  const sessionId = eventSessionId(e, p)
+  if (!sessionId) return
+  const current = $liveTodos.get()[sessionId] || []
+  let next = parseTodoList(p.todos) || parseTodoList(p.result)
+  if (!next) {
+    const args = p.args || p.arguments || {}
+    const parsedArgs = typeof args === 'string' ? (() => { try { return JSON.parse(args) } catch { return {} } })() : args
+    const items = parseTodoList(parsedArgs && parsedArgs.todos)
+    if (items && parsedArgs.merge) {
+      const byId = new Map(current.map(t => [t.id, t]))
+      for (const it of items) byId.set(it.id, { ...(byId.get(it.id) || {}), ...it })
+      next = [...byId.values()]
+    } else next = items
+  }
+  if (next && next.length) $liveTodos.set({ ...$liveTodos.get(), [sessionId]: next })
+}
+
+function startPromptEvents(ctx) {
+  if (typeof host.onEvent !== 'function') return
+  const offs = [
+    host.onEvent('approval.request', onPromptEvent),
+    host.onEvent('clarify.request', onPromptEvent),
+    host.onEvent('approval.settled', onPromptGone),
+    host.onEvent('approval.cancelled', onPromptGone),
+    host.onEvent('clarify.settled', onPromptGone),
+    host.onEvent('clarify.cancelled', onPromptGone),
+    host.onEvent('*', onToolEvent)
+  ]
+  ctx.onDispose(() => offs.forEach(off => typeof off === 'function' && off()))
+}
+
 function liveRows(res) {
   return Array.isArray(res && res.sessions) ? res.sessions.filter(r => r && r.id) : []
 }
@@ -2210,7 +2311,7 @@ async function refreshInbox() {
     }
     // Bots served by the primary gateway answer with their profile scoped in;
     // a bot on its own gateway errors here and is reported as unreachable.
-    for (const p of crew.profiles || []) {
+    for (const p of reach === 'primary' ? [] : crew.profiles || []) {
       try {
         collect(liveRows(await host.request('session.active_list', { profile: p.name })))
       } catch {
@@ -2253,6 +2354,7 @@ async function refreshInbox() {
     const liveByKey = {}
     for (const r of seen.values()) if (r.session_key) liveByKey[r.session_key] = r.id
     $inbox.set({ ready: true, approvals, questions, reach, live: seen.size, waiting, error, liveByKey, at: Date.now() })
+    mergeEventPrompts()
   } finally {
     inboxInflight = false
   }
@@ -2281,13 +2383,27 @@ async function answerApproval(item, choice) {
   answered.add(item.requestId)
   $inbox.set({ ...$inbox.get(), approvals: $inbox.get().approvals.filter(a => a.requestId !== item.requestId) })
   try {
-    await host.request('approval.respond', { session_id: item.sessionId, request_id: item.requestId, choice, all: false }, 330000)
+    await host.request('approval.respond', { session_id: item.sessionId, request_id: item.requestId, choice, all: false, ...(item.routeProfile ? { profile: item.routeProfile } : {}) }, 330000)
+    eventPrompts.delete(item.requestId)
     haptic(choice === 'deny' ? 'cancel' : 'submit')
   } catch (err) {
     answered.delete(item.requestId)
     host.notifyError?.(`Could not answer the approval: ${err && err.message ? err.message : err}`)
   }
   setTimeout(refreshInbox, 600)
+}
+
+async function answerQuestion(item, answer) {
+  answered.add(item.requestId)
+  eventPrompts.delete(item.requestId)
+  $inbox.set({ ...$inbox.get(), questions: $inbox.get().questions.filter(q => q.requestId !== item.requestId) })
+  try {
+    await host.request('clarify.respond', { session_id: item.sessionId, request_id: item.requestId, answer, ...(item.routeProfile ? { profile: item.routeProfile } : {}) }, 330000)
+    haptic('submit')
+  } catch (err) {
+    answered.delete(item.requestId)
+    host.notifyError?.(`Could not send the answer: ${err && err.message ? err.message : err}`)
+  }
 }
 
 function openInboxItem(item) {
@@ -2356,14 +2472,56 @@ function ApprovalRow({ item, looks, compact }) {
 }
 
 function QuestionRow({ item, looks, compact }) {
+  const [answer, setAnswer] = useState('')
   const look = normalizeLook(looks[item.profile] || null, item.profile || 'default')
   const profile = ($crew.get().profiles || []).find(p => p.name === item.profile)
-  return jsx(DeskRow, {
-    dot: V.amber,
-    lead: compact ? null : jsx(RobotHead, { look, expr: 'question', size: 28, title: item.profile || 'bot' }),
-    title: item.title,
-    sub: jsx('span', { style: { color: V.amber }, children: `${profile ? botLabel(profile) : item.profile || 'A bot'} is waiting for your answer` }),
-    actions: jsx(SmallButton, { onClick: () => openInboxItem(item), children: 'Answer' })
+  const who = profile ? botLabel(profile) : item.profile || 'A bot'
+  const canAnswer = item.viaEvent && item.requestId
+  const send = text => {
+    if (text.trim()) answerQuestion(item, text.trim())
+  }
+  return jsxs('div', {
+    style: { display: 'flex', flexDirection: 'column', gap: 6, padding: compact ? '8px 0' : '12px 0', borderBottom: `1px solid ${V.hair}` },
+    children: [
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'flex-start', gap: compact ? 8 : 12 },
+        children: [
+          compact ? null : jsx(RobotHead, { look, expr: 'question', size: 28, title: item.profile || 'bot' }),
+          jsxs('div', {
+            style: { minWidth: 0, flex: 1 },
+            children: [
+              jsxs('div', { style: { fontSize: compact ? 12 : 14, color: V.t1, lineHeight: 1.4 }, children: [jsx('span', { style: { color: V.amber }, children: 'Question' }), ` · ${who}${item.question ? ': ' : ' is waiting for your answer'}`, item.question || ''] }),
+              compact ? null : jsx('div', { className: 'truncate', style: { fontSize: 12, color: V.t4, marginTop: 4 }, children: `in “${item.title}”` })
+            ]
+          })
+        ]
+      }),
+      canAnswer && item.choices && item.choices.length
+        ? jsx('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 }, children: item.choices.slice(0, 6).map(c => jsx(SmallButton, { onClick: () => send(c), children: c }, c)) })
+        : null,
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'center', gap: 6, justifyContent: compact ? 'flex-start' : 'flex-end' },
+        children: [
+          canAnswer
+            ? jsx('input', {
+                value: answer,
+                placeholder: 'Answer…',
+                'aria-label': `Answer ${who}`,
+                onChange: e => setAnswer(e.target.value),
+                onKeyDown: e => {
+                  if (e.key === 'Enter') {
+                    send(answer)
+                    setAnswer('')
+                  }
+                },
+                style: { height: 26, flex: compact ? 1 : undefined, width: compact ? undefined : 220, minWidth: 0, borderRadius: V.radius(7), border: `1px solid ${V.hair2}`, background: 'transparent', padding: '0 8px', fontSize: 12, color: V.t1, outline: 'none' }
+              })
+            : null,
+          canAnswer ? jsx(SmallButton, { primary: true, disabled: !answer.trim(), onClick: () => (send(answer), setAnswer('')), children: 'Send' }) : null,
+          jsx(SmallButton, { onClick: () => openInboxItem(item), children: canAnswer ? 'Open' : 'Answer' })
+        ]
+      })
+    ]
   })
 }
 
@@ -2472,15 +2630,18 @@ async function refreshPlan(sessionId) {
 
 function usePlan() {
   const sessionId = useValue(host.state.focusedStoredSessionId)
+  const runtimeId = useValue(host.state.focusedSessionId)
   const busy = useValue(host.state.busy)
   const plan = useValue($plan)
+  const live = useValue($liveTodos)
+  const fromEvents = live[runtimeId] || live[sessionId] || null
   useEffect(() => {
     refreshPlan(sessionId)
     if (!busy || !sessionId) return undefined
     const h = setInterval(() => refreshPlan(sessionId), 6000)
     return () => clearInterval(h)
   }, [sessionId, busy])
-  return plan.sessionId === sessionId ? plan.items : null
+  return fromEvents || (plan.sessionId === sessionId ? plan.items : null)
 }
 
 function PlanStatus() {
@@ -2490,7 +2651,7 @@ function PlanStatus() {
   return jsxs('div', {
     children: [
       jsx(PaneHead, { children: 'Plan' }),
-      jsx('div', { style: { fontSize: 12, color: V.t4 }, children: pl.error ? 'Plan unavailable for this chat.' : 'No plan in this chat yet. One appears when the bot breaks the work into steps.' })
+      jsx('div', { style: { fontSize: 12, color: V.t4 }, children: 'No plan yet. It appears here as soon as the bot breaks the work into steps.' })
     ]
   })
 }
@@ -3032,7 +3193,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
 // ───────────────────────────────────────────────────────────────── plugin
 
 // Pure helpers, exported for the test suite only.
-export const _internals = { latestPlan, parseTodoList, answerApproval, refreshPlan, $plan, $inbox }
+export const _internals = { latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
 
 export default {
   id: ID,
@@ -3235,6 +3396,7 @@ export default {
     // The inbox (approvals and questions across live sessions) and the sidebar
     // pane that shows it, mounted only while something needs you.
     startInbox(ctx)
+    startPromptEvents(ctx)
     let offNeedsPane = null
     const syncNeedsPane = () => {
       const inbox = $inbox.get()

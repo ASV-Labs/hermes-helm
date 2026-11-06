@@ -100,6 +100,10 @@ export const host = {
     if (method in gw) return typeof gw[method] === 'function' ? gw[method](params) : gw[method]
     return { ok: true }
   },
+  onEvent: (type, fn) => {
+    globalThis.__eventSubs = (globalThis.__eventSubs || []).concat([[type, fn]])
+    return () => {}
+  },
   notify: () => {},
   openSession: (id, opts) => {
     globalThis.__opened = [id, opts]

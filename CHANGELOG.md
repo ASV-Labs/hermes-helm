@@ -8,6 +8,8 @@ What needs you, wherever you are.
 - **Needs you in the sidebar.** A pane above Sessions with approvals, questions and unread replies from every bot. It appears only while something is waiting and can be turned off in Customize look.
 - **Task plan in the Session pane.** The focused chat's latest plan (its `todo_list`), read from its transcript (`session.history`): *Plan · 3 of 5*, the step in progress marked *now*, sub-steps indented, refreshed every few seconds while the bot works.
 - The Desk's *Needs you* section and status line count approvals and questions, each chat once.
+- **Works on the shared gateway** (Hermes' canonical runtime): approvals, questions and plans are heard from the app's own event stream (`host.onEvent`: `approval.request`, `clarify.request`, `todo_list` tool events) and answered with `approval.respond` / `clarify.respond`. A question can be answered inline, with its suggested choices as buttons. The older gateway is still covered by polling.
+- **Helm: diagnostics** (⌘K) reports what the inbox and plan reader can see.
 
 ## 0.5.0 — 2026-11-06
 

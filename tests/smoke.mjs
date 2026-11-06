@@ -211,5 +211,28 @@ assert.equal(custom.data.colors.background, '#F7F6F2', 'custom theme follows the
   assert.deepEqual(sent, { session_id: 'rt-vision', request_id: 'req-1', choice: 'once', all: false })
   assert.equal($inbox.get().approvals.length, 0, 'answered approval leaves the inbox immediately')
 }
+{
+  // Shared-gateway path: prompts and plans arrive as events
+  const { onPromptEvent, onPromptGone, onToolEvent, answerQuestion, answerApproval, $inbox, $liveTodos } = mod._internals
+  assert.ok((globalThis.__eventSubs || []).some(([t]) => t === 'approval.request'), 'listens for approval.request')
+  onPromptEvent({ type: 'approval.request', session_id: 's1', profile: 'builder', payload: { prompt_id: 'p-9', command: 'rm -rf build', description: 'deletes the build folder', choices: ['once', 'deny'] } })
+  const ev = $inbox.get().approvals.find(a => a.requestId === 'p-9')
+  assert.ok(ev && ev.profile === 'builder' && ev.title === 'Refactor the auth flow', 'event approval mapped to its bot and chat')
+  onPromptEvent({ type: 'clarify.request', session_id: 's2', payload: { prompt_id: 'c-1', question: 'Which host?', choices: ['foundrykit-vps', 'kinetik'] } })
+  const deskQ = renderToString(byArea('routes').find(c => c.data.path === '/helm/desk').render())
+  for (const w of ['rm -rf build', 'Which host?', 'foundrykit-vps', 'Answer…']) assert.ok(deskQ.includes(w), `desk event prompt: ${w}`)
+  await answerApproval(ev, 'deny')
+  assert.deepEqual(globalThis.__rpc.filter(([m]) => m === 'approval.respond').pop()[1], { session_id: 's1', request_id: 'p-9', choice: 'deny', all: false, profile: 'builder' })
+  const q = $inbox.get().questions.find(x => x.requestId === 'c-1')
+  await answerQuestion(q, 'kinetik')
+  assert.deepEqual(globalThis.__rpc.filter(([m]) => m === 'clarify.respond').pop()[1], { session_id: 's2', request_id: 'c-1', answer: 'kinetik' })
+  onPromptEvent({ type: 'approval.request', session_id: 's1', payload: { prompt_id: 'p-10', command: 'ls' } })
+  onPromptGone({ type: 'approval.settled', payload: { prompt_id: 'p-10' } })
+  assert.ok(!$inbox.get().approvals.some(a => a.requestId === 'p-10'), 'settled approvals leave')
+  // Plans from tool events: full list, then a merge patch
+  onToolEvent({ type: 'tool.complete', session_id: 'rt-x', payload: { name: 'todo_list', todos: [{ id: '1', content: 'A', status: 'in_progress' }, { id: '2', content: 'B', status: 'pending' }] } })
+  onToolEvent({ type: 'tool.start', session_id: 'rt-x', payload: { name: 'todo_list', args: { merge: true, todos: [{ id: '1', content: 'A', status: 'completed' }] } } })
+  assert.deepEqual($liveTodos.get()['rt-x'].map(t => t.status), ['completed', 'pending'])
+}
 disposed.forEach(fn => fn())
 console.log('helm smoke: ok —', contributions.length, 'contributions,', rendered.length, 'rendered')
