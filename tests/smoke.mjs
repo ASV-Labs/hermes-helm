@@ -83,14 +83,28 @@ assert.equal(byArea('statusBar.right').length, 4, 'needs-you, today, working, co
 assert.equal(byArea('titleBar.center').length, 1, 'titlebar context line')
 assert.equal(byArea('sessionRow.leading').length, 1, 'session row robot')
 assert.equal(byArea('sessionRow.trailing').length, 1, 'session row cost')
-assert.equal(byArea('routes').length, 2, 'bots + look routes')
-assert.equal(byArea('sidebarNav').length, 2, 'bots + look nav rows')
-assert.equal(byArea('keybinds').length, 2)
+assert.equal(byArea('routes').length, 3, 'desk + bots + look routes')
+assert.equal(byArea('sidebarNav').length, 3, 'desk + bots + look nav rows')
+assert.equal(byArea('keybinds').length, 3)
 assert.ok(byArea('palette').find(c => c.data.id === 'helm.talk.vision'), 'per-bot palette commands follow the crew')
 assert.ok(byArea('palette').find(c => c.data.id === 'helm.resume.builder'), 'per-bot resume command')
 assert.equal(byArea('appearance.extra').length, 1)
 assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page with two sub-pages')
-assert.equal(byArea('sidebarNav.prefs').length, 0, 'messaging row visible by default')
+{
+  const np = byArea('sidebarNav.prefs')
+  assert.equal(np.length, 1, 'one nav-prefs contribution')
+  assert.deepEqual(np[0].data.hide, [], 'messaging row visible by default')
+  assert.deepEqual(np[0].data.order, ['new-session', 'helm:desk-nav'], 'Desk sits under New session')
+}
+// The Desk: greeting, status sentence, prompt, continue, needs you, today
+{
+  const desk = byArea('routes').find(c => c.data.path === '/helm/desk')
+  const html = renderToString(desk.render())
+  for (const word of ['Good ', 'What should we tackle?', 'Continue', 'Needs you · 1', 'Today', 'Refactor the auth flow', 'Install helm', 'Vision is', 'One thing is waiting on you.', 'Draft', 'Send', 'Scheduled jobs', 'Reply…'])
+    assert.ok(html.includes(word), `desk: ${word}`)
+  const strip = renderToString(byArea('composer.top')[0].render())
+  assert.ok(strip.includes('Continue') && strip.includes('Install helm') && strip.includes('1 needs you'), `desk strip: ${strip.slice(0, 300)}`)
+}
 
 const rendered = []
 for (const c of contributions) {

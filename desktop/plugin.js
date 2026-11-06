@@ -42,9 +42,10 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '0.4.0'
+const VERSION = '0.5.0'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
+const DESK_ROUTE = '/helm/desk'
 
 // ───────────────────────────────────────────────────────────────── themes
 
@@ -399,7 +400,10 @@ const DEFAULT_PREFS = {
   radius: 'default',
   font: 'system',
   width: 'default',
-  rail: 'mono'
+  rail: 'mono',
+  openDeskAtLaunch: true,
+  showDeskStrip: true,
+  deskName: ''
 }
 
 // ────────────────────────────────────────────────────────────── robot looks
@@ -1556,6 +1560,536 @@ function TodayChip({ prefs }) {
   })
 }
 
+// ───────────────────────────────────────────────────────────────── the desk
+// Home for the whole app: who's working, what's waiting on you, what ran
+// today, and a prompt that hands work to any bot. Everything on it comes from
+// the crew index (profiles + persisted sessions) and the plugin's own backend
+// (scheduled jobs), so it reads the same data the core views do.
+
+const $today = atom({ ready: false, available: false, jobs: [], at: 0 })
+let deskRest = null
+let todayInflight = false
+
+async function refreshToday() {
+  if (todayInflight) return
+  todayInflight = true
+  try {
+    if (!deskRest) throw new Error('no backend')
+    const res = await deskRest('/desk/today')
+    $today.set({ ready: true, available: !!(res && res.available), jobs: (res && res.jobs) || [], at: Date.now() })
+  } catch {
+    $today.set({ ready: true, available: false, jobs: [], at: Date.now() })
+  } finally {
+    todayInflight = false
+  }
+}
+
+function toMs(t) {
+  if (!t) return 0
+  if (typeof t === 'string') {
+    const n = Date.parse(t)
+    return Number.isFinite(n) ? n : 0
+  }
+  return t > 1e12 ? t : t * 1000
+}
+
+function clock(ms) {
+  if (!ms) return ''
+  return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+function greeting(now = new Date()) {
+  const h = now.getHours()
+  if (h >= 5 && h < 12) return 'Good morning'
+  if (h >= 12 && h < 18) return 'Good afternoon'
+  return 'Good evening'
+}
+
+function recentAcross(crew, limit = 6) {
+  const out = []
+  for (const p of crew.profiles || []) {
+    for (const r of (crew.sessions && crew.sessions[p.name]) || []) out.push({ profile: p, row: r })
+  }
+  out.sort((a, b) => toMs(b.row.last_active) - toMs(a.row.last_active))
+  return out.slice(0, limit)
+}
+
+function waitingAcross(crew) {
+  const out = []
+  for (const p of crew.profiles || []) {
+    for (const r of (crew.sessions && crew.sessions[p.name]) || []) if (r.unread) out.push({ profile: p, row: r })
+  }
+  out.sort((a, b) => toMs(b.row.last_active) - toMs(a.row.last_active))
+  return out
+}
+
+function rowState(r) {
+  if (r.unread) return { word: 'reply waiting', tone: 'amber', dot: '#E8A657' }
+  if (r.is_active && !r.ended_at) return { word: 'working', tone: 'accent', dot: 'var(--ui-accent)' }
+  return { word: 'done', tone: 'muted', dot: 'var(--ui-text-quaternary)' }
+}
+
+function sessionTitle(r) {
+  return r.title || r.preview || 'Untitled session'
+}
+
+function minutesSince(t) {
+  const ms = toMs(t)
+  if (!ms) return ''
+  const m = Math.max(0, Math.round((Date.now() - ms) / 60000))
+  if (m < 1) return 'just started'
+  if (m < 60) return `${m} min`
+  const h = Math.floor(m / 60)
+  return h < 24 ? `${h} h` : `${Math.floor(h / 24)} d`
+}
+
+function statusSentence(crew) {
+  const working = []
+  for (const p of crew.profiles || []) {
+    const rows = (crew.sessions && crew.sessions[p.name]) || []
+    const live = rows.find(r => r.is_active && !r.ended_at)
+    if (live) working.push({ profile: p, row: live })
+  }
+  const waiting = waitingAcross(crew).length
+  const parts = []
+  if (working.length) {
+    const first = working[0]
+    const into = minutesSince(first.row.started_at || first.row.last_active)
+    parts.push(`${botLabel(first.profile)} is ${into === 'just started' ? 'just starting' : `${into} into`} “${sessionTitle(first.row)}”.`)
+    if (working.length > 1) parts.push(`${working.length - 1} more ${working.length === 2 ? 'bot is' : 'bots are'} working.`)
+  }
+  if (waiting) parts.push(waiting === 1 ? 'One thing is waiting on you.' : `${waiting} things are waiting on you.`)
+  if (!parts.length) parts.push(crew.ready ? 'All quiet — nothing is running or waiting on you.' : 'Checking on the crew…')
+  return parts.join(' ')
+}
+
+function atomGet(a) {
+  try {
+    return a && typeof a.get === 'function' ? a.get() : undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Hand text to a new chat with `profile`. 'send' submits it, 'draft' only fills
+// the composer. Never submits before the app has switched to that bot.
+function startChat(profile, text, mode) {
+  const composer = host.composer
+  try {
+    host.newChat(profile)
+  } catch (err) {
+    host.notifyError?.(`Could not start a chat: ${err && err.message ? err.message : err}`)
+    return
+  }
+  if (!text || !composer) return
+  let tries = 0
+  const ready = () => {
+    const routed = atomGet(host.state.focusedSessionProfile) || atomGet(host.state.profile)
+    return !profile || routed === profile
+  }
+  const attempt = () => {
+    tries += 1
+    if (!ready()) {
+      if (tries < 40) setTimeout(attempt, 150)
+      else host.notifyError?.('The new chat did not open in time; your text was not sent.')
+      return
+    }
+    if (mode === 'send' && typeof composer.submit === 'function') {
+      let ok = false
+      try {
+        ok = composer.submit(null, text)
+      } catch {
+        ok = false
+      }
+      if (!ok && tries < 40) setTimeout(attempt, 150)
+      else if (!ok) host.notifyError?.('The composer was not ready; your text was not sent.')
+      return
+    }
+    Promise.resolve(typeof composer.setDraft === 'function' ? composer.setDraft(null, text) : false)
+      .catch(() => false)
+      .then(ok => {
+        if (!ok && tries < 40) setTimeout(attempt, 150)
+      })
+  }
+  setTimeout(attempt, 150)
+}
+
+// Open a session and put a reply in its composer as a draft; the user sends it.
+function replyDraft(entry, text) {
+  openSession(entry.row, entry.profile.name)
+  if (!text || !host.composer || typeof host.composer.setDraft !== 'function') return
+  const ids = new Set([entry.row.id, entry.row._lineage_root_id, ...(entry.row._lineage_ids || [])].filter(Boolean))
+  let tries = 0
+  const attempt = () => {
+    tries += 1
+    const focused = atomGet(host.state.focusedStoredSessionId)
+    if (!ids.has(focused)) {
+      if (tries < 40) setTimeout(attempt, 150)
+      return
+    }
+    Promise.resolve(host.composer.setDraft(null, text)).catch(() => {})
+  }
+  setTimeout(attempt, 150)
+}
+
+function DeskSection({ title, action, children }) {
+  return jsxs('section', {
+    className: 'mt-7',
+    children: [
+      jsxs('div', {
+        className: 'mb-1 flex items-center justify-between border-b border-(--helm-hair,var(--ui-border)) pb-1.5',
+        children: [
+          jsx('h2', { className: 'text-[0.6875rem] font-semibold uppercase tracking-[0.12em] text-(--ui-text-tertiary)', children: title }),
+          action || null
+        ]
+      }),
+      children
+    ]
+  })
+}
+
+function LinkButton({ onClick, children, tone }) {
+  return jsx('button', {
+    type: 'button',
+    onClick,
+    className: cn('rounded px-1 text-xs hover:underline', tone === 'muted' ? 'text-(--ui-text-tertiary)' : 'text-(--ui-accent)'),
+    children
+  })
+}
+
+function DeskRow({ lead, title, sub, meta, actions }) {
+  return jsxs('div', {
+    className: 'group flex items-center gap-3 border-b border-(--helm-hair,var(--ui-border)) py-2.5 last:border-b-0',
+    children: [
+      lead,
+      jsxs('div', {
+        className: 'min-w-0 flex-1',
+        children: [
+          jsx('div', { className: 'truncate text-sm text-(--ui-text-primary)', children: title }),
+          sub ? jsx('div', { className: 'truncate text-xs text-(--ui-text-tertiary)', children: sub }) : null
+        ]
+      }),
+      meta ? jsx('div', { className: 'shrink-0 text-xs tabular-nums text-(--ui-text-quaternary)', children: meta }) : null,
+      actions ? jsx('div', { className: 'flex shrink-0 items-center gap-1.5', children: actions }) : null
+    ]
+  })
+}
+
+function BotPicker({ profiles, value, onPick, looks }) {
+  return jsx('div', {
+    className: 'flex min-w-0 flex-wrap items-center gap-1',
+    role: 'radiogroup',
+    'aria-label': 'Bot',
+    children: profiles.map(p => {
+      const on = p.name === value
+      const look = normalizeLook(looks[p.name], p.name)
+      return jsxs(
+        'button',
+        {
+          type: 'button',
+          role: 'radio',
+          'aria-checked': on,
+          title: `Hand it to ${botLabel(p)}`,
+          onClick: () => onPick(p.name),
+          className: cn(
+            'flex h-7 items-center gap-1.5 rounded-full border px-1.5 pr-2.5 text-xs transition-colors',
+            on
+              ? 'border-(--ui-accent) bg-[color-mix(in_srgb,var(--ui-accent)_14%,transparent)] text-(--ui-text-primary)'
+              : 'border-(--helm-hair,var(--ui-border)) text-(--ui-text-tertiary) hover:text-(--ui-text-secondary)'
+          ),
+          children: [jsx(RobotHead, { look, expr: on ? 'happy' : look.face, size: 18, title: p.name }), botLabel(p)]
+        },
+        p.name
+      )
+    })
+  })
+}
+
+function DeskPrompt({ crew, looks }) {
+  const focusedProfile = useValue(host.state.focusedSessionProfile)
+  const cwd = useValue(host.state.cwd)
+  const profiles = crew.profiles || []
+  const [bot, setBot] = useState(null)
+  const [text, setText] = useState('')
+  const chosen = bot || (profiles.some(p => p.name === focusedProfile) ? focusedProfile : profiles[0] && profiles[0].name) || 'default'
+  const go = mode => {
+    const t = text.trim()
+    if (!t && mode === 'send') return
+    startChat(chosen, t, mode)
+    setText('')
+  }
+  return jsxs('div', {
+    className:
+      'rounded-[calc(var(--radius-scalar,1)*14px)] border border-(--helm-hair,var(--ui-border)) bg-(--ui-surface-raised,transparent) p-3 shadow-[0_1px_0_rgba(0,0,0,0.2)] focus-within:border-(--ui-accent)',
+    children: [
+      jsxs('div', {
+        className: 'mb-1 flex items-center gap-1.5 font-mono text-[0.6875rem] text-(--ui-text-quaternary)',
+        children: [jsx(Codicon, { name: 'folder', size: 11 }), jsx('span', { className: 'truncate', children: cwd || 'no folder' })]
+      }),
+      jsx('textarea', {
+        value: text,
+        rows: 2,
+        placeholder: 'What should we tackle?',
+        'aria-label': 'What should we tackle?',
+        onChange: e => setText(e.target.value),
+        onKeyDown: e => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault()
+            go('send')
+          }
+        },
+        className: 'w-full resize-none bg-transparent py-1 text-[0.95rem] text-(--ui-text-primary) outline-none placeholder:text-(--ui-text-quaternary)'
+      }),
+      jsxs('div', {
+        className: 'mt-2 flex items-center gap-2',
+        children: [
+          jsx(BotPicker, { profiles, value: chosen, onPick: setBot, looks }),
+          jsx('span', { className: 'ml-auto hidden text-[0.6875rem] text-(--ui-text-quaternary) md:inline', children: '↵ send · ⇧↵ new line' }),
+          jsx(Button, { variant: 'outline', size: 'sm', title: 'Open a new chat with this text in the composer, unsent', onClick: () => go('draft'), children: 'Draft' }),
+          jsx(Button, { size: 'sm', disabled: !text.trim(), onClick: () => go('send'), children: 'Send' })
+        ]
+      })
+    ]
+  })
+}
+
+function NeedsYouRow({ entry, look }) {
+  const [reply, setReply] = useState('')
+  const r = entry.row
+  return jsx(DeskRow, {
+    lead: jsx(RobotHead, { look, expr: 'question', size: 26, title: entry.profile.name }),
+    title: sessionTitle(r),
+    sub: `${botLabel(entry.profile)} · replied ${ago(r.last_active)}${r.preview && r.title ? ` · ${r.preview}` : ''}`,
+    actions: [
+      jsx(
+        'input',
+        {
+          value: reply,
+          placeholder: 'Reply…',
+          'aria-label': `Reply to ${botLabel(entry.profile)}`,
+          onChange: e => setReply(e.target.value),
+          onKeyDown: e => {
+            if (e.key === 'Enter' && reply.trim()) {
+              replyDraft(entry, reply.trim())
+              setReply('')
+            }
+          },
+          className:
+            'h-7 w-44 rounded-md border border-(--helm-hair,var(--ui-border)) bg-transparent px-2 text-xs text-(--ui-text-primary) outline-none placeholder:text-(--ui-text-quaternary) focus:border-(--ui-accent)'
+        },
+        'reply'
+      ),
+      jsx(Button, { size: 'sm', onClick: () => (reply.trim() ? replyDraft(entry, reply.trim()) : openSession(r, entry.profile.name)), children: 'Open' }, 'open')
+    ]
+  })
+}
+
+const JOB_TONE = {
+  failed: 'text-[#E5534B]',
+  error: 'text-[#E5534B]',
+  done: 'text-[#57AB5A]',
+  ok: 'text-[#57AB5A]',
+  running: 'text-(--ui-accent)',
+  scheduled: 'text-(--ui-text-tertiary)'
+}
+
+function jobRow(job) {
+  const last = toMs(job.last_run_at)
+  const next = toMs(job.next_run_at)
+  const since = startOfToday() * 1000
+  const until = since + 86400000
+  if (job.running) return { at: last || Date.now(), word: 'running', job }
+  if (last >= since) return { at: last, word: job.last_status === 'error' || job.last_error ? 'failed' : 'done', job }
+  if (job.enabled !== false && next >= Date.now() && next < until) return { at: next, word: 'scheduled', job }
+  return null
+}
+
+function TodayList() {
+  const today = useValue($today)
+  useEffect(() => {
+    refreshToday()
+    const h = setInterval(refreshToday, 30000)
+    return () => clearInterval(h)
+  }, [])
+  const rows = useMemo(() => today.jobs.map(jobRow).filter(Boolean).sort((a, b) => a.at - b.at), [today])
+  if (!today.ready) return jsx('p', { className: 'py-3 text-xs text-(--ui-text-quaternary)', children: 'Reading scheduled jobs…' })
+  if (!today.available)
+    return jsx('p', {
+      className: 'py-3 text-xs text-(--ui-text-tertiary)',
+      children: 'Scheduled jobs show here once Hermes has loaded helm’s backend (it loads when Hermes starts).'
+    })
+  if (!rows.length) return jsx('p', { className: 'py-3 text-xs text-(--ui-text-tertiary)', children: 'Nothing ran or is due today.' })
+  return jsx('div', {
+    children: rows.map(({ at, word, job }) =>
+      jsx(
+        DeskRow,
+        {
+          lead: jsx('span', { className: 'w-16 shrink-0 font-mono text-xs tabular-nums text-(--ui-text-tertiary)', children: clock(at) }),
+          title: jsxs('span', {
+            children: [job.name || 'Scheduled job', ' ', jsx('span', { className: cn('text-xs', JOB_TONE[word]), children: word })]
+          }),
+          sub: [job.profile, job.schedule_display, word === 'failed' && job.last_error ? `“${String(job.last_error).slice(0, 120)}”` : null].filter(Boolean).join(' · '),
+          actions: jsx(LinkButton, { onClick: () => host.navigate('/cron'), children: word === 'failed' ? 'Log' : 'Open' })
+        },
+        job.id
+      )
+    )
+  })
+}
+
+function DeskPage({ looks, prefs, setPrefs }) {
+  const crew = useValue($crew)
+  const looksValue = useValue(looks)
+  const p = useValue(prefs)
+  const [naming, setNaming] = useState(false)
+  const recent = useMemo(() => recentAcross(crew, 5), [crew])
+  const waiting = useMemo(() => waitingAcross(crew), [crew])
+  const totals = crewTotals(crew)
+  const lookOf = name => normalizeLook(looksValue[name], name)
+  const name = (p.deskName || '').trim()
+
+  return jsx('div', {
+    className: 'h-full overflow-y-auto',
+    children: jsxs('div', {
+      className: 'mx-auto w-full max-w-[46rem] px-6 pb-16 pt-14',
+      children: [
+        jsxs('div', {
+          className: 'mb-4 flex flex-wrap items-baseline gap-x-3 gap-y-1',
+          children: [
+            naming
+              ? jsx('input', {
+                  autoFocus: true,
+                  defaultValue: name,
+                  placeholder: 'Your first name',
+                  'aria-label': 'Your first name',
+                  onBlur: e => {
+                    setPrefs({ deskName: e.target.value.trim().slice(0, 40) })
+                    setNaming(false)
+                  },
+                  onKeyDown: e => {
+                    if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
+                  },
+                  className: 'h-8 rounded-md border border-(--ui-accent) bg-transparent px-2 text-lg text-(--ui-text-primary) outline-none'
+                })
+              : jsx('h1', {
+                  className: 'cursor-text text-[1.35rem] font-medium tracking-[-0.01em] text-(--ui-text-primary)',
+                  title: 'Click to set the name the desk greets',
+                  onClick: () => setNaming(true),
+                  children: `${greeting()}${name ? `, ${name}` : ''}.`
+                }),
+            jsx('p', { className: 'text-sm text-(--ui-text-tertiary)', children: statusSentence(crew) })
+          ]
+        }),
+        jsx(DeskPrompt, { crew, looks: looksValue }),
+        jsx(DeskSection, {
+          title: 'Continue',
+          action: jsx(LinkButton, { onClick: () => host.navigate(BOTS_ROUTE), children: 'Bots board' }),
+          children: recent.length
+            ? recent.map(entry => {
+                const r = entry.row
+                const st = rowState(r)
+                return jsx(
+                  DeskRow,
+                  {
+                    lead: jsx(RobotHead, { look: lookOf(entry.profile.name), expr: r.unread ? 'question' : r.is_active && !r.ended_at ? 'focused' : lookOf(entry.profile.name).face, size: 26, title: entry.profile.name }),
+                    title: sessionTitle(r),
+                    sub: jsxs('span', {
+                      children: [
+                        botLabel(entry.profile),
+                        ' · ',
+                        jsx('span', { className: TONE[st.tone], children: st.word }),
+                        r.cwd ? ` · ${basename(r.cwd)}` : ''
+                      ]
+                    }),
+                    meta: [ago(r.last_active), rowCost(r) >= 0.01 ? fmtCost(rowCost(r)) : null].filter(Boolean).join(' · '),
+                    actions: jsx(Button, { variant: 'outline', size: 'sm', onClick: () => openSession(r, entry.profile.name), children: r.unread ? 'Review' : 'Open' })
+                  },
+                  `${entry.profile.name}:${r.id}`
+                )
+              })
+            : jsx('p', { className: 'py-3 text-xs text-(--ui-text-tertiary)', children: crew.ready ? 'No sessions yet. Start one above.' : 'Loading sessions…' })
+        }),
+        jsx(DeskSection, {
+          title: waiting.length ? `Needs you · ${waiting.length}` : 'Needs you',
+          action: waiting.length
+            ? jsx(LinkButton, {
+                onClick: () => {
+                  $boardFilter.set('attention')
+                  host.navigate(BOTS_ROUTE)
+                },
+                children: 'All of them'
+              })
+            : null,
+          children: waiting.length
+            ? waiting.slice(0, 5).map(entry => jsx(NeedsYouRow, { entry, look: lookOf(entry.profile.name) }, `${entry.profile.name}:${entry.row.id}`))
+            : jsx('p', { className: 'py-3 text-xs text-(--ui-text-tertiary)', children: 'Nothing is waiting on you.' })
+        }),
+        jsx(DeskSection, {
+          title: 'Today',
+          action: jsx(LinkButton, { onClick: () => host.navigate('/cron'), children: 'Scheduled jobs' }),
+          children: jsx(TodayList, {})
+        }),
+        jsxs('div', {
+          className: 'mt-8 flex flex-wrap items-center gap-2',
+          children: [
+            ...[
+              ['hubot', 'Bots board', BOTS_ROUTE],
+              ['watch', 'Scheduled jobs', '/cron'],
+              ['files', 'Artifacts', '/artifacts'],
+              ['symbol-color', 'Customize look', LOOK_ROUTE]
+            ].map(([icon, label, path]) =>
+              jsx(Button, { variant: 'outline', size: 'sm', onClick: () => host.navigate(path), children: jsxs('span', { className: 'flex items-center gap-1.5', children: [jsx(Codicon, { name: icon, size: 13 }), label] }) }, path)
+            ),
+            jsx('span', {
+              className: 'ml-auto text-xs tabular-nums text-(--ui-text-quaternary)',
+              children: [`${totals.working} working`, totals.today >= 0.01 ? `${fmtCost(totals.today)} today` : null].filter(Boolean).join(' · ')
+            })
+          ]
+        })
+      ]
+    })
+  })
+}
+
+// Above the composer on a fresh draft: jump back into recent work.
+function DeskStrip({ looks, prefs }) {
+  const { showDeskStrip } = useValue(prefs)
+  const active = useValue(host.state.activeSessionId)
+  const crew = useValue($crew)
+  const looksValue = useValue(looks)
+  const recent = useMemo(() => recentAcross(crew, 3), [crew])
+  if (!showDeskStrip || active || !recent.length) return null
+  const waiting = crewTotals(crew).needYou
+  return jsxs('div', {
+    className: 'flex min-w-0 items-center gap-1.5 px-2 pb-1 pt-1.5 text-[0.6875rem] text-(--ui-text-tertiary)',
+    children: [
+      jsx('span', { className: 'shrink-0 font-semibold uppercase tracking-[0.1em] text-(--ui-text-quaternary)', children: 'Continue' }),
+      ...recent.map(entry =>
+        jsxs(
+          'button',
+          {
+            type: 'button',
+            title: `${botLabel(entry.profile)} · ${sessionTitle(entry.row)}`,
+            onClick: () => openSession(entry.row, entry.profile.name),
+            className: 'flex min-w-0 max-w-[13rem] items-center gap-1 rounded-full border border-(--helm-hair,var(--ui-border)) py-0.5 pl-0.5 pr-2 hover:text-(--ui-text-primary)',
+            children: [
+              jsx(RobotHead, { look: normalizeLook(looksValue[entry.profile.name], entry.profile.name), expr: entry.row.unread ? 'question' : normalizeLook(looksValue[entry.profile.name], entry.profile.name).face, size: 16, title: entry.profile.name }),
+              jsx('span', { className: 'truncate', children: sessionTitle(entry.row) })
+            ]
+          },
+          entry.row.id
+        )
+      ),
+      jsx('button', {
+        type: 'button',
+        onClick: () => host.navigate(DESK_ROUTE),
+        className: cn('ml-auto shrink-0 rounded px-1 hover:underline', waiting ? 'text-[#E8A657]' : 'text-(--ui-accent)'),
+        children: waiting ? `${waiting} need${waiting === 1 ? 's' : ''} you · Desk` : 'Desk'
+      })
+    ]
+  })
+}
+
 // ─────────────────────────────────────────────────────────── settings page
 
 function ThemeButtons({ prefs, setPrefs }) {
@@ -1817,6 +2351,8 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
   const sample = normalizeLook(looksValue.default || null, 'default')
 
   const toggles = [
+    ['openDeskAtLaunch', 'Open the Desk at launch', 'Hermes starts on the Desk: what’s running, what needs you, what ran today.'],
+    ['showDeskStrip', 'Continue strip on new chats', 'Recent sessions above the composer of a fresh chat, one click back in.'],
     ['showContextLine', 'Titlebar context', 'Bot, folder, model, cost and context of the chat you’re in.'],
     ['showRowBots', 'Bots in the session list', 'Each session row shows the robot of the bot it belongs to; its face is the row’s state.'],
     ['showRowCost', 'Cost in the session list', 'Spend per session, right-aligned.'],
@@ -1951,6 +2487,7 @@ export default {
   description: 'A redesigned Hermes Desktop: a calmer interface you can tune, a crew view of every bot, rendered robots that become your bots’ avatars, and live status across the desk.',
   register(ctx) {
     spriteRest = typeof ctx.rest === 'function' ? path => ctx.rest(path) : null
+    deskRest = spriteRest
     spritesDown = false
     spriteFailures = 0
     const prefs = atom({ ...DEFAULT_PREFS, ...ctx.storage.get('prefs', {}) })
@@ -1980,15 +2517,16 @@ export default {
     }
     syncCustomTheme()
 
+    // Sidebar nav: the Desk sits right under New session; Messaging can be hidden.
     let unregisterNav = null
+    let navKey = ''
     const syncNavPrefs = () => {
-      const want = prefs.get().hideMessagingRow
-      if (want && !unregisterNav) {
-        unregisterNav = ctx.register({ id: 'nav-prefs', area: 'sidebarNav.prefs', data: { hide: ['messaging'] } })
-      } else if (!want && unregisterNav) {
-        unregisterNav()
-        unregisterNav = null
-      }
+      const hide = prefs.get().hideMessagingRow ? ['messaging'] : []
+      const key = hide.join(',')
+      if (unregisterNav && key === navKey) return
+      if (unregisterNav) unregisterNav()
+      navKey = key
+      unregisterNav = ctx.register({ id: 'nav-prefs', area: 'sidebarNav.prefs', data: { hide, order: ['new-session', `${ID}:desk-nav`] } })
     }
 
     let unregisterComposer = null
@@ -2032,6 +2570,11 @@ export default {
 
     // Routes, nav rows, palette, keys.
     ctx.registerMany([
+      { id: 'desk-route', area: ROUTES_AREA, data: { path: DESK_ROUTE }, render: () => jsx(DeskPage, { looks, prefs, setPrefs }) },
+      { id: 'desk-nav', area: SIDEBAR_NAV_AREA, data: { path: DESK_ROUTE, label: 'Desk', codicon: 'home' } },
+      { id: 'desk-palette', area: PALETTE_AREA, data: { id: 'helm.desk', label: 'Helm: Desk', keywords: ['home', 'desk', 'dashboard', 'today', 'continue', 'helm'], run: () => host.navigate(DESK_ROUTE) } },
+      { id: 'desk-key', area: KEYBINDS_AREA, data: { id: 'helm.desk', label: 'Open the Desk', category: 'view', defaults: ['mod+alt+h'], run: () => host.navigate(DESK_ROUTE) } },
+      { id: 'desk-strip', area: 'composer.top', order: 5, render: () => jsx(DeskStrip, { looks, prefs }) },
       { id: 'bots-route', area: ROUTES_AREA, data: { path: BOTS_ROUTE }, render: () => jsx(BotsPage, { looks, setLook, avatars, os: ctx.os }) },
       { id: 'bots-nav', area: SIDEBAR_NAV_AREA, data: { path: BOTS_ROUTE, label: 'Bots board', codicon: 'hubot' } },
       { id: 'look-route', area: ROUTES_AREA, data: { path: LOOK_ROUTE }, render: () => jsx(LookPage, { prefs, setPrefs, applyLook, looks }) },
@@ -2094,6 +2637,17 @@ export default {
       })
     }
 
+    // Start on the Desk once per app launch (not on a plugin reload), and only
+    // when no chat is open by then.
+    const launchFlag = '__helmDeskShown'
+    if (prefs.get().openDeskAtLaunch && !globalThis[launchFlag]) {
+      globalThis[launchFlag] = true
+      const t = setTimeout(() => {
+        if (!atomGet(host.state.activeSessionId) && !atomGet(host.state.focusedStoredSessionId)) host.navigate(DESK_ROUTE)
+      }, 1200)
+      ctx.onDispose(() => clearTimeout(t))
+    }
+
     // The crew poller feeds every crew-aware surface, and gives new bots robots.
     startCrew(ctx)
     const offCrew = $crew.subscribe(crew => {
@@ -2135,6 +2689,7 @@ export default {
       if (unregisterComposer) unregisterComposer()
       if (unregisterCustom) unregisterCustom()
       spriteRest = null
+      deskRest = null
     })
   }
 }

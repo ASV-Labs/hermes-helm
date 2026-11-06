@@ -59,7 +59,20 @@ export const host = {
     busy: atom(true),
     focusedSessionProfile: atom('vision'),
     cwd: atom('/Users/x/src/lineage-demo'),
-    model: atom('grok-4.7')
+    model: atom('grok-4.7'),
+    activeSessionId: atom(null),
+    focusedStoredSessionId: atom(null),
+    profile: atom('vision')
+  },
+  composer: {
+    submit: (id, text) => {
+      globalThis.__submitted = (globalThis.__submitted || []).concat([[id, text]])
+      return true
+    },
+    setDraft: async (id, text) => {
+      globalThis.__drafts = (globalThis.__drafts || []).concat([[id, text]])
+      return true
+    }
   },
   settings: {
     get: key => ({ sessionListDensity: 'comfortable', chatTextScale: 110 })[key],

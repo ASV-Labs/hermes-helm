@@ -1,6 +1,6 @@
 # helm
 
-A quieter Hermes Desktop, as a plugin. Same app, same rail, same sidebar — helm changes how it looks and adds three things Hermes doesn't show you: what's working, what the session costs, and a Bots board where every bot is a rendered little robot you build yourself: ears, face, chest module, what it carries, what it wears, colour.
+A redesigned Hermes Desktop, as a plugin. helm replaces the look of the whole app and adds the views Hermes doesn't have: a **Desk** that opens on what's running, what needs you and what ran today; live status for every bot across the sidebar, titlebar and status bar; a **Customize look** page that tunes the entire interface; and a crew of rendered robots that become your bots' Hermes avatars.
 
 ![helm](docs/banner.png)
 
@@ -9,26 +9,28 @@ hermes plugins install P0GL0L/hermes-helm
 hermes plugins enable helm
 ```
 
-Then in Hermes Desktop: **Settings → Plugins → Desktop plugins → enable helm**, pick **Helm Dark** in the theme picker (or run *Helm: use Helm Dark* from ⌘K).
+Then in Hermes Desktop: **Settings → Plugins → Desktop plugins → enable helm**, and restart Hermes once so the gateway mounts helm's backend (robot renders, the Desk's scheduled-jobs list). Pick a look in **Customize look** (`⌘⌥L`).
 
 ## What you get
 
 | | |
 |---|---|
-| **Three themes** | Helm Dark (cyan accent), Helm Graphite (no hue), Helm Paper (warm light). Each ships a terminal palette and a small CSS layer that removes the noise texture, calms the profile rail, tracks the tab labels, and flattens the composer. |
-| **Status-bar chips** | *N working* — how many sessions are mid-turn, from the app's own busy map. *$0.42 · 18% ctx* — cost and context of the session you're looking at. Each can be turned off. |
-| **Bots board** | `⌘⌥B` or the sidebar row. A crew view: every bot with its robot, live status (*reply waiting*, *working*, *idle · 12m ago*) read from its own sessions, needs-you-first sorting and filters, its latest session with *Resume*, *New chat*, recent spend, and a *Look* editor. The face is the status. |
-| **Composer robot** | The bot you're talking to, left of the composer; its face works while it works. Click for the board. |
-| **Robot looks** | Real renders, not icons: 191 PNG layers rendered in Blender (Cycles) from one fixed camera, composed live. 10 toppers (antenna, cat ears, sprout, cap, goggles, dish, bunny, beanie, crown, headphones) · 10 faces · 8 chest modules · 6 things to carry (wrench, claw, drill, flashlight, magnet, camera) · 6 things to wear (backpack, jetpack, cape, satchel, scarf, bow) · 7 colours. 235,200 combinations. |
-| **Customize look** | A sidebar row and `/helm/look` page that owns the desk's appearance: themes, chrome toggles, density and text scale, and the door to the Bots board. Made to replace a skin plugin's customize button. |
-| **Settings page** | Settings → Plugins → Helm: theme, chips, hide the Messaging row, session-list density and chat text scale (the app's own settings, surfaced), export/import everything as JSON. |
+| **Desk** (`⌘⌥H`, opens at launch) | A greeting and a one-line status of the crew (*Vision is 4 min into "deploy package". Two things are waiting on you.*), a prompt that hands work to any bot (pick its robot, ↵ sends, *Draft* fills the new chat unsent), **Continue** (latest sessions across every bot with state, folder, age, cost), **Needs you** (unread replies, with an inline reply that opens the chat with your reply drafted), **Today** (scheduled jobs that ran, failed or are due today), and shortcuts. |
+| **Continue strip** | On a fresh chat, the three latest sessions sit above the composer, one click back in, plus *N need you · Desk*. |
+| **Redesign layer** | Across the whole app: one-colour rail, tracked-caps section labels and tabs with an accent underline, an accent edge on the open row, a calmer reading column, framed tool activity, approvals with an amber decision edge, a hairline composer that lights on focus, tabular status bar, hairline menus and dialogs, thin scrollbars. |
+| **Customize look** | One page for the whole desk, applied live: base (Dark, Graphite, Paper), 7 accents, 4 type families, corners, reading width, rail colour, session density, chat text size, and every helm surface on or off. |
+| **Live status everywhere** | Titlebar: bot, folder, model, cost and context of the chat you're in. Session rows: the owning bot's robot (its face is the row's state) and spend. Status bar: *N need you*, *$ today*, *N working*, focused cost. |
+| **Bots board** (`⌘⌥B`) | Every bot with its robot and live status (*reply waiting*, *working*, *idle · 12m ago*), needs-you-first, latest session with *Resume*, *New chat*, spend, and the look editor. *New bot* creates a real Hermes bot. |
+| **Robots** | 191 PNG layers rendered in Blender (Cycles), composed live: 10 toppers · 10 faces · 8 chest modules · 6 tools · 6 things to wear · 7 colours. Each robot becomes its bot's Hermes avatar; new bots get one automatically unless you uploaded a photo. |
+| **Palette** | *Desk*, *what needs me*, *new chat with <bot>*, *resume <bot>*, every theme. |
+| **Settings** | Settings → Plugins → Helm, plus export/import of everything as JSON. |
 
 ## What it will not do
 
-- Restyle the transcript's message bubbles beyond what a theme can.
-- Reorder the sidebar's Pinned / Recents / Cron sections.
-- Replace the built-in Bots tab. The board sits beside it and opens chats through it.
-- Touch Bot Mode's own avatars. Looks live in helm's plugin storage.
+- Replace core views. The Desk is its own page; chats, Scheduled jobs and Bot Mode are the app's own.
+- Send anything you didn't send. The Desk prompt sends only on ↵ or *Send*; *Reply* only drafts.
+- Reorder the sidebar's Pinned / Projects sections.
+- Overwrite a bot avatar you uploaded yourself.
 
 ## How the robots are served
 
@@ -42,7 +44,7 @@ Requires Hermes Desktop ≥ 0.22.0. Tested on 0.23.0 (macOS).
 
 ## Disclosure
 
-The agent half (`__init__.py`) registers nothing: no tools, hooks, commands or settings. The dashboard half is a read-only file server for the bundled PNGs (names validated against a fixed pattern; no path traversal, no writes). No outbound network requests. No shell. Reads the profile list through `host.profiles.list()` (the same endpoint the profile rail uses), each bot's recent session rows (title, timestamps, unread/active flags, cost) through `host.listPersistedSessions` — the sidebar's own read, kept in memory only — and the app's busy/usage state through `host.state`. Opens sessions and chats only when you click. Writes only to its own plugin storage and, when you change them on its settings page, the app's `sessionListDensity` and `chatTextScale` settings.
+The agent half (`__init__.py`) registers nothing: no tools, hooks, commands or settings. The dashboard half is read-only: it serves the bundled PNGs (names validated against a fixed pattern; no path traversal, no writes) and, for the Desk, lists scheduled jobs through the dashboard's own cron listing, trimmed to name, profile, schedule, last/next run, status and a 300-character error. No outbound network requests. No shell. Reads the profile list through `host.profiles.list()` (the same endpoint the profile rail uses), each bot's recent session rows (title, timestamps, unread/active flags, cost) through `host.listPersistedSessions` — the sidebar's own read, kept in memory only — and the app's busy/usage state through `host.state`. Opens sessions and chats only when you click; sends a message only from the Desk prompt when you press ↵ or *Send*. Creates a bot (`profiles.create`) only from *New bot*, and sets a bot's avatar (`profiles.set_asset`) to its robot, never over a photo you uploaded. Writes otherwise only to its own plugin storage and, when you change them, the app's `sessionListDensity` and `chatTextScale` settings.
 
 ## Development
 
