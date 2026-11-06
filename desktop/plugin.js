@@ -42,7 +42,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '0.6.0'
+const VERSION = '1.0.0'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -1565,20 +1565,56 @@ function TodayChip({ prefs }) {
 // ───────────────────────────────────────────────────────────────── the desk
 // Home for the whole app: who's working, what's waiting on you, what ran
 // today, and a prompt that hands work to any bot. Everything on it comes from
-// the crew index (profiles + persisted sessions) and the plugin's own backend
-// (scheduled jobs), so it reads the same data the core views do.
+// the crew index (profiles + persisted sessions) and the gateway's public
+// `cron.manage list` RPC (the same call the core Bots tab makes), so it reads
+// the same data the core views do and needs no backend of its own.
 
 const $today = atom({ ready: false, available: false, jobs: [], at: 0 })
-let deskRest = null
 let todayInflight = false
+
+function cronRow(job, profile) {
+  const status = String(job.last_status || '').toLowerCase()
+  const failed = ['failed', 'error', 'refused'].includes(status) || !!job.last_error || !!job.last_fire_error
+  const err = job.last_error || job.last_fire_error || job.last_delivery_error
+  return {
+    id: job.job_id || job.id,
+    name: job.name,
+    enabled: job.enabled !== false && job.state !== 'paused',
+    schedule_display: job.schedule && job.schedule !== '?' ? job.schedule : '',
+    last_run_at: job.last_run_at,
+    next_run_at: job.next_run_at,
+    last_status: failed ? 'error' : status || null,
+    last_error: typeof err === 'string' ? err.slice(0, 300) : null,
+    running: ['running', 'claimed'].includes(status) || job.state === 'running',
+    profile
+  }
+}
 
 async function refreshToday() {
   if (todayInflight) return
   todayInflight = true
   try {
-    if (!deskRest) throw new Error('no backend')
-    const res = await deskRest('/desk/today')
-    $today.set({ ready: true, available: !!(res && res.available), jobs: (res && res.jobs) || [], at: Date.now() })
+    if (typeof host.request !== 'function') throw new Error('no gateway')
+    const seen = new Map()
+    let reached = false
+    const take = (res, profile) => {
+      if (!res || !Array.isArray(res.jobs)) return
+      reached = true
+      // A gateway that ignores `profile` answers with its launch store and no
+      // `scoped`; label those rows unscoped so they aren't pinned to the wrong bot.
+      const owner = profile ? res.scoped || '' : ''
+      for (const job of res.jobs) {
+        const row = cronRow(job || {}, owner)
+        if (row.id && !seen.has(row.id)) seen.set(row.id, row)
+      }
+    }
+    // Each bot's own store first (rows get its name), then the launch store for anything left.
+    const profiles = ($crew.get().profiles || []).map(p => p && p.name).filter(Boolean)
+    await Promise.all(profiles.map(async name => {
+      try { take(await host.request('cron.manage', { action: 'list', include_disabled: true, profile: name }, 15000), name) } catch { /* that bot just has no list */ }
+    }))
+    try { take(await host.request('cron.manage', { action: 'list', include_disabled: true }, 15000), '') } catch { /* no launch store */ }
+    $today.set({ ready: true, available: reached, jobs: [...seen.values()].slice(0, 100), at: Date.now() })
   } catch {
     $today.set({ ready: true, available: false, jobs: [], at: Date.now() })
   } finally {
@@ -3193,7 +3229,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
 // ───────────────────────────────────────────────────────────────── plugin
 
 // Pure helpers, exported for the test suite only.
-export const _internals = { latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
+export const _internals = { $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
 
 export default {
   id: ID,
@@ -3201,7 +3237,6 @@ export default {
   description: 'A redesigned Hermes Desktop: a calmer interface you can tune, a crew view of every bot, rendered robots that become your bots’ avatars, and live status across the desk.',
   register(ctx) {
     spriteRest = typeof ctx.rest === 'function' ? path => ctx.rest(path) : null
-    deskRest = spriteRest
     spritesDown = false
     spriteFailures = 0
     const prefs = atom({ ...DEFAULT_PREFS, ...ctx.storage.get('prefs', {}) })
@@ -3447,7 +3482,7 @@ export default {
                 jsx(ListRow, { title: `helm ${VERSION}`, description: 'A redesigned desk: theme layer, Customize look, crew view, robots as avatars, titlebar context, sidebar row status, needs-you and spend chips.' }),
                 jsx(ListRow, {
                   title: 'How it stays update-proof',
-                  description: 'Only Desktop SDK areas and gateway calls the app’s own Bot Mode uses (profiles.create, profiles.set_asset). The theme layer targets the app’s data-slot names; a renamed slot drops that one rule.'
+                  description: 'Only Desktop SDK areas and public gateway calls the app itself makes: profiles, session lists, cron.manage (list), approval.respond / clarify.respond (only on your click), profiles.create / set_asset (only from New bot and robot avatars). The theme layer is CSS that targets the app’s data-slot names; a renamed slot drops that one rule.'
                 })
               ]
             })
@@ -3463,7 +3498,6 @@ export default {
       if (unregisterComposer) unregisterComposer()
       if (unregisterCustom) unregisterCustom()
       spriteRest = null
-      deskRest = null
     })
   }
 }

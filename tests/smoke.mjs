@@ -79,6 +79,14 @@ globalThis.__gw = {
   ] },
   'approval.pending': p => (p.session_id === 'rt-vision' ? { approvals: [{ request_id: 'req-1', command: 'gh release create v0.1.6', description: 'publishes a release', choices: ['once', 'session', 'always', 'deny'], tool_name: 'terminal' }] } : { approvals: [] }),
   'approval.respond': p => ({ resolved: 1, echo: p }),
+  // Public cron RPC: per-profile stores answer with `scoped`; the launch store repeats one id.
+  'cron.manage': p => {
+    const soon = new Date(Math.min(Date.now() + 60000, new Date().setHours(23, 59, 0, 0))).toISOString()
+    const ran = new Date(new Date().setHours(0, 1, 0, 0)).toISOString()
+    if (p.profile === 'builder') return { scoped: 'builder', jobs: [{ job_id: 'j-b', name: 'Nightly build check', schedule: 'every day 00:01', last_run_at: ran, last_status: 'error', last_error: 'x'.repeat(400), enabled: true }] }
+    if (p.profile) return { scoped: p.profile, jobs: [] }
+    return { jobs: [{ job_id: 'j-b', name: 'dup', last_run_at: ran }, { job_id: 'j-r', name: 'Morning digest', schedule: 'every hour', next_run_at: soon, enabled: true }] }
+  },
   'session.history': { count: 3, messages: [
     { role: 'tool', name: 'todo_list', content: JSON.stringify({ todos: [{ id: 'a', content: 'Old plan', status: 'pending' }] }) },
     { role: 'assistant', text: 'ok' },
@@ -141,6 +149,17 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
   const pane2 = renderToString(contributions.find(c => c.area === 'panes' && c.id === 'session-pane').render())
   assert.ok(pane2.includes('Plan · 1 of 4') && pane2.includes('Package the artifact') && pane2.includes(' · now'), `plan pane: ${pane2.slice(0, 300)}`)
   host_set_stored(null)
+
+  // Today: scheduled jobs come from the gateway's cron.manage, per bot, deduped
+  {
+    await mod._internals.refreshToday()
+    const today = mod._internals.$today.get()
+    assert.ok(today.available, 'cron.manage reached')
+    assert.deepEqual(today.jobs.map(j => [j.id, j.profile, j.last_status]).sort(), [['j-b', 'builder', 'error'], ['j-r', '', null]], JSON.stringify(today.jobs))
+    assert.equal(today.jobs.find(j => j.id === 'j-b').last_error.length, 300)
+    const deskT = renderToString(byArea('routes').find(c => c.data.path === '/helm/desk').render())
+    assert.ok(deskT.includes('Nightly build check') && deskT.includes('failed') && deskT.includes('Morning digest'), `today list: ${deskT.slice(0, 200)}`)
+  }
 
   // Inbox: the approval and the question surface on the Desk, with buttons
   const desk2 = renderToString(byArea('routes').find(c => c.data.path === '/helm/desk').render())

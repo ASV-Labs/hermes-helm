@@ -7,11 +7,17 @@ A redesigned Hermes Desktop, as a plugin. helm replaces the look of the whole ap
 **Launch film (33 s):** [![helm launch film](docs/launch-poster.jpg)](https://github.com/P0GL0L/hermes-helm/releases/latest/download/helm-launch.mp4)
 
 ```
+hermes plugins install helm            # from the Hermes plugin catalog
+# or straight from GitHub:
 hermes plugins install P0GL0L/hermes-helm
 hermes plugins enable helm
 ```
 
-Then in Hermes Desktop: **Settings → Plugins → Desktop plugins → enable helm**, and restart Hermes once so the gateway mounts helm's backend (robot renders, the Desk's scheduled-jobs list). Pick a look in **Customize look** (`⌘⌥U`).
+Then in Hermes Desktop: **Settings → Plugins → Desktop plugins → enable helm**, and restart Hermes once so the gateway mounts helm's small backend (it serves the robot renders). Pick a look in **Customize look** (`⌘⌥U`).
+
+| Desk | Bots board |
+|---|---|
+| ![Desk](docs/desk.png) | ![Bots board](docs/robots-dark.png) |
 
 ## What you get
 
@@ -44,19 +50,19 @@ The package has two halves. `desktop/plugin.js` is the UI. `dashboard/plugin_api
 
 helm lives in `~/.hermes/desktop-plugins/helm/` (or `plugins/helm/desktop/`), which `hermes update` never touches. It uses only `@hermes/plugin-sdk` areas; the one app-DOM dependency is the themes' `customCSS`, which targets `data-slot` names the app ships. If a release renames one, that rule stops applying and the palette alone remains. Preferences are in `ctx.storage` under `hermes.plugin.helm.`; **Export** copies them as JSON.
 
-Requires Hermes Desktop ≥ 0.22.0. Tested on 0.23.0 (macOS).
+Requires Hermes ≥ 0.22.0 (declared as `requires_hermes` in `plugin.yaml`). Tested on macOS.
 
 ## Disclosure
 
-The agent half (`__init__.py`) registers nothing: no tools, hooks, commands or settings. The dashboard half is read-only: it serves the bundled PNGs (names validated against a fixed pattern; no path traversal, no writes) and, for the Desk, lists scheduled jobs through the dashboard's own cron listing, trimmed to name, profile, schedule, last/next run, status and a 300-character error. No outbound network requests. No shell. Reads the profile list through `host.profiles.list()` (the same endpoint the profile rail uses), each bot's recent session rows (title, timestamps, unread/active flags, cost) through `host.listPersistedSessions` — the sidebar's own read, kept in memory only — and the app's busy/usage state through `host.state`. Listens to the app's gateway event stream (`host.onEvent`) for approval, question and plan events, lists live sessions and their pending approvals (`session.active_list`, `approval.pending`), and answers an approval or question (`approval.respond`, `clarify.respond`) only when you click *Approve*, *Allow session*, *Deny* or *Send*. Reads the focused chat's transcript (`session.history`) to show its task plan, in memory only. Opens sessions and chats only when you click; sends a message only from the Desk prompt when you press ↵ or *Send*. Creates a bot (`profiles.create`) only from *New bot*, and sets a bot's avatar (`profiles.set_asset`) to its robot, never over a photo you uploaded. Writes otherwise only to its own plugin storage and, when you change them, the app's `sessionListDensity` and `chatTextScale` settings.
+The agent half (`__init__.py`) registers nothing: no tools, hooks, commands or settings. The dashboard half is read-only and does one thing: it serves the bundled PNGs (names validated against a fixed pattern; no path traversal, no writes, no imports of Hermes internals). No outbound network requests. No shell. No credentials: helm never reads `.env`, `auth.json` or any token store. No telemetry. Reads the profile list through `host.profiles.list()` (the same endpoint the profile rail uses), each bot's recent session rows (title, timestamps, unread/active flags, cost) through `host.listPersistedSessions` — the sidebar's own read, kept in memory only — and the app's busy/usage state through `host.state`. Lists each bot's scheduled jobs for the Desk's *Today* list through the gateway's public `cron.manage` (`action: list` only — helm never adds, pauses or removes a job). Listens to the app's gateway event stream (`host.onEvent`) for approval, question and plan events, lists live sessions and their pending approvals (`session.active_list`, `approval.pending`), and answers an approval or question (`approval.respond`, `clarify.respond`) only when you click *Approve*, *Allow session*, *Deny* or *Send*. Reads the focused chat's transcript (`session.history`) to show its task plan, in memory only. Opens sessions and chats only when you click; sends a message only from the Desk prompt when you press ↵ or *Send*. Creates a bot (`profiles.create`) only from *New bot*, and sets a bot's avatar (`profiles.set_asset`) to its robot, never over a photo you uploaded. Writes otherwise only to its own plugin storage and, when you change them, the app's `sessionListDensity` and `chatTextScale` settings. The redesign layer is CSS supplied through the SDK's theme `customCSS`; it selects the app's `data-slot` names (CSS only — helm never queries, observes or rewrites the app's DOM), and it switches off with the theme.
 
 ## Development
 
 ```
 node --check desktop/plugin.js
 cd tests && npm ci && npm test     # loads the plugin against an SDK mock and renders every contribution
-python3 tests/test_plugin_api.py        # the sprite router against FastAPI's TestClient
-hermes plugins validate .
+python3 tests/test_plugin_api.py   # the sprite router against FastAPI's TestClient
+hermes plugins validate .          # the catalog's admission checks
 ```
 
 Drop the folder into `~/.hermes/desktop-plugins/helm/` and the app hot-reloads it on save.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0 — 2026-11-06
+
+First stable release, submitted to the Hermes plugin catalog.
+
+- **Today reads the gateway's public `cron.manage`** (list only, per bot, the same call the core Bots tab makes) instead of a backend route. The Desk's scheduled-jobs list no longer depends on the dashboard backend being reloaded, and helm no longer imports any Hermes internals. Jobs are labelled with the bot whose store they came from; a job seen twice is shown once.
+- The dashboard backend now only serves robot renders; the `/desk/today` route and its `cron/jobs.json` fallback are gone (no reads outside the plugin's own folder).
+- Passes `hermes plugins validate` (manifest, capability probe, security scan `safe`, no core override, desktop surface). The remaining review warnings are the theme layer's `data-slot` CSS selectors, disclosed in the README.
+- Settings → Plugins → Helm lists every gateway call helm makes.
+- README: catalog install, screenshots, updated disclosure.
+
 ## 0.6.0 — 2026-11-06
 
 What needs you, wherever you are.
