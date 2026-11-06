@@ -1,32 +1,17 @@
-<p align="center">
-  <img src="docs/hero.png" alt="helm — one desk for every Hermes bot. By ASV Labs." width="100%">
-</p>
+![helm — one desk for every Hermes bot. By ASV Labs.](docs/hero.png)
 
-<p align="center">
-  <a href="https://github.com/ASV-Labs/hermes-helm/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/ASV-Labs/hermes-helm?style=flat-square&color=62C6D3&label=release"></a>
-  <a href="https://github.com/ASV-Labs/hermes-helm/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/ASV-Labs/hermes-helm/ci.yml?branch=main&style=flat-square&label=ci"></a>
-  <img alt="Hermes 0.22+" src="https://img.shields.io/badge/hermes-%E2%89%A5%200.22.0-1F2730?style=flat-square">
-  <img alt="Desktop plugin" src="https://img.shields.io/badge/plugin-desktop-1F2730?style=flat-square">
-  <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-1F2730?style=flat-square"></a>
-  <a href="https://asv-labs.com"><img alt="by ASV Labs" src="https://img.shields.io/badge/by-ASV%20Labs-E6EBF0?style=flat-square"></a>
-</p>
+[![Release](https://img.shields.io/github/v/release/ASV-Labs/hermes-helm?style=flat-square&color=62C6D3&label=release)](https://github.com/ASV-Labs/hermes-helm/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/ASV-Labs/hermes-helm/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/ASV-Labs/hermes-helm/actions/workflows/ci.yml)
+![Hermes 0.22+](https://img.shields.io/badge/hermes-%E2%89%A5%200.22.0-1F2730?style=flat-square)
+![Desktop plugin](https://img.shields.io/badge/plugin-desktop-1F2730?style=flat-square)
+[![MIT](https://img.shields.io/badge/license-MIT-1F2730?style=flat-square)](LICENSE)
+[![by ASV Labs](https://img.shields.io/badge/by-ASV%20Labs-E6EBF0?style=flat-square)](https://asv-labs.com)
 
-<p align="center">
-  <b>A complete redesign of Hermes Desktop, shipped as a plugin.</b><br>
-  See what every bot is doing, answer what's waiting on you, and follow the plan as it happens — from one desk.
-</p>
+**A complete redesign of Hermes Desktop, shipped as a plugin.** See what every bot is doing, answer what's waiting on you, and follow the plan as it happens — from one desk.
 
-<p align="center">
-  <a href="#install">Install</a> ·
-  <a href="#whats-inside">What's inside</a> ·
-  <a href="docs/guides/README.md">Guides</a> ·
-  <a href="https://github.com/ASV-Labs/hermes-helm/releases/latest/download/helm-launch.mp4">Launch film</a> ·
-  <a href="#privacy-and-permissions">Privacy</a>
-</p>
+[Install](#install) · [What's inside](#whats-inside) · [Guides](docs/guides/README.md) · [Launch film](https://github.com/ASV-Labs/hermes-helm/releases/latest/download/helm-launch.mp4) · [Privacy](#privacy-and-permissions)
 
-<p align="center">
-  <img src="docs/demo.gif" alt="helm in motion: the Desk, approving a command from the Desk, the live plan and robots" width="100%">
-</p>
+![helm in motion: the Desk, approving a command from the Desk, the live plan and robots](docs/demo.gif)
 
 ---
 
@@ -70,7 +55,7 @@ Hermes opens on the Desk.
 - **Needs you:** approvals, questions and unread replies.
 - **Today:** scheduled jobs that ran, failed or are due.
 
-<p align="center"><img src="docs/screens/desk.png" alt="The Desk: greeting, prompt, Continue, Needs you with Approve / Allow session / Deny, Today's scheduled jobs" width="88%"></p>
+![The Desk: greeting, prompt, Continue, Needs you with Approve / Allow session / Deny, Today's scheduled jobs](docs/screens/desk.png)
 
 ### Needs you, everywhere — and the live plan
 
@@ -78,12 +63,9 @@ Approvals and questions from every bot appear on the Desk. They also appear in a
 
 The **Session** pane beside your chat shows the bot's task plan as it works (*Plan · 1 of 4*, with the current step marked *now*), along with model, folder, tokens, cost and the rest of your crew.
 
-<table>
-  <tr>
-    <td width="50%" valign="top"><img src="docs/screens/needs-pane.png" alt="Needs you sidebar pane with an approval and a question"><br><sub><b>Needs you</b> — <a href="docs/guides/needs-you.md">what each button sends and what helm can see</a></sub></td>
-    <td width="50%" valign="top"><img src="docs/screens/session-pane.png" alt="Session pane with the live task plan, session details, crew and scheduled jobs"><br><sub><b>Session pane</b> — <a href="docs/guides/task-plan.md">where the plan comes from</a></sub></td>
-  </tr>
-</table>
+| Needs you — [what each button sends](docs/guides/needs-you.md) | Session pane — [where the plan comes from](docs/guides/task-plan.md) |
+|---|---|
+| ![Needs you sidebar pane with an approval and a question](docs/screens/needs-pane.png) | ![Session pane with the live task plan, session details, crew and scheduled jobs](docs/screens/session-pane.png) |
 
 ### Robots you build — `⌘⌥R`
 
@@ -91,7 +73,7 @@ The **Bots board** lists every bot with its rendered robot and live state (*work
 
 Each robot is assembled from **191 Blender-rendered layers**: toppers, faces, chest modules, tools, things to wear and seven colours. Its face follows the bot's state, and the robot becomes the bot's Hermes avatar. helm never replaces a photo you uploaded. **New bot** creates a real Hermes bot. → [Robots guide](docs/guides/robots.md)
 
-<p align="center"><img src="docs/robots-dark.png" alt="A crew of helm robots" width="88%"></p>
+![A crew of helm robots](docs/robots-dark.png)
 
 ### A redesign you can tune — `⌘⌥U`
 
@@ -140,7 +122,7 @@ The guides cover the details specific to helm: what it can and can't see, and wh
 
 ## Launch film
 
-<a href="https://github.com/ASV-Labs/hermes-helm/releases/latest/download/helm-launch.mp4"><img src="docs/launch-poster.jpg" alt="Watch the 33-second helm launch film" width="100%"></a>
+[![Watch the 33-second helm launch film](docs/launch-poster.jpg)](https://github.com/ASV-Labs/hermes-helm/releases/latest/download/helm-launch.mp4)
 
 ## Privacy and permissions
 
@@ -152,10 +134,7 @@ helm is built to be audited.
 - **Agent half:** registers nothing (no tools, hooks or commands).
 - **Dashboard half:** a read-only router that serves the bundled PNGs.
 
-<details>
-<summary><b>Full disclosure: every call helm makes</b></summary>
-
-<br>
+### Every call helm makes
 
 The agent half (`__init__.py`) registers nothing: no tools, hooks, commands or settings.
 
@@ -191,7 +170,6 @@ The dashboard half is read-only and does one thing. It serves the bundled PNGs, 
 
 The redesign layer is CSS supplied through the SDK's theme `customCSS`. It selects the app's `data-slot` names in CSS only. helm never queries, observes or rewrites the app's DOM. The layer switches off when you switch to another theme.
 
-</details>
 
 ## How it fits together
 
@@ -219,7 +197,6 @@ Drop the folder into `~/.hermes/desktop-plugins/helm/` and the app hot-reloads i
 
 ---
 
-<p align="center">
-  <b>helm</b> is made by <a href="https://asv-labs.com"><b>ASV Labs</b></a> — independent software, made with intent.<br>
-  <sub>© 2026 A Salty Vet, a product of ASV Labs · MIT License · Not affiliated with Nous Research.</sub>
-</p>
+**helm** is made by **[ASV Labs](https://asv-labs.com)** — independent software, made with intent.
+
+© 2026 A Salty Vet, a product of ASV Labs · MIT License · Not affiliated with Nous Research.
