@@ -4,12 +4,12 @@ A redesigned Hermes Desktop, as a plugin. helm replaces the look of the whole ap
 
 ![helm](docs/banner.png)
 
-**Launch film (33 s):** [![helm launch film](docs/launch-poster.jpg)](https://github.com/P0GL0L/hermes-helm/releases/latest/download/helm-launch.mp4)
+**Launch film (33 s):** [![helm launch film](docs/launch-poster.jpg)](https://github.com/ASV-Labs/hermes-helm/releases/latest/download/helm-launch.mp4)
 
 ```
 hermes plugins install helm            # from the Hermes plugin catalog
 # or straight from GitHub:
-hermes plugins install P0GL0L/hermes-helm
+hermes plugins install ASV-Labs/hermes-helm
 hermes plugins enable helm
 ```
 
@@ -67,4 +67,4 @@ hermes plugins validate .          # the catalog's admission checks
 
 Drop the folder into `~/.hermes/desktop-plugins/helm/` and the app hot-reloads it on save.
 
-MIT · Charles Bonetti / ASV Labs
+MIT · ASV Labs
