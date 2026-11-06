@@ -401,12 +401,10 @@ const SHELL = '#E9EDF2'
 const SHELL_SHADE = '#C9D1DA'
 const SCREEN = '#0B0F14'
 
+// Stable small hash of a profile name, so a bot's default look never changes.
 function hashString(s) {
-  let h = 2166136261
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i)
-    h = Math.imul(h, 16777619) >>> 0
-  }
+  let h = 7
+  for (const ch of String(s)) h = (h * 31 + ch.codePointAt(0)) % 2147483647
   return h
 }
 

@@ -32,7 +32,7 @@ Then in Hermes Desktop: **Settings → Plugins → Desktop plugins → enable he
 
 ## How the robots are served
 
-The package has two halves. `desktop/plugin.js` is the UI. `dashboard/plugin_api.py` is a tiny FastAPI router the Hermes gateway mounts at `/api/plugins/helm/`; it serves the PNG layers in `dashboard/sprites/` as data URLs (`/sprites/batch?names=…`). The desktop half asks for the six layers a look needs, caches them, and stacks them as `<img>`s. If the gateway is down or the routes aren't mounted yet (a restart mounts them), the board falls back to flat SVG robots so nothing breaks. The renderer is in `tools/render/` (`bpy` ≥ 5.2): `tools/render/build_sprites.sh` rebuilds every layer (uv + bpy 5.2, ~10 min on an M-series Mac); `render_one.py` previews one bot.
+The package has two halves. `desktop/plugin.js` is the UI. `dashboard/plugin_api.py` is a tiny FastAPI router the Hermes gateway mounts at `/api/plugins/helm/`; it serves the PNG layers in `dashboard/sprites/` as data URLs (`/sprites/batch?names=…`). The desktop half asks for the six layers a look needs, caches them, and stacks them as `<img>`s. If the gateway is down or the routes aren't mounted yet (a restart mounts them), the board falls back to flat SVG robots so nothing breaks. The renderer is in `tools/render/` and is never run by Hermes. To rebuild the layers, use Python 3.13 with Blender's `bpy` 5.2 module, Pillow and NumPy, then run `python3 tools/render/build_all.py dashboard/sprites` (about 7 minutes on an M-series Mac) and `python3 tools/render/shrink.py dashboard/sprites`. `render_one.py` previews a single bot.
 
 ## Surviving updates
 
@@ -48,7 +48,7 @@ The agent half (`__init__.py`) registers nothing: no tools, hooks, commands or s
 
 ```
 node --check desktop/plugin.js
-cd tests && npm install && npm test     # loads the plugin against an SDK mock and renders every contribution
+cd tests && npm ci && npm test     # loads the plugin against an SDK mock and renders every contribution
 python3 tests/test_plugin_api.py        # the sprite router against FastAPI's TestClient
 hermes plugins validate .
 ```
