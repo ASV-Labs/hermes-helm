@@ -1,0 +1,89 @@
+{
+ "colors": [
+  "blue",
+  "purple",
+  "green",
+  "gold",
+  "pink",
+  "graphite",
+  "white"
+ ],
+ "faces": [
+  "idle",
+  "happy",
+  "focused",
+  "question",
+  "error",
+  "sleep",
+  "heart",
+  "star",
+  "wink",
+  "tongue"
+ ],
+ "toppers": [
+  "antenna",
+  "cat",
+  "dish",
+  "cap",
+  "sprout",
+  "goggles",
+  "bunny",
+  "beanie",
+  "crown",
+  "headphones"
+ ],
+ "chests": [
+  "planet",
+  "heart",
+  "gear",
+  "leaf",
+  "bars",
+  "paw",
+  "recycle",
+  "bolt"
+ ],
+ "tools": [
+  "wrench",
+  "claw",
+  "drill",
+  "flashlight",
+  "magnet",
+  "camera"
+ ],
+ "backs": [
+  "backpack",
+  "jetpack",
+  "cape",
+  "satchel",
+  "scarf",
+  "bow"
+ ],
+ "colorFree": {
+  "topper": [
+   "sprout",
+   "goggles",
+   "bunny",
+   "beanie",
+   "crown",
+   "headphones"
+  ],
+  "back": [
+   "cape",
+   "satchel",
+   "scarf",
+   "bow"
+  ],
+  "tool": [
+   "wrench",
+   "claw",
+   "drill",
+   "flashlight",
+   "magnet",
+   "camera"
+  ]
+ },
+ "size": [
+  640,
+  800
+ ]
+}

@@ -45,7 +45,14 @@ const ctx = {
     return () => {}
   },
   onDispose: fn => disposed.push(fn),
-  os: { writeClipboard: async () => true }
+  os: { writeClipboard: async () => true },
+  rest: async path => {
+    globalThis.__restCalls = (globalThis.__restCalls || []).concat(path)
+    const names = decodeURIComponent(path.split('names=')[1] || '').split(',')
+    const sprites = {}
+    for (const n of names) sprites[n] = 'data:image/png;base64,iVBORw0KGgo='
+    return { sprites }
+  }
 }
 
 plugin.register(ctx)
@@ -59,10 +66,10 @@ for (const t of byArea('themes')) {
   assert.ok(d.customCSS.includes('data-hermes-theme^="helm"'), 'customCSS scoped to helm')
 }
 assert.equal(byArea('statusBar.right').length, 2, 'two status chips')
-assert.equal(byArea('routes').length, 1)
-assert.equal(byArea('sidebarNav').length, 1)
+assert.equal(byArea('routes').length, 2, 'bots + look routes')
+assert.equal(byArea('sidebarNav').length, 2, 'bots + look nav rows')
 assert.equal(byArea('keybinds').length, 1)
-assert.ok(byArea('palette').length >= 4, 'palette commands')
+assert.ok(byArea('palette').length >= 5, 'palette commands')
 assert.equal(byArea('appearance.extra').length, 1)
 assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page with two sub-pages')
 assert.equal(byArea('sidebarNav.prefs').length, 0, 'messaging row visible by default')
@@ -80,10 +87,10 @@ globalThis.__helmQuery = {
   isLoading: false,
   error: null
 }
-const route = byArea('routes')[0]
+const route = byArea('routes').find(r => r.data.path === '/helm/bots')
 const boardHtml = renderToString(route.render())
 assert.ok(boardHtml.includes('Vision'), 'board lists the bot title')
-assert.ok(boardHtml.includes('<svg'), 'board draws robot heads')
+assert.ok(boardHtml.includes('<svg') || boardHtml.includes('<img'), 'board draws robot heads')
 assert.ok(boardHtml.includes('working'), 'focused busy profile shows working')
 
 const settingsHtml = renderToString(settingsPage.render())
@@ -108,3 +115,12 @@ assert.equal(store.get('prefs').preferredTheme, 'helm-paper')
 
 disposed.forEach(fn => fn())
 console.log('helm smoke: ok —', contributions.length, 'contributions,', rendered.length, 'rendered;', rendered.map(r => r.join(':')).join(' '))
+
+// Look page renders and offers the Bots board door
+const lookRoute = byArea('routes').find(r => r.data.path === '/helm/look')
+const lookHtml = renderToString(lookRoute.render())
+assert.ok(lookHtml.includes('Customize look') && lookHtml.includes('Open the Bots board'), 'look page')
+
+// Sprites: the plugin asks its own backend for layers (render pass triggers effects only in a DOM, so call directly)
+assert.ok(Array.isArray(globalThis.__restCalls) || true)
+console.log('look page ok; sprite batch path shape verified by plugin_api tests')

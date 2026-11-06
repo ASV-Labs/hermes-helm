@@ -42,8 +42,9 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '0.1.0'
+const VERSION = '0.2.0'
 const BOTS_ROUTE = '/helm/bots'
+const LOOK_ROUTE = '/helm/look'
 
 // ───────────────────────────────────────────────────────────────── themes
 
@@ -268,12 +269,122 @@ const DEFAULT_PREFS = {
 // from fixed fragments plus validated hex colours.
 
 const PART_OPTIONS = {
-  topper: ['antenna', 'cat', 'sprout', 'cap', 'goggles', 'dish'],
-  face: ['idle', 'happy', 'heart', 'focused'],
-  chest: ['planet', 'heart', 'gear', 'leaf', 'bars', 'paw'],
-  tool: ['none', 'wrench', 'claw', 'flashlight', 'magnet'],
-  back: ['none', 'backpack', 'jetpack', 'cape'],
+  topper: ['antenna', 'cat', 'sprout', 'cap', 'goggles', 'dish', 'bunny', 'beanie', 'crown', 'headphones'],
+  face: ['idle', 'happy', 'focused', 'question', 'error', 'sleep', 'heart', 'star', 'wink', 'tongue'],
+  chest: ['planet', 'heart', 'gear', 'leaf', 'bars', 'paw', 'recycle', 'bolt'],
+  tool: ['none', 'wrench', 'claw', 'drill', 'flashlight', 'magnet', 'camera'],
+  back: ['none', 'backpack', 'jetpack', 'cape', 'satchel', 'scarf', 'bow'],
   color: ['blue', 'purple', 'green', 'gold', 'pink', 'graphite', 'white']
+}
+// Parts whose render does not depend on the bot colour share one sprite.
+const COLOR_FREE = {
+  topper: ['sprout', 'goggles', 'bunny', 'beanie', 'crown', 'headphones'],
+  tool: PART_OPTIONS.tool,
+  back: ['cape', 'satchel', 'scarf', 'bow']
+}
+const PART_LABEL = {
+  topper: { antenna: 'Antenna', cat: 'Cat ears', sprout: 'Sprout', cap: 'Cap', goggles: 'Goggles', dish: 'Dish', bunny: 'Bunny ears', beanie: 'Beanie', crown: 'Crown', headphones: 'Headphones' },
+  face: { idle: 'Idle', happy: 'Happy', focused: 'Focused', question: 'Curious', error: 'Oops', sleep: 'Asleep', heart: 'Hearts', star: 'Stars', wink: 'Wink', tongue: 'Cheeky' },
+  chest: { planet: 'Planet', heart: 'Heart', gear: 'Gear', leaf: 'Leaf', bars: 'Bars', paw: 'Paw', recycle: 'Recycle', bolt: 'Bolt' },
+  tool: { none: 'Empty hands', wrench: 'Wrench', claw: 'Claw', drill: 'Drill', flashlight: 'Flashlight', magnet: 'Magnet', camera: 'Camera' },
+  back: { none: 'Nothing', backpack: 'Backpack', jetpack: 'Jetpack', cape: 'Cape', satchel: 'Satchel', scarf: 'Scarf', bow: 'Bow' },
+  color: { blue: 'Blue', purple: 'Purple', green: 'Green', gold: 'Gold', pink: 'Pink', graphite: 'Graphite', white: 'White' }
+}
+
+// ───────────────────────────────────────────────────────────────── sprites
+// Rendered robot layers (PNG with alpha, 640×800, one fixed camera) served by
+// the package's dashboard half at /api/plugins/helm/sprites. Composed here as
+// stacked <img>s: back · base · chest · face · topper · tool. If the gateway is
+// down or the routes are not mounted yet, the SVG robots below stand in.
+const SPRITE_W = 640
+const SPRITE_H = 800
+const HEAD_CROP = [120, 90, 400, 400] // x, y, w, h of the head in sprite space
+const CHEST_CROP = [200, 380, 240, 200]
+const TOOL_CROP = [400, 200, 240, 300]
+const spriteCache = new Map()
+const spritePending = new Set()
+const $spriteTick = atom(0)
+let spriteRest = null
+let spriteFailures = 0
+let spritesDown = false
+
+function spriteName(kind, part, color) {
+  if (!part || part === 'none') return null
+  if (kind === 'base') return `base_${color}.png`
+  const free = COLOR_FREE[kind] && COLOR_FREE[kind].includes(part)
+  return free ? `${kind}_${part}.png` : `${kind}_${part}_${color}.png`
+}
+
+function layerNames(look, expr) {
+  return [
+    spriteName('back', look.back, look.color),
+    spriteName('base', 'base', look.color),
+    spriteName('chest', look.chest, look.color),
+    spriteName('face', expr || look.face, look.color),
+    spriteName('topper', look.topper, look.color),
+    spriteName('tool', look.tool, look.color)
+  ].filter(Boolean)
+}
+
+function requestSprites(names) {
+  if (!spriteRest || spritesDown) return
+  const missing = names.filter(n => !spriteCache.has(n) && !spritePending.has(n))
+  if (missing.length === 0) return
+  for (let i = 0; i < missing.length; i += 16) {
+    const chunk = missing.slice(i, i + 16)
+    chunk.forEach(n => spritePending.add(n))
+    spriteRest(`/sprites/batch?names=${encodeURIComponent(chunk.join(','))}`)
+      .then(res => {
+        const got = (res && res.sprites) || {}
+        for (const n of chunk) {
+          spritePending.delete(n)
+          spriteCache.set(n, typeof got[n] === 'string' && got[n].startsWith('data:image/png') ? got[n] : null)
+        }
+        spriteFailures = 0
+        $spriteTick.set($spriteTick.get() + 1)
+      })
+      .catch(() => {
+        chunk.forEach(n => spritePending.delete(n))
+        spriteFailures += 1
+        if (spriteFailures >= 3) spritesDown = true
+        $spriteTick.set($spriteTick.get() + 1)
+      })
+  }
+}
+
+function useSprites(names) {
+  useValue($spriteTick)
+  const key = names.join('|')
+  useEffect(() => {
+    requestSprites(names)
+  }, [key])
+  return names.map(n => spriteCache.get(n) || null)
+}
+
+/** The composed robot, or a crop of it. `crop` is [x, y, w, h] in sprite space. */
+function SpriteStack({ look, expr, width, crop, className, title }) {
+  const names = useMemo(() => layerNames(look, expr), [look.topper, look.face, look.chest, look.tool, look.back, look.color, expr])
+  const urls = useSprites(names)
+  const baseIdx = names.findIndex(n => n.startsWith('base_'))
+  if (!urls[baseIdx]) return null
+  const [cx, cy, cw, ch] = crop || [0, 0, SPRITE_W, SPRITE_H]
+  const scale = width / cw
+  const height = Math.round(ch * scale)
+  return jsx('div', {
+    className: cn('relative shrink-0 overflow-hidden', className),
+    style: { width, height },
+    role: 'img',
+    'aria-label': title || 'bot',
+    children: jsx('div', {
+      className: 'absolute left-0 top-0',
+      style: { width: SPRITE_W * scale, height: SPRITE_H * scale, transform: `translate(${-cx * scale}px, ${-cy * scale}px)` },
+      children: names.map((n, i) =>
+        urls[i]
+          ? jsx('img', { src: urls[i], alt: '', draggable: false, className: 'absolute left-0 top-0 h-full w-full select-none', style: { imageRendering: 'auto' } }, n)
+          : null
+      )
+    })
+  })
 }
 
 const PALETTE = {
@@ -434,8 +545,26 @@ function fullMarkup(look, expr) {
   )
 }
 
+/** True once this colour's body sprite is in the cache (and requested if not). */
+function useSpriteBase(color) {
+  useValue($spriteTick)
+  const name = spriteName('base', 'base', color)
+  useEffect(() => {
+    requestSprites([name])
+  }, [name])
+  return Boolean(spriteCache.get(name))
+}
+
+function RobotCrop({ look, expr, width, crop }) {
+  const spriteOk = useSpriteBase(look.color)
+  if (!spriteOk) return jsx('span', { className: 'text-xs', children: '·' })
+  return jsx(SpriteStack, { look, expr, width, crop })
+}
+
 function RobotHead({ look, expr, size = 28, title }) {
   const html = useMemo(() => headMarkup(look, expr), [look, expr])
+  const spriteOk = useSpriteBase(look.color)
+  if (spriteOk) return jsx(SpriteStack, { look, expr, width: size, crop: HEAD_CROP, className: 'rounded-full', title })
   return jsx('svg', {
     width: size,
     height: size,
@@ -448,6 +577,8 @@ function RobotHead({ look, expr, size = 28, title }) {
 
 function RobotFull({ look, expr, size = 200 }) {
   const html = useMemo(() => fullMarkup(look, expr), [look, expr])
+  const spriteOk = useSpriteBase(look.color)
+  if (spriteOk) return jsx(SpriteStack, { look, expr, width: size, title: 'bot preview' })
   return jsx('svg', {
     width: size,
     height: Math.round(size * 1.2),
@@ -510,7 +641,7 @@ function Row({ children, className }) {
   return jsx('div', { className: cn('flex items-center gap-2', className), children })
 }
 
-function PartPicker({ label, options, value, onPick, renderOption }) {
+function PartPicker({ label, options, value, onPick, renderOption, labels }) {
   return jsxs('div', {
     className: 'flex flex-col gap-1.5',
     children: [
@@ -523,16 +654,16 @@ function PartPicker({ label, options, value, onPick, renderOption }) {
             {
               type: 'button',
               'aria-pressed': opt === value,
-              title: opt,
+              title: (labels && labels[opt]) || opt,
               onClick: () => {
                 haptic('tap')
                 onPick(opt)
               },
               className: cn(
-                'flex h-12 min-w-12 items-center justify-center rounded-md border px-2 text-xs',
+                'flex h-14 min-w-14 flex-col items-center justify-center gap-0.5 rounded-md border px-1.5 text-[0.625rem]',
                 opt === value ? 'border-(--ui-accent) text-(--ui-text-primary)' : 'border-(--ui-stroke-secondary) text-(--ui-text-secondary) hover:bg-(--chrome-action-hover)'
               ),
-              children: renderOption ? renderOption(opt) : opt
+              children: [renderOption ? renderOption(opt) : null, jsx('span', { className: 'truncate', children: (labels && labels[opt]) || opt })]
             },
             opt
           )
@@ -545,16 +676,16 @@ function PartPicker({ label, options, value, onPick, renderOption }) {
 function LookEditor({ profile, look, onChange, onClose }) {
   const name = botLabel(profile)
   const set = patch => onChange({ ...look, ...patch })
-  const headFor = patch => jsx(RobotHead, { look: { ...look, ...patch }, size: 30 })
+  const headFor = patch => jsx(RobotHead, { look: { ...look, ...patch }, size: 32 })
   return jsxs('div', {
     className: 'flex min-h-0 flex-1 gap-6 p-4',
     children: [
       jsxs('div', {
-        className: 'flex w-64 shrink-0 flex-col items-center gap-3',
+        className: 'flex w-72 shrink-0 flex-col items-center gap-3',
         children: [
           jsx('div', {
-            className: 'flex h-72 w-full items-center justify-center rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-editor)',
-            children: jsx(RobotFull, { look, size: 190 })
+            className: 'flex h-80 w-full items-center justify-center rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-editor)',
+            children: jsx(RobotFull, { look, size: 230 })
           }),
           jsx('div', { className: 'text-sm font-medium', children: name }),
           jsxs('div', {
@@ -591,17 +722,18 @@ function LookEditor({ profile, look, onChange, onClose }) {
       jsxs('div', {
         className: 'flex min-w-0 flex-1 flex-col gap-4 overflow-auto',
         children: [
-          jsx(PartPicker, { label: 'Antenna / ears', options: PART_OPTIONS.topper, value: look.topper, onPick: v => set({ topper: v }), renderOption: v => headFor({ topper: v }) }),
-          jsx(PartPicker, { label: 'Face at rest', options: PART_OPTIONS.face, value: look.face, onPick: v => set({ face: v }), renderOption: v => headFor({ face: v }) }),
-          jsx(PartPicker, { label: 'Chest module', options: PART_OPTIONS.chest, value: look.chest, onPick: v => set({ chest: v }) }),
-          jsx(PartPicker, { label: 'Tool', options: PART_OPTIONS.tool, value: look.tool, onPick: v => set({ tool: v }) }),
-          jsx(PartPicker, { label: 'Back accessory', options: PART_OPTIONS.back, value: look.back, onPick: v => set({ back: v }) }),
+          jsx(PartPicker, { label: 'Antenna / ears', options: PART_OPTIONS.topper, value: look.topper, onPick: v => set({ topper: v }), labels: PART_LABEL.topper, renderOption: v => headFor({ topper: v }) }),
+          jsx(PartPicker, { label: 'Face at rest', options: PART_OPTIONS.face, value: look.face, onPick: v => set({ face: v }), labels: PART_LABEL.face, renderOption: v => headFor({ face: v }) }),
+          jsx(PartPicker, { label: 'Chest module', options: PART_OPTIONS.chest, value: look.chest, onPick: v => set({ chest: v }), labels: PART_LABEL.chest, renderOption: v => jsx(RobotCrop, { look: { ...look, chest: v }, width: 40, crop: CHEST_CROP }) }),
+          jsx(PartPicker, { label: 'Carries (right hand)', options: PART_OPTIONS.tool, value: look.tool, onPick: v => set({ tool: v }), labels: PART_LABEL.tool, renderOption: v => jsx(RobotCrop, { look: { ...look, tool: v }, width: 34, crop: TOOL_CROP }) }),
+          jsx(PartPicker, { label: 'Wears (back)', options: PART_OPTIONS.back, value: look.back, onPick: v => set({ back: v }), labels: PART_LABEL.back, renderOption: v => jsx(RobotCrop, { look: { ...look, back: v }, width: 32 }) }),
           jsx(PartPicker, {
             label: 'Colour',
             options: PART_OPTIONS.color,
             value: look.color,
             onPick: v => set({ color: v }),
-            renderOption: v => jsx('span', { className: 'inline-block h-5 w-5 rounded-full', style: { background: PALETTE[v].glow }, 'aria-label': v })
+            labels: PART_LABEL.color,
+            renderOption: v => headFor({ color: v })
           }),
           jsx('div', { className: 'text-[0.6875rem] text-(--ui-text-tertiary)', children: 'Saved in helm’s plugin storage, never in the profile. Bot Mode’s own avatar is untouched.' })
         ]
@@ -629,7 +761,7 @@ function BotCard({ profile, look, working, onEdit }) {
   return jsxs('div', {
     className: 'flex items-center gap-3 rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-card) px-3 py-2.5',
     children: [
-      jsx(RobotHead, { look, expr, size: 44, title: label }),
+      jsx(RobotHead, { look, expr, size: 48, title: label }),
       jsxs('div', {
         className: 'flex min-w-0 flex-1 flex-col',
         children: [
@@ -915,13 +1047,53 @@ function trySetSetting(key, value) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────── Look page
+// Helm's own "Customize look" surface: themes, chrome toggles, the app's own
+// density/scale settings, and a door to the Bots board. Replaces a skin
+// plugin's customize button when that plugin is disabled.
+
+function LookPage({ prefs, setPrefs, looks }) {
+  const looksValue = useValue(looks)
+  const sample = normalizeLook(looksValue.helm || null, 'helm')
+  return jsxs('div', {
+    className: 'flex h-full w-full min-h-0 flex-col',
+    children: [
+      jsxs('div', {
+        className: 'flex shrink-0 items-center gap-3 border-b border-(--ui-stroke-secondary) px-4 py-2 text-xs',
+        children: [
+          jsx(Codicon, { name: 'symbol-color', size: 14 }),
+          jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: 'Customize look' }),
+          jsx('span', { className: 'ml-auto text-(--ui-text-quaternary)', children: 'Helm owns the desk’s look. Bots have their own board.' })
+        ]
+      }),
+      jsxs('div', {
+        className: 'flex min-h-0 flex-1 gap-6 overflow-auto p-4',
+        children: [
+          jsx('div', { className: 'min-w-0 max-w-2xl flex-1', children: jsx(SettingsGeneral, { prefs, setPrefs }) }),
+          jsxs('div', {
+            className: 'flex w-56 shrink-0 flex-col items-center gap-2',
+            children: [
+              jsx(RobotFull, { look: sample, size: 180 }),
+              jsx(Button, { variant: 'outline', size: 'sm', onClick: () => host.navigate(BOTS_ROUTE), children: 'Open the Bots board' }),
+              jsx('div', { className: 'text-center text-[0.6875rem] text-(--ui-text-tertiary)', children: 'Every bot gets its own rendered look: ears, face, chest module, what it carries and wears, colour.' })
+            ]
+          })
+        ]
+      })
+    ]
+  })
+}
+
 // ───────────────────────────────────────────────────────────────── plugin
 
 export default {
   id: ID,
   name: 'Helm',
-  description: 'A quieter Hermes Desktop: themes, status chips, a Bots board with robot looks.',
+  description: 'A quieter Hermes Desktop: themes, a Customize look page, status chips, a Bots board with rendered robot looks.',
   register(ctx) {
+    spriteRest = typeof ctx.rest === 'function' ? path => ctx.rest(path) : null
+    spritesDown = false
+    spriteFailures = 0
     const prefs = atom({ ...DEFAULT_PREFS, ...ctx.storage.get('prefs', {}) })
     const looks = atom(ctx.storage.get('looks', {}))
 
@@ -971,6 +1143,13 @@ export default {
     ctx.registerMany([
       { id: 'bots-route', area: ROUTES_AREA, data: { path: BOTS_ROUTE }, render: () => jsx(BotsPage, { looks, setLook }) },
       { id: 'bots-nav', area: SIDEBAR_NAV_AREA, data: { path: BOTS_ROUTE, label: 'Bots board', codicon: 'hubot' } },
+      { id: 'look-route', area: ROUTES_AREA, data: { path: LOOK_ROUTE }, render: () => jsx(LookPage, { prefs, setPrefs, looks }) },
+      { id: 'look-nav', area: SIDEBAR_NAV_AREA, data: { path: LOOK_ROUTE, label: 'Customize look', codicon: 'symbol-color' } },
+      {
+        id: 'look-palette',
+        area: PALETTE_AREA,
+        data: { id: 'helm.look', label: 'Helm: Customize look', keywords: ['look', 'appearance', 'theme', 'skin', 'helm'], run: () => host.navigate(LOOK_ROUTE) }
+      },
       {
         id: 'bots-palette',
         area: PALETTE_AREA,
@@ -1030,6 +1209,7 @@ export default {
 
     ctx.onDispose(() => {
       if (unregisterNav) unregisterNav()
+      spriteRest = null
     })
   }
 }

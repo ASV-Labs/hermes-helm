@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 — 2026-11-05
+
+- Robots are rendered now. 191 alpha PNG layers (Blender/Cycles, one fixed camera, bloom in post) composed live: 10 toppers, 10 faces, 8 chest modules, 6 carried tools, 6 back accessories, 7 colours. Served by a new dashboard half (`dashboard/plugin_api.py`, mounted at `/api/plugins/helm/sprites`) and cached in the desktop half; the 0.1 SVG robots remain as the fallback while the gateway is unreachable.
+- Look editor: every part has a thumbnail, carried and worn items are separate pickers, colour swatches are heads.
+- New *Customize look* sidebar row and page (`/helm/look`) that owns appearance: themes, chrome toggles, density and text scale, link to the Bots board. Palette: *Helm: Customize look*.
+- Renderer shipped in `tools/render/` so the layer set can be rebuilt or extended.
+
 ## 0.1.0 — 2026-11-05
 
 First release.
