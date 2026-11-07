@@ -111,20 +111,20 @@ await new Promise(r => setTimeout(r, 1200)) // inbox poller's first pass (starts
 
 const byArea = area => contributions.filter(c => c.area === area)
 const themes = byArea('themes')
-assert.equal(themes.length, 4, 'three bases + the live custom theme')
+assert.equal(themes.length, 5, 'four bases + the live custom theme')
 for (const t of themes) {
   const d = t.data
   assert.ok(d.name.startsWith('helm-'), 'theme name prefix')
   for (const k of ['background', 'foreground', 'primary']) assert.ok(/^#[0-9A-Fa-f]{6}$/.test(d.colors[k]), `${d.name} colors.${k}`)
   assert.ok(d.customCSS.includes('data-hermes-theme^="helm"'), 'customCSS scoped to helm')
 }
-assert.equal(byArea('statusBar.right').length, 5, 'needs-you, today, working, cost, approvals chips')
+assert.equal(byArea('statusBar.right').length, 6, 'needs-you, today, working, cost, approvals, hooks chips')
 assert.equal(byArea('titleBar.center').length, 1, 'titlebar context line')
 assert.equal(byArea('sessionRow.leading').length, 1, 'session row robot')
 assert.equal(byArea('sessionRow.trailing').length, 1, 'session row cost')
 assert.equal(byArea('routes').length, 3, 'desk + bots + look routes')
 assert.equal(byArea('sidebarNav').length, 3, 'desk + bots + look nav rows')
-assert.equal(byArea('keybinds').length, 4, 'desk, bots, look, side chat')
+assert.equal(byArea('keybinds').length, 7, 'desk, bots, look, side chat, 3 layouts')
 assert.ok(byArea('palette').find(c => c.data.id === 'helm.talk.vision'), 'per-bot palette commands follow the crew')
 assert.ok(byArea('palette').find(c => c.data.id === 'helm.resume.builder'), 'per-bot resume command')
 assert.equal(byArea('appearance.extra').length, 1)
@@ -334,7 +334,7 @@ assert.ok(settingsHtml.includes('Helm Dark'), 'settings shows themes')
 for (const child of settingsPage.children) renderToString(child.render())
 const lookRoute = byArea('routes').find(r => r.data.path === '/helm/look')
 const lookHtml = renderToString(lookRoute.render())
-for (const word of ['Appearance', 'Theme', 'Accent', 'Density and type', 'Corners', 'Reading width', 'Chat text scale', 'Status under each session', 'Export helm.json', 'Reset to helm defaults']) assert.ok(lookHtml.includes(word), `look page: ${word}`)
+for (const word of ['Appearance', 'Theme', 'Accent', 'Density and type', 'Code font', 'Surfaces', 'Chat text scale', 'Rail and sidebar', 'Rail order', 'Layout presets', 'Capture current layout as a preset', 'Keyboard shortcuts', 'Status and cost under each session', 'Export helm.json', 'Reset to Hermes defaults', 'Helm · Ember']) assert.ok(lookHtml.includes(word), `look page: ${word}`)
 if (process.env.HELM_SCREEN) writeFileSync(join(here, '.tmp', 'look.html'), lookHtml)
 
 // Customize look rebuilds the live theme and switches to it

@@ -355,6 +355,12 @@ const FONTS = {
   grotesk: { label: 'Grotesk', fontSans: '"Helvetica Neue", "Neue Haas Grotesk Text", Arial, -apple-system, sans-serif' },
   mono: { label: 'Mono', fontSans: '"JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace' }
 }
+const CODE_FONTS = {
+  jetbrains: { label: 'JetBrains Mono', fontMono: '"JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace' },
+  sfmono: { label: 'SF Mono', fontMono: '"SF Mono", Menlo, ui-monospace, monospace' },
+  menlo: { label: 'Menlo', fontMono: 'Menlo, Monaco, ui-monospace, monospace' },
+  fira: { label: 'Fira Code', fontMono: '"Fira Code", "JetBrains Mono", Menlo, ui-monospace, monospace' }
+}
 const ACCENTS = {
   cyan: { dark: '#62C6D3', light: '#1F8A96' },
   blue: { dark: '#6FA7E0', light: '#2A5FA8' },
@@ -419,7 +425,7 @@ function customTheme(prefs) {
     description: `${base.label} with your accent, type and shape (Customize look)`,
     colors: withAccent(base.colors, accent ? (light ? accent.light : accent.dark) : ''),
     darkColors: withAccent(base.darkColors || base.colors, accent ? accent.dark : ''),
-    typography: { ...TYPOGRAPHY, fontSans: font.fontSans },
+    typography: { ...TYPOGRAPHY, fontSans: font.fontSans, fontMono: (CODE_FONTS[prefs.codeFont] || CODE_FONTS.jetbrains).fontMono },
     terminal: base.terminal,
     darkTerminal: base.darkTerminal,
     customCSS: surfacesCSS(base.colors, ':root[data-hermes-theme="helm-custom"]') + tunablesCSS(prefs) + HELM_CSS
@@ -528,6 +534,35 @@ const GRAPHITE = {
   userBubbleBorder: '#232930'
 }
 
+const EMBER = {
+  background: '#111518',
+  foreground: '#E6EBF0',
+  card: '#151A1E',
+  cardForeground: '#E6EBF0',
+  muted: '#1A2025',
+  mutedForeground: '#98A4B1',
+  popover: '#151A1E',
+  popoverForeground: '#E6EBF0',
+  primary: '#E8A657',
+  primaryForeground: '#1A1206',
+  secondary: '#1A2025',
+  secondaryForeground: '#E6EBF0',
+  accent: '#1A2025',
+  accentForeground: '#E6EBF0',
+  border: '#1E2529',
+  input: '#1E2529',
+  ring: '#E8A657',
+  midground: '#E8A657',
+  midgroundForeground: '#1A1206',
+  composerRing: '#A07443',
+  destructive: '#E07080',
+  destructiveForeground: '#1A0B0E',
+  sidebarBackground: '#151A1E',
+  sidebarBorder: '#1E2529',
+  userBubble: '#211C16',
+  userBubbleBorder: '#33291D'
+}
+
 const PAPER = {
   background: '#F7F6F2',
   foreground: '#1B1F24',
@@ -586,6 +621,17 @@ const THEMES = [
     customCSS: surfacesCSS(GRAPHITE, ':root[data-hermes-theme="helm-graphite"]') + HELM_CSS
   },
   {
+    name: 'helm-ember',
+    label: 'Helm Ember',
+    description: 'Warm dark slate, amber accent',
+    colors: EMBER,
+    darkColors: EMBER,
+    typography: TYPOGRAPHY,
+    terminal: TERMINAL_DARK,
+    darkTerminal: TERMINAL_DARK,
+    customCSS: surfacesCSS(EMBER, ':root[data-hermes-theme="helm-ember"]') + HELM_CSS
+  },
+  {
     name: 'helm-paper',
     label: 'Helm Paper',
     description: 'Warm light paper, teal accent',
@@ -611,6 +657,12 @@ const DEFAULT_PREFS = {
   designNav: true,
   showContextLine: false,
   chatBoard: true,
+  railOrder: [],
+  railHidden: [],
+  railLabels: false,
+  showPinnedTiles: true,
+  autoCollapse: false,
+  codeFont: 'jetbrains',
   chatPanel: true,
   routeAuto: false,
   activityDetail: 'normal',
@@ -4066,6 +4118,13 @@ const CHAT_CSS = `
 [data-helm-chat-chips] button:hover { background: #171E27 !important; }
 `
 
+let hookCount = 0
+const $hookCount = atom(0)
+function HooksChip() {
+  const n = useValue($hookCount)
+  if (inHudWindow()) return null
+  return jsx('span', { title: 'helm contributions registered with Hermes', className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] text-(--ui-text-tertiary)', children: `helm ${VERSION} · ${n} hooks active` })
+}
 const $detail = atom('normal')
 function chatPanelOn() {
   return !helmPrefsRef || helmPrefsRef.prefs.get().chatPanel !== false
@@ -5559,7 +5618,7 @@ function HelmTab({ looks, prefs, setPrefs }) {
   return jsxs('div', {
     style: { height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', fontSize: 13, color: V.t1 },
     children: [
-      pinned.length
+      pinned.length && prefsValue.showPinnedTiles !== false
         ? jsx('div', {
             style: { padding: '10px 10px 0', display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6 },
             children: pinned.map(r => jsx(HelmTile, { ...r, selected: r.p.name === focusedProfile }, r.p.name))
@@ -6487,12 +6546,16 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
   const p = useValue(prefs)
   const [density, setDensity] = useState(() => safeSetting('sessionListDensity', 'comfortable'))
   const [scale, setScale] = useState(() => safeSetting('chatTextScale', 110))
+  const [glass, setGlass] = useState(() => safeSetting('backdrop.v1', false))
+  const [more, setMore] = useState(false)
+  const [dragId, setDragId] = useState(null)
   const [hex, setHex] = useState('')
   useEffect(() => {
     const offs = []
     try {
       offs.push(host.settings.subscribe('sessionListDensity', v => setDensity(v)))
       offs.push(host.settings.subscribe('chatTextScale', v => setScale(v)))
+      offs.push(host.settings.subscribe('backdrop.v1', v => setGlass(v)))
     } catch {
       /* older host */
     }
@@ -6571,188 +6634,335 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
   const btn = (label, onClick, quiet) =>
     jsx('button', { type: 'button', onClick, style: { height: 28, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, background: 'transparent', color: quiet ? B.t3 : B.t2, font: 'inherit', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto' }, children: label })
 
-  return jsx('div', {
-    style: { height: '100%', overflowY: 'auto', background: B.bg, color: B.t1, fontSize: 13, lineHeight: 1.45 },
-    children: jsxs('div', {
-      style: { width: 820, maxWidth: '100%', padding: '22px 36px 24px', display: 'flex', flexDirection: 'column', gap: 22, boxSizing: 'content-box' },
-      children: [
-        jsxs('div', {
-          children: [
-            jsx('h1', { style: { margin: 0, fontSize: 18, fontWeight: 500, letterSpacing: '-0.01em' }, children: 'Appearance' }),
-            jsxs('div', { style: { fontSize: 12.5, color: B.t3, marginTop: 4 }, children: ['Hermes’s own appearance settings, plus what helm adds. Saved in helm’s plugin storage under ', jsx('span', { style: { fontFamily: B.mono, fontSize: 12 }, children: '~/.hermes/desktop-plugins/' }), ', which app updates never touch.'] })
-          ]
-        }),
-        jsxs('section', {
-          style: { display: 'flex', flexDirection: 'column', gap: 8 },
-          children: [
-            jsx(H2, { hint: 'helm’s themes · your accent and type ride on top', children: 'Theme' }),
-            jsx('div', {
-              style: { display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 8 },
-              children: THEMES.filter(t => t.name !== 'helm-custom').map(t => {
-                const on = p.preferredTheme === t.name
-                const acc = accentOf(p.accent, t.name === 'helm-paper') || t.colors.primary
-                return jsxs('button', {
-                  type: 'button',
-                  'aria-pressed': on,
-                  onClick: () => set({ preferredTheme: t.name }),
-                  style: { border: `1px solid ${on ? accentHex : B.ctl}`, borderRadius: 8, background: B.panel, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, textAlign: 'left', cursor: 'pointer', font: 'inherit', color: B.t1 },
-                  children: [
-                    jsxs('span', {
-                      style: { height: 36, borderRadius: 5, background: t.colors.background, border: `1px solid ${t.colors.border}`, display: 'flex', gap: 3, padding: 4, boxSizing: 'border-box' },
-                      children: [
-                        jsx('span', { style: { width: 10, borderRadius: 2, background: t.colors.sidebarBackground } }),
-                        jsx('span', { style: { flex: 1, borderRadius: 2, background: t.colors.card } }),
-                        jsx('span', { style: { width: 8, height: 8, borderRadius: 2, background: acc, alignSelf: 'flex-end' } })
-                      ]
-                    }),
-                    jsx('span', { style: { fontSize: 11.5 }, children: t.label })
-                  ]
-                }, t.name)
-              })
-            })
-          ]
-        }),
-        jsxs('div', {
-          style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 28 },
+  const railOrder = railOrderOf(p)
+  const railHidden = new Set(Array.isArray(p.railHidden) ? p.railHidden : [])
+  const railLabel = Object.fromEntries(RAIL_ITEMS.map(it => [it.id, it.label]))
+  const moveRail = (from, to) => {
+    if (!from || from === to) return
+    const next = railOrder.filter(id => id !== from)
+    next.splice(next.indexOf(to), 0, from)
+    setPrefs({ railOrder: next })
+  }
+  const listBox = { border: `1px solid ${B.ctl}`, borderRadius: 8, overflow: 'hidden', fontSize: 12.5 }
+  const rowStyle = last => ({ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderBottom: last ? 0 : `1px solid ${B.hair}` })
+  const themeCards = [
+    { name: 'helm-dark', label: 'Helm Dark' },
+    { name: 'helm-paper', label: 'Helm Paper' },
+    { name: 'helm-graphite', label: 'Helm · Graphite' },
+    { name: 'helm-ember', label: 'Helm · Ember' },
+    { name: 'nous', label: 'Hermes default', colors: { background: '#0A0A0A', border: '#262626', sidebarBackground: '#111111', card: '#171717', primary: '#B48CE6' }, external: true }
+  ]
+  const nav = (label, opts = {}) =>
+    jsxs('button', {
+      type: 'button',
+      onClick: opts.onClick,
+      style: { height: 30, display: 'flex', alignItems: 'center', gap: 8, padding: '0 8px', borderRadius: 6, border: 0, background: opts.selected ? B.sel : 'transparent', color: opts.selected ? B.t1 : B.t2, font: 'inherit', fontSize: 13, cursor: 'pointer', textAlign: 'left', width: '100%' },
+      className: opts.selected ? undefined : 'helm-nav-row',
+      children: [jsx('span', { children: label }), opts.hint ? jsx('span', { style: { marginLeft: 'auto', fontSize: 11, color: B.t4 }, children: opts.hint }) : null]
+    }, label)
+  const go = path => () => host.navigate(path)
+  const presets = [
+    { id: 'focus', name: 'Focus', desc: 'chat only, sidebar hidden', keys: '⌘⌥1' },
+    { id: 'review', name: 'Review', desc: 'chat + diff + terminal', keys: '⌘⌥2' },
+    { id: 'crew', name: 'Crew', desc: 'bots roster + board + dispatch', keys: '⌘⌥3' }
+  ]
+  const H2b = ({ children, hint, right }) =>
+    jsxs('div', {
+      style: { display: 'flex', alignItems: 'baseline', gap: 10 },
+      children: [jsx('h2', { style: { margin: 0, fontSize: 13, fontWeight: 600, color: B.t1 }, children }), hint ? jsx('span', { style: { fontSize: 12, color: B.t4 }, children: hint }) : null, right ? jsx('span', { style: { marginLeft: 'auto' }, children: right }) : null]
+    })
+  const link = (text, onClick) => jsx('button', { type: 'button', onClick, style: { border: 0, padding: 0, background: 'transparent', color: accentHex, font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: text })
+
+  return jsxs('div', {
+    'data-helm-customize': '',
+    style: { height: '100%', display: 'flex', background: B.bg, color: B.t1, fontSize: 13, lineHeight: 1.45 },
+    children: [
+      jsxs('nav', {
+        'aria-label': 'Settings',
+        style: { width: 220, flex: '0 0 220px', background: B.panel, borderRight: `1px solid ${B.hair}`, padding: '14px 8px', display: 'flex', flexDirection: 'column', gap: 1, boxSizing: 'border-box', overflowY: 'auto' },
+        children: [
+          jsx('div', { style: { ...B_CAPS, padding: '0 8px 8px' }, children: 'Settings' }),
+          nav('General', { onClick: go('/settings?tab=config') }),
+          nav('Appearance', { selected: true }),
+          nav('Keyboard shortcuts', { onClick: go('/settings?tab=keybinds') }),
+          nav('Models and providers', { onClick: go('/settings?tab=providers') }),
+          nav('Approvals', { onClick: go('/settings?tab=config:safety') }),
+          nav('Connections', { onClick: go('/settings?tab=connections') }),
+          nav('Plugins', { onClick: go('/settings?tab=plugins') }),
+          jsx('div', { style: { ...B_CAPS, padding: '14px 8px 6px' }, children: 'Plugins' }),
+          nav('Helm', { selected: false, hint: 'this page' }),
+          nav('Lineage', { onClick: go('/lineage') }),
+          nav('Bots', { onClick: () => openBoardTab('board') }),
+          nav('Hermes plugins', { onClick: go('/settings?tab=plugins') }),
+          jsx('div', { style: { marginTop: 'auto' } }),
+          nav('Privacy', { onClick: go('/settings?tab=config:safety') }),
+          nav(`About · helm ${VERSION}`, { onClick: go('/settings') })
+        ]
+      }),
+      jsx('div', {
+        style: { flex: '1 1 auto', minWidth: 0, overflowY: 'auto' },
+        children: jsxs('div', {
+          style: { width: 820, maxWidth: 'calc(100% - 72px)', padding: '22px 36px 24px', display: 'flex', flexDirection: 'column', gap: 22 },
           children: [
             jsxs('div', {
-              style: { display: 'flex', flexDirection: 'column', gap: 18 },
               children: [
-                jsxs('section', {
-                  style: { display: 'flex', flexDirection: 'column', gap: 8 },
+                jsx('h1', { style: { margin: 0, fontSize: 18, fontWeight: 500, letterSpacing: '-0.01em' }, children: 'Appearance' }),
+                jsxs('div', { style: { fontSize: 12.5, color: B.t3, marginTop: 4 }, children: ['Hermes’s own appearance settings, plus what the helm plugin adds. Everything here is saved in your plugin storage under ', jsx('span', { style: { fontFamily: B.mono, fontSize: 12 }, children: '~/.hermes/desktop-plugins/helm/' }), ', which app updates never touch.'] })
+              ]
+            }),
+            jsxs('section', {
+              style: { display: 'flex', flexDirection: 'column', gap: 8 },
+              children: [
+                jsx(H2b, { hint: 'Hermes picker · includes every installed theme plugin', right: link('Import from VS Code', go('/settings?tab=appearance')), children: 'Theme' }),
+                jsx('div', {
+                  style: { display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 8 },
                   children: [
-                    jsx(H2, { children: 'Accent' }),
-                    jsxs('div', {
-                      style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+                    ...themeCards.map(c => {
+                      const t = THEMES.find(x => x.name === c.name)
+                      const colors = t ? t.colors : c.colors
+                      const on = c.external ? typeof document !== 'undefined' && !String(document.documentElement.getAttribute('data-hermes-theme') || '').startsWith('helm') : p.preferredTheme === c.name
+                      const acc = c.external ? colors.primary : accentOf(p.accent, c.name === 'helm-paper') || colors.primary
+                      return jsxs('button', {
+                        type: 'button',
+                        'aria-pressed': on,
+                        onClick: () => (c.external ? requestTheme(c.name) : set({ preferredTheme: c.name })),
+                        style: { border: `1px solid ${on ? accentHex : B.ctl}`, borderRadius: 8, background: B.panel, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, textAlign: 'left', cursor: 'pointer', font: 'inherit', color: B.t1 },
+                        children: [
+                          jsxs('span', {
+                            style: { height: 36, borderRadius: 5, background: colors.background, border: `1px solid ${colors.border}`, display: 'flex', gap: 3, padding: 4, boxSizing: 'border-box' },
+                            children: [jsx('span', { style: { width: 10, borderRadius: 2, background: colors.sidebarBackground } }), jsx('span', { style: { flex: 1, borderRadius: 2, background: colors.card } }), jsx('span', { style: { width: 8, height: 8, borderRadius: 2, background: acc, alignSelf: 'flex-end' } })]
+                          }),
+                          jsx('span', { style: { fontSize: 11.5 }, children: c.label })
+                        ]
+                      }, c.name)
+                    }),
+                    jsxs('button', {
+                      type: 'button',
+                      onClick: go('/settings?tab=appearance'),
+                      style: { border: `1px dashed ${B.ctl}`, borderRadius: 8, background: 'transparent', color: B.t3, padding: 8, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 2, cursor: 'pointer', font: 'inherit', textAlign: 'center' },
+                      children: [jsx('span', { style: { fontSize: 11.5 }, children: 'Catppuccin, Midnight, Slate…' }), jsx('span', { style: { fontSize: 11, color: B.t4 }, children: 'every installed theme' })]
+                    }, 'catalog')
+                  ]
+                })
+              ]
+            }),
+            jsxs('div', {
+              style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 28 },
+              children: [
+                jsxs('div', {
+                  style: { display: 'flex', flexDirection: 'column', gap: 18 },
+                  children: [
+                    jsxs('section', {
+                      style: { display: 'flex', flexDirection: 'column', gap: 8 },
                       children: [
-                        ...swatches.map(([id, name]) =>
-                          jsx('button', { type: 'button', title: name, 'aria-label': name, 'aria-pressed': p.accent === id || (!p.accent && id === 'cyan'), onClick: () => set({ accent: id }), style: { width: 26, height: 26, borderRadius: 13, border: `2px solid ${p.accent === id || (!p.accent && id === 'cyan') ? B.t1 : 'transparent'}`, background: ACCENTS[id].dark, cursor: 'pointer', padding: 0 } }, id)
-                        ),
-                        jsx('label', { htmlFor: 'helm-accent-hex', style: { position: 'absolute', left: -9999 }, children: 'Custom accent' }),
-                        jsx('input', {
-                          id: 'helm-accent-hex',
-                          value: hex,
-                          onChange: e => setHex(e.target.value),
-                          onBlur: () => (/^#[0-9a-f]{6}$/i.test(hex.trim()) ? set({ accent: hex.trim().toUpperCase() }) : setHex(accentHex)),
-                          onKeyDown: e => e.key === 'Enter' && e.currentTarget.blur(),
-                          style: { width: 90, height: 26, boxSizing: 'border-box', borderRadius: 6, border: `1px solid ${B.ctl}`, background: B.bg, color: B.t1, padding: '0 8px', fontFamily: B.mono, fontSize: 11.5 }
+                        jsx(H2b, { children: 'Accent' }),
+                        jsxs('div', {
+                          style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+                          children: [
+                            ...swatches.map(([id, name]) =>
+                              jsx('button', { type: 'button', title: name, 'aria-label': name, 'aria-pressed': p.accent === id || (!p.accent && id === 'cyan'), onClick: () => set({ accent: id }), style: { width: 26, height: 26, borderRadius: 13, border: `2px solid ${p.accent === id || (!p.accent && id === 'cyan') ? B.t1 : 'transparent'}`, background: ACCENTS[id].dark, cursor: 'pointer', padding: 0 } }, id)
+                            ),
+                            jsx('label', { htmlFor: 'helm-accent-hex', style: { position: 'absolute', left: -9999 }, children: 'Custom accent' }),
+                            jsx('input', {
+                              id: 'helm-accent-hex',
+                              value: hex,
+                              onChange: e => setHex(e.target.value),
+                              onBlur: () => (/^#[0-9a-f]{6}$/i.test(hex.trim()) ? set({ accent: hex.trim().toUpperCase() }) : setHex(accentHex)),
+                              onKeyDown: e => e.key === 'Enter' && e.currentTarget.blur(),
+                              style: { width: 90, height: 26, boxSizing: 'border-box', borderRadius: 6, border: `1px solid ${B.ctl}`, background: B.bg, color: B.t1, padding: '0 8px', fontFamily: B.mono, fontSize: 11.5 }
+                            }),
+                            jsx('span', { style: { fontSize: 11.5, color: B.t4 }, children: 'tints the active theme · per profile' })
+                          ]
+                        })
+                      ]
+                    }),
+                    jsxs('section', {
+                      style: { display: 'flex', flexDirection: 'column', gap: 8 },
+                      children: [
+                        jsx(H2b, { children: 'Density and type' }),
+                        jsxs('div', {
+                          style: { display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px 12px', alignItems: 'center', fontSize: 12.5 },
+                          children: [
+                            jsx('span', { style: { color: B.t3 }, children: 'Density' }),
+                            jsx(Seg, { label: 'Density', value: density === 'detailed' ? 'comfortable' : density, options: [{ id: 'comfortable', label: 'Comfortable' }, { id: 'compact', label: 'Compact' }], onChange: v => trySetSetting('sessionListDensity', v) }),
+                            jsx('span', { style: { color: B.t3 }, children: 'Interface font' }),
+                            jsx(Select, { label: 'Interface font', value: p.font, options: Object.entries(FONTS).map(([id, f]) => ({ id, label: f.label })), onChange: v => set({ font: v }) }),
+                            jsx('span', { style: { color: B.t3 }, children: 'Code font' }),
+                            jsx(Select, { label: 'Code font', value: p.codeFont || 'jetbrains', options: Object.entries(CODE_FONTS).map(([id, f]) => ({ id, label: f.label })), onChange: v => set({ codeFont: v }) }),
+                            jsx('span', { style: { color: B.t3 }, children: 'Chat text scale' }),
+                            jsx(Seg, { label: 'Chat text scale', value: scale, options: [90, 100, 110, 125, 150, 175].map(n => ({ id: n, label: String(n) })), onChange: v => trySetSetting('chatTextScale', Number(v)) }),
+                            jsx('span', { style: { color: B.t3 }, children: 'Surfaces' }),
+                            jsx(Seg, { label: 'Surfaces', value: glass ? 'glass' : 'matte', options: [{ id: 'matte', label: 'Matte' }, { id: 'glass', label: 'Glass' }], onChange: v => trySetSetting('backdrop.v1', v === 'glass') })
+                          ]
+                        })
+                      ]
+                    }),
+                    jsxs('section', {
+                      style: { display: 'flex', flexDirection: 'column', gap: 8 },
+                      children: [
+                        jsx(H2b, { children: 'Rail and sidebar' }),
+                        jsxs('div', {
+                          style: { display: 'flex', flexDirection: 'column', gap: 6 },
+                          children: [
+                            jsx(Check, { k: 'railLabels', label: 'Show labels on the rail', hint: 'hover shows them anyway' }),
+                            jsx(Check, { k: 'showSidebarNeeds', label: '“Needs you” group at the top of Sessions' }),
+                            jsx(Check, { k: 'showRowStatus', label: 'Status and cost under each session' }),
+                            jsx(Check, { k: 'showPinnedTiles', label: 'Pinned bot tiles on the Bots tab' }),
+                            jsx(Check, { k: 'autoCollapse', label: 'Collapse sidebar under 1100 px, peek on hover' })
+                          ]
+                        })
+                      ]
+                    })
+                  ]
+                }),
+                jsxs('div', {
+                  style: { display: 'flex', flexDirection: 'column', gap: 18 },
+                  children: [
+                    jsxs('section', {
+                      style: { display: 'flex', flexDirection: 'column', gap: 8 },
+                      children: [
+                        jsx(H2b, { hint: 'drag to reorder · Capabilities cannot be hidden', children: 'Rail order' }),
+                        jsx('div', {
+                          style: listBox,
+                          children: railOrder.map((id, i) =>
+                            jsxs('div', {
+                              draggable: true,
+                              onDragStart: e => {
+                                setDragId(id)
+                                try { e.dataTransfer.effectAllowed = 'move' } catch { /* no dataTransfer */ }
+                              },
+                              onDragOver: e => e.preventDefault(),
+                              onDrop: e => {
+                                e.preventDefault()
+                                moveRail(dragId, id)
+                                setDragId(null)
+                              },
+                              style: { ...rowStyle(i === railOrder.length - 1), background: dragId === id ? B.sel : 'transparent', cursor: 'grab' },
+                              children: [
+                                jsx('span', { 'aria-hidden': true, style: { fontFamily: B.mono, color: B.t4, letterSpacing: '-2px' }, children: '⋮⋮' }),
+                                jsx('span', { style: { flex: 1 }, children: railLabel[id] }),
+                                jsxs('span', {
+                                  style: { display: 'inline-flex', gap: 2 },
+                                  children: [
+                                    jsx('button', { type: 'button', 'aria-label': `Move ${railLabel[id]} up`, disabled: i === 0, onClick: () => moveRail(id, railOrder[i - 1]), style: { border: 0, background: 'transparent', color: B.t4, cursor: i === 0 ? 'default' : 'pointer', fontSize: 10, padding: '0 2px', opacity: i === 0 ? 0.3 : 1 }, children: '▲' }),
+                                    jsx('button', { type: 'button', 'aria-label': `Move ${railLabel[id]} down`, disabled: i === railOrder.length - 1, onClick: () => moveRail(railOrder[i + 1], id), style: { border: 0, background: 'transparent', color: B.t4, cursor: i === railOrder.length - 1 ? 'default' : 'pointer', fontSize: 10, padding: '0 2px', opacity: i === railOrder.length - 1 ? 0.3 : 1 }, children: '▼' })
+                                  ]
+                                }),
+                                id === 'capabilities'
+                                  ? jsx('span', { style: { fontSize: 11.5, color: B.t4 }, children: 'always' })
+                                  : jsxs('label', {
+                                      style: { display: 'inline-flex' },
+                                      children: [
+                                        jsx('span', { style: { position: 'absolute', left: -9999 }, children: `${railLabel[id]} shown` }),
+                                        jsx('input', {
+                                          type: 'checkbox',
+                                          checked: !railHidden.has(id),
+                                          onChange: e => {
+                                            const next = new Set(railHidden)
+                                            if (e.target.checked) next.delete(id)
+                                            else next.add(id)
+                                            setPrefs({ railHidden: [...next] })
+                                          },
+                                          style: { margin: 0, accentColor: accentHex }
+                                        })
+                                      ]
+                                    })
+                              ]
+                            }, id)
+                          )
+                        })
+                      ]
+                    }),
+                    jsxs('section', {
+                      style: { display: 'flex', flexDirection: 'column', gap: 8 },
+                      children: [
+                        jsx(H2b, { hint: 'saved from the Layout editor · bound to keys', children: 'Layout presets' }),
+                        jsxs('div', {
+                          style: listBox,
+                          children: [
+                            ...presets.map(pr =>
+                              jsxs('button', {
+                                type: 'button',
+                                onClick: () => applyHelmLayout(pr.id),
+                                className: 'helm-nav-row',
+                                style: { ...rowStyle(false), width: '100%', border: 0, borderBottom: `1px solid ${B.hair}`, background: 'transparent', color: B.t1, font: 'inherit', textAlign: 'left', cursor: 'pointer' },
+                                children: [jsx('span', { style: { fontSize: 13 }, children: pr.name }), jsx('span', { style: { fontSize: 11.5, color: B.t4 }, children: pr.desc }), jsx('span', { style: { marginLeft: 'auto', fontFamily: B.mono, fontSize: 11, color: B.t3 }, children: pr.keys })]
+                              }, pr.id)
+                            ),
+                            jsx('div', { style: { padding: '6px 10px' }, children: link('Capture current layout as a preset', openLayoutEditor) })
+                          ]
+                        })
+                      ]
+                    })
+                  ]
+                })
+              ]
+            }),
+            jsxs('section', {
+              style: { borderTop: `1px solid ${B.hair}`, paddingTop: 14, display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 },
+              children: [
+                jsxs('span', { style: { color: B.t3, flex: '1 1 auto' }, children: ['Saved automatically. Hermes updates replace the app, not ', jsx('span', { style: { fontFamily: B.mono, fontSize: 12 }, children: 'desktop-plugins/' }), ', so this survives them. If an update removes an SDK hook, helm drops that one feature and says which.'] }),
+                btn('Export helm.json', exportPrefs),
+                jsxs('label', {
+                  style: { height: 28, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, color: B.t2, fontSize: 12, display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative', whiteSpace: 'nowrap', flex: '0 0 auto' },
+                  children: ['Import', jsx('input', { type: 'file', accept: 'application/json,.json', onChange: e => importPrefs(e.target.files && e.target.files[0]), style: { position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' } })]
+                }),
+                btn('Reset to Hermes defaults', () => {
+                  applyLook({ ...DEFAULT_PREFS, deskName: p.deskName, deskFolded: p.deskFolded })
+                  requestTheme('nous')
+                }, true)
+              ]
+            }),
+            jsxs('section', {
+              style: { display: 'flex', flexDirection: 'column', gap: 10 },
+              children: [
+                jsx('button', { type: 'button', onClick: () => setMore(v => !v), style: { alignSelf: 'flex-start', border: 0, padding: 0, background: 'transparent', color: accentHex, font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: more ? 'Fewer helm options' : 'More helm options' }),
+                more
+                  ? jsxs('div', {
+                      style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 28 },
+                      children: [
+                        jsxs('div', {
+                          style: { display: 'flex', flexDirection: 'column', gap: 6 },
+                          children: [
+                            jsx(H2b, { children: 'Shape' }),
+                            jsxs('div', { style: { display: 'flex', gap: 8, alignItems: 'center' }, children: [jsx(Seg, { label: 'Corners', value: p.radius, options: [{ id: 'sharp', label: 'Sharp' }, { id: 'default', label: 'Soft' }, { id: 'round', label: 'Round' }], onChange: v => set({ radius: v }) }), jsx(Seg, { label: 'Reading width', value: p.width, options: [{ id: 'narrow', label: 'Narrow' }, { id: 'default', label: 'App' }, { id: 'wide', label: 'Wide' }], onChange: v => set({ width: v }) })] }),
+                            jsx(Check, { k: 'showRail', label: 'Icon rail' }),
+                            jsx(Check, { k: 'designNav', label: 'Five-row nav' }),
+                            jsx(Check, { k: 'showRowCost', label: 'Cost on each session row' }),
+                            jsx(Check, { k: 'showRowBots', label: 'Robot on each session row' }),
+                            jsx(Check, { k: 'homeOnNewSession', label: 'Home on New session' }),
+                            jsx(Check, { k: 'chatBoard', label: 'Session header, progress row and chips' }),
+                            jsx(Check, { k: 'chatPanel', label: 'Side panel in chats' })
+                          ]
                         }),
-                        jsx('span', { style: { fontSize: 11.5, color: B.t4 }, children: 'tints the active theme' })
+                        jsxs('div', {
+                          style: { display: 'flex', flexDirection: 'column', gap: 6 },
+                          children: [
+                            jsx(H2b, { children: 'Status bar, HUD, robots' }),
+                            jsx(Check, { k: 'showNeedsYouChip', label: 'n need you' }),
+                            jsx(Check, { k: 'showWorkingChip', label: 'n working' }),
+                            jsx(Check, { k: 'showTodayChip', label: '$ today across the crew' }),
+                            jsx(Check, { k: 'showCostChip', label: 'Focused chat cost and context' }),
+                            jsx(Check, { k: 'showHudPanel', label: 'Needs you and Working in the HUD' }),
+                            jsx(Check, { k: 'hudBoard', label: 'HUD as the 440 × 720 board' }),
+                            jsx(Check, { k: 'animateRobots', label: 'Animated robots' }),
+                            jsx(Check, { k: 'autoAvatars', label: 'Robots as Hermes avatars' }),
+                            jsx(Check, { k: 'robotPets', label: 'Robots as Hermes pets' }),
+                            jsx('div', { style: { display: 'flex', alignItems: 'center', gap: 6 }, children: [jsx(Seg, { label: 'Rail colour', value: p.rail, options: [{ id: 'mono', label: 'Mono rail' }, { id: 'colour', label: 'Colour rail' }], onChange: v => set({ rail: v }) }), link('Edit a bot’s look', () => openBoardTab())] })
+                          ]
+                        })
                       ]
                     })
-                  ]
-                }),
-                jsxs('section', {
-                  style: { display: 'flex', flexDirection: 'column', gap: 8 },
-                  children: [
-                    jsx(H2, { children: 'Density and type' }),
-                    jsxs('div', {
-                      style: { display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px 12px', alignItems: 'center', fontSize: 12.5 },
-                      children: [
-                        jsx('span', { style: { color: B.t3 }, children: 'Density' }),
-                        jsx(Seg, { label: 'Density', value: density, options: [{ id: 'comfortable', label: 'Comfortable' }, { id: 'compact', label: 'Compact' }, { id: 'detailed', label: 'Detailed' }], onChange: v => trySetSetting('sessionListDensity', v) }),
-                        jsx('span', { style: { color: B.t3 }, children: 'Interface font' }),
-                        jsx(Select, { label: 'Interface font', value: p.font, options: Object.entries(FONTS).map(([id, f]) => ({ id, label: f.label })), onChange: v => set({ font: v }) }),
-                        jsx('span', { style: { color: B.t3 }, children: 'Chat text scale' }),
-                        jsx(Seg, { label: 'Chat text scale', value: scale, options: [90, 100, 110, 125, 150].map(n => ({ id: n, label: String(n) })), onChange: v => trySetSetting('chatTextScale', Number(v)) }),
-                        jsx('span', { style: { color: B.t3 }, children: 'Corners' }),
-                        jsx(Seg, { label: 'Corners', value: p.radius, options: [{ id: 'sharp', label: 'Sharp' }, { id: 'default', label: 'Soft' }, { id: 'round', label: 'Round' }], onChange: v => set({ radius: v }) }),
-                        jsx('span', { style: { color: B.t3 }, children: 'Reading width' }),
-                        jsx(Seg, { label: 'Reading width', value: p.width, options: [{ id: 'narrow', label: 'Narrow' }, { id: 'default', label: 'App' }, { id: 'wide', label: 'Wide' }], onChange: v => set({ width: v }) })
-                      ]
-                    })
-                  ]
-                }),
-                jsxs('section', {
-                  style: { display: 'flex', flexDirection: 'column', gap: 8 },
-                  children: [
-                    jsx(H2, { children: 'Sidebar' }),
-                    jsxs('div', {
-                      style: { display: 'flex', flexDirection: 'column', gap: 6 },
-                      children: [
-                        jsx(Check, { k: 'showRail', label: 'Icon rail', hint: 'left of the sidebar' }),
-                        jsx(Check, { k: 'designNav', label: 'Five-row nav', hint: 'the rest stays in ⌘K' }),
-                        jsx(Check, { k: 'showRowStatus', label: 'Status under each session' }),
-                        jsx(Check, { k: 'showRowCost', label: 'Cost on each session row' }),
-                        jsx(Check, { k: 'showRowBots', label: 'Robot on each session row' }),
-                        jsx(Check, { k: 'showDeskStrip', label: 'Continue strip on new chats' }),
-                        jsx(Check, { k: 'homeOnNewSession', label: 'Home on New session', hint: 'greeting, Continue, Needs you, Today' }),
-                        jsx(Check, { k: 'openDeskAtLaunch', label: 'Open the Desk at launch' })
-                      ]
-                    })
-                  ]
-                })
-              ]
-            }),
-            jsxs('div', {
-              style: { display: 'flex', flexDirection: 'column', gap: 18 },
-              children: [
-                jsxs('section', {
-                  style: { display: 'flex', flexDirection: 'column', gap: 8 },
-                  children: [
-                    jsx(H2, { hint: 'right side of the status bar', children: 'Status bar and title bar' }),
-                    jsxs('div', {
-                      style: { display: 'flex', flexDirection: 'column', gap: 6 },
-                      children: [
-                        jsx(Check, { k: 'showNeedsYouChip', label: 'n need you', hint: 'amber' }),
-                        jsx(Check, { k: 'showWorkingChip', label: 'n working' }),
-                        jsx(Check, { k: 'showTodayChip', label: '$ today across the crew' }),
-                        jsx(Check, { k: 'showCostChip', label: 'Focused chat cost and context' }),
-                        jsx(Check, { k: 'showContextLine', label: 'Bot, folder, model in the title bar' }),
-                        jsx(Check, { k: 'showHudPanel', label: 'Needs you and Working in the HUD', hint: 'View › HUD mode' }),
-                        jsx(Check, { k: 'hudBoard', label: 'HUD as the 440 × 720 board', hint: 'off keeps the search bar' })
-                      ]
-                    })
-                  ]
-                }),
-                jsxs('section', {
-                  style: { display: 'flex', flexDirection: 'column', gap: 8 },
-                  children: [
-                    jsx(H2, { children: 'Robots' }),
-                    jsxs('div', {
-                      style: { display: 'flex', flexDirection: 'column', gap: 6 },
-                      children: [
-                        jsx(Check, { k: 'showComposerBot', label: 'Robot beside the composer' }),
-                        jsx(Check, { k: 'animateRobots', label: 'Animated robots', hint: 'follows Reduce motion' }),
-                        jsx(Check, { k: 'autoAvatars', label: 'Robots as Hermes avatars', hint: 'never over your photo' }),
-                        jsx(Check, { k: 'robotPets', label: 'Robots as Hermes pets' })
-                      ]
-                    }),
-                    jsxs('div', {
-                      style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 },
-                      children: [
-                        jsx(Seg, { label: 'Rail colour', value: p.rail, options: [{ id: 'mono', label: 'Mono rail' }, { id: 'colour', label: 'Colour rail' }], onChange: v => set({ rail: v }) }),
-                        jsx('button', { type: 'button', onClick: () => openBoardTab(), style: { marginLeft: 'auto', border: 0, background: 'transparent', color: accentHex, font: 'inherit', fontSize: 12, cursor: 'pointer', padding: 0 }, children: 'Edit a bot’s look' })
-                      ]
-                    })
-                  ]
-                })
+                  : null
               ]
             })
-          ]
-        }),
-        jsxs('section', {
-          style: { borderTop: `1px solid ${B.hair}`, paddingTop: 14, display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 },
-          children: [
-            jsx('span', { style: { color: B.t3, flex: '1 1 auto' }, children: 'Saved automatically. Hermes updates replace the app, not desktop-plugins/, so this survives them.' }),
-            btn('Export helm.json', exportPrefs),
-            jsxs('label', {
-              style: { height: 28, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, color: B.t2, fontSize: 12, display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative', whiteSpace: 'nowrap', flex: '0 0 auto' },
-              children: ['Import', jsx('input', { type: 'file', accept: 'application/json,.json', onChange: e => importPrefs(e.target.files && e.target.files[0]), style: { position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' } })]
-            }),
-            btn('Reset to helm defaults', () => applyLook({ ...DEFAULT_PREFS, deskName: p.deskName, deskFolded: p.deskFolded }), true)
           ]
         })
-      ]
-    })
+      })
+    ]
   })
 }
 
-// ─────────────────────────────────────────────────────────────── icon rail
-// The board's 50px rail, left of the whole pane tree. Hermes has no rail slot,
-// so helm draws it as a fixed element of its own and moves the tree 50px over
-// with one CSS rule. It lives outside the tree, so the sidebar toggle and the
-// layout editor never see it.
 const RAIL_ICONS = {
   chevron: '<path d="M9 6l6 6-6 6"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
@@ -6768,6 +6978,30 @@ const RAIL_ICONS = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'
 }
 
+const RAIL_ITEMS = [
+  { id: 'plus', label: 'New chat', short: 'New', run: () => host.newChat(), match: p => p === '/' },
+  { id: 'bots', label: 'Bots', short: 'Bots', run: () => (host.revealPane ? host.revealPane(`${ID}:helm-tab`) : openBoardTab()), match: p => p.startsWith(BOTS_ROUTE) },
+  { id: 'artifacts', label: 'Artifacts', short: 'Files', route: '/artifacts' },
+  { id: 'automations', label: 'Automations', short: 'Jobs', route: '/cron' },
+  { id: 'capabilities', label: 'Capabilities', short: 'Skills', route: '/capabilities' },
+  { id: 'profiles', label: 'Instances and profiles', short: 'Profiles', route: '/profiles' },
+  { id: 'desk', label: "Agent's computer", short: 'Screen', run: () => openFocusedComputer() },
+  { id: 'messaging', label: 'Messaging', short: 'Chat', route: '/messaging' },
+  { id: 'command', label: 'Command center', short: 'Center', route: '/command-center' }
+]
+const RAIL_DEFAULT_ORDER = ['plus', 'bots', 'profiles', 'desk', 'capabilities', 'messaging', 'artifacts', 'automations', 'command']
+function railOrderOf(pr) {
+  const saved = Array.isArray(pr && pr.railOrder) ? pr.railOrder.filter(id => RAIL_DEFAULT_ORDER.includes(id)) : []
+  return [...saved, ...RAIL_DEFAULT_ORDER.filter(id => !saved.includes(id))]
+}
+function openFocusedComputer() {
+  const crew = $crew.get()
+  const name = $botFocus.get() || atomGet(host.state.focusedSessionProfile) || ((crew.profiles || [])[0] || {}).name
+  const p = (crew.profiles || []).find(x => x.name === name)
+  if (p) openBotComputer(p)
+  else host.notify?.({ kind: 'info', message: 'No bot to show yet.' })
+}
+
 const RAIL_CSS = `
 :root[data-helm-rail] [data-tree-split]:not([data-tree-split] *),
 :root[data-helm-rail] [data-tree-group]:not([data-tree-split] *):not([data-tree-group] *) { margin-left: 50px; }
@@ -6780,6 +7014,9 @@ const RAIL_CSS = `
 #helm-rail button .helm-rail-dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 3px; display: none; }
 #helm-rail button[data-dot] .helm-rail-dot { display: block; }
 #helm-rail .helm-rail-spacer { margin-top: auto; }
+#helm-rail .helm-rail-label { display: none; }
+#helm-rail.helm-rail-labels button:not(.helm-rail-chevron) { height: 40px; flex-direction: column; gap: 2px; }
+#helm-rail.helm-rail-labels .helm-rail-label { display: block; font-size: 8.5px; line-height: 1; letter-spacing: 0.02em; }
 :root[data-hermes-theme="helm-paper"] #helm-rail { background: #F4F2EC; border-right-color: #E2E0D8; }
 `
 
@@ -6789,6 +7026,133 @@ function hashPath() {
     return h.split('?')[0] || '/'
   } catch {
     return '/'
+  }
+}
+
+function sidebarHidden() {
+  try {
+    return !!document.querySelector('button[aria-label="Show sidebar"]')
+  } catch {
+    return false
+  }
+}
+
+function openLayoutEditor() {
+  try {
+    const b = document.querySelector('button[aria-label="Layout editor"]')
+    if (b) b.click()
+  } catch {
+    /* no layout editor */
+  }
+}
+
+// Layout presets from Customize (and ⌘⌥1–3): Focus hides the sidebar;
+// Review shows the review and terminal panes; Crew opens the Helm tab and
+// the Bots board.
+function applyHelmLayout(id) {
+  try {
+    if (id === 'focus') {
+      if (!sidebarHidden()) toggleSidebar()
+    } else if (id === 'review') {
+      if (sidebarHidden()) toggleSidebar()
+      if (host.revealPane) {
+        host.revealPane('review')
+        host.revealPane('terminal')
+      }
+    } else if (id === 'crew') {
+      if (sidebarHidden()) toggleSidebar()
+      if (host.revealPane) host.revealPane(`${ID}:helm-tab`)
+      openBoardTab('board')
+    }
+  } catch (err) {
+    host.notifyError?.(`Layout preset failed: ${err && err.message ? err.message : err}`)
+  }
+}
+
+// Customize as a title-bar tab ("SETTINGS · APPEARANCE"). The sessions
+// sidebar steps aside while it shows and comes back after.
+const CUSTOMIZE_KEY = `${ID}:customize`
+let customizeArgs = null
+let customizeClose = null
+let customizeOff = null
+let customizeHidSidebar = false
+function openCustomizeTab() {
+  if (customizeClose && host.revealPane) {
+    host.revealPane(`plugin-workspace:${CUSTOMIZE_KEY}`)
+    return
+  }
+  if (typeof host.openWorkspace !== 'function' || !customizeArgs) {
+    host.navigate(LOOK_ROUTE)
+    return
+  }
+  customizeClose = host.openWorkspace(CUSTOMIZE_KEY, {
+    title: 'Settings · Appearance',
+    minWidth: '36rem',
+    render: () => jsx(LookPage, customizeArgs),
+    onClose: () => {
+      customizeClose = null
+      if (customizeOff) customizeOff()
+      customizeOff = null
+      if (customizeHidSidebar && sidebarHidden()) toggleSidebar()
+      customizeHidSidebar = false
+    }
+  })
+  const vis = typeof host.paneVisibility === 'function' ? host.paneVisibility(`plugin-workspace:${CUSTOMIZE_KEY}`) : null
+  if (vis && typeof vis.subscribe === 'function') {
+    customizeOff = vis.subscribe(v => {
+      if (v && !sidebarHidden()) {
+        customizeHidSidebar = true
+        toggleSidebar()
+      } else if (!v && customizeHidSidebar) {
+        customizeHidSidebar = false
+        if (sidebarHidden()) toggleSidebar()
+      }
+    })
+  }
+}
+
+// Collapse the sidebar under 1100 px; hovering the rail peeks it open.
+function startAutoCollapse(prefs) {
+  if (typeof window === 'undefined' || !isPrimaryWindow()) return () => {}
+  let ours = false
+  let peekTimer = null
+  let closeTimer = null
+  const check = () => {
+    const on = prefs.get().autoCollapse
+    if (on && window.innerWidth < 1100 && !sidebarHidden() && !customizeHidSidebar) {
+      ours = true
+      toggleSidebar()
+    } else if ((!on || window.innerWidth >= 1100) && ours) {
+      ours = false
+      if (sidebarHidden()) toggleSidebar()
+    }
+  }
+  const enter = e => {
+    if (!ours || !prefs.get().autoCollapse) return
+    const rail = document.getElementById('helm-rail')
+    if (!rail || !rail.contains(e.target)) return
+    clearTimeout(closeTimer)
+    peekTimer = setTimeout(() => sidebarHidden() && toggleSidebar(), 350)
+  }
+  const move = e => {
+    if (!ours || sidebarHidden()) return
+    const side = document.querySelector('[data-tree-group]:has([data-tree-tab="sessions"])')
+    const rail = document.getElementById('helm-rail')
+    const inside = (side && side.contains(e.target)) || (rail && rail.contains(e.target))
+    clearTimeout(closeTimer)
+    if (!inside) closeTimer = setTimeout(() => !sidebarHidden() && toggleSidebar(), 500)
+  }
+  window.addEventListener('resize', check)
+  document.addEventListener('mouseover', enter)
+  document.addEventListener('mousemove', move)
+  const off = prefs.subscribe(check)
+  return () => {
+    window.removeEventListener('resize', check)
+    document.removeEventListener('mouseover', enter)
+    document.removeEventListener('mousemove', move)
+    clearTimeout(peekTimer)
+    clearTimeout(closeTimer)
+    off()
   }
 }
 
@@ -6813,33 +7177,23 @@ function startRail(prefs) {
   drag.id = 'helm-rail-drag'
   drag.setAttribute('aria-hidden', 'true')
   const items = [
-    { id: 'chevron', label: 'Show or hide the sidebar', run: toggleSidebar, cls: 'helm-rail-chevron', size: 14 },
-    { id: 'plus', label: 'New chat', run: () => host.newChat(), match: p => p === '/' },
-    { id: 'bots', label: 'Bots', run: () => (host.revealPane ? host.revealPane(`${ID}:helm-tab`) : openBoardTab()), match: p => p.startsWith(BOTS_ROUTE) },
-    { id: 'profiles', label: 'Instances and profiles', route: '/profiles' },
-    { id: 'desk', label: 'Desk', route: DESK_ROUTE },
-    { id: 'capabilities', label: 'Capabilities', route: '/capabilities' },
-    { id: 'messaging', label: 'Messaging', route: '/messaging' },
-    { id: 'artifacts', label: 'Artifacts', route: '/artifacts' },
-    { id: 'automations', label: 'Automations', route: '/cron' },
-    { id: 'command', label: 'Command center', route: '/command-center' },
-    { id: 'customize', label: 'Customize appearance', route: LOOK_ROUTE, spacer: true },
-    { id: 'settings', label: 'Settings', route: '/settings', match: p => p.startsWith('/settings') }
+    { id: 'chevron', label: 'Show or hide the sidebar', short: '', run: toggleSidebar, cls: 'helm-rail-chevron', size: 14 },
+    ...RAIL_ITEMS,
+    { id: 'customize', label: 'Customize appearance', short: 'Look', run: () => openCustomizeTab(), spacer: true },
+    { id: 'settings', label: 'Settings', short: 'Settings', route: '/settings', match: p => p.startsWith('/settings') }
   ]
+  const spacer = document.createElement('div')
+  spacer.className = 'helm-rail-spacer'
   const buttons = {}
   for (const it of items) {
-    if (it.spacer) {
-      const s = document.createElement('div')
-      s.className = 'helm-rail-spacer'
-      nav.appendChild(s)
-    }
+    if (it.spacer) nav.appendChild(spacer)
     const b = document.createElement('button')
     b.type = 'button'
     b.title = it.label
     b.setAttribute('aria-label', it.label)
     if (it.cls) b.className = it.cls
     const size = it.size || 17
-    b.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${it.id === 'chevron' ? 2 : 1.8}" aria-hidden="true">${RAIL_ICONS[it.id]}</svg><span class="helm-rail-dot"></span>`
+    b.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${it.id === 'chevron' ? 2 : 1.8}" aria-hidden="true">${RAIL_ICONS[it.id]}</svg><span class="helm-rail-dot"></span>${it.short ? `<span class="helm-rail-label">${it.short}</span>` : ''}`
     b.addEventListener('click', () => {
       try {
         haptic('tap')
@@ -6853,6 +7207,22 @@ function startRail(prefs) {
     buttons[it.id] = b
     nav.appendChild(b)
   }
+  // Rail order and visibility from Customize: reorder the middle buttons,
+  // hide the unticked ones (Capabilities always shows), labels on request.
+  const arrange = () => {
+    const pr = prefs.get()
+    const order = railOrderOf(pr)
+    const hidden = new Set(Array.isArray(pr.railHidden) ? pr.railHidden : [])
+    for (const id of order) {
+      const b = buttons[id]
+      if (!b) continue
+      nav.insertBefore(b, spacer)
+      b.style.display = hidden.has(id) && id !== 'capabilities' ? 'none' : ''
+    }
+    nav.classList.toggle('helm-rail-labels', !!pr.railLabels)
+  }
+  arrange()
+  const offArrange = prefs.subscribe(arrange)
   const paintActive = () => {
     const p = hashPath()
     for (const it of items) {
@@ -6945,6 +7315,7 @@ function startRail(prefs) {
     }
   }, 1000)
   return () => {
+    offArrange()
     offs.forEach(off => typeof off === 'function' && off())
     window.removeEventListener('hashchange', paintActive)
     window.removeEventListener('resize', onResize)
@@ -7036,6 +7407,12 @@ export default {
   name: 'Helm',
   description: 'A redesigned Hermes Desktop: a calmer interface you can tune, a crew view of every bot, rendered robots that become your bots’ avatars, and live status across the desk.',
   register(ctx) {
+    hookCount = 0
+    const regMany = list => {
+      hookCount += list.length
+      $hookCount.set(hookCount)
+      return ctx.registerMany(list)
+    }
     spriteRest = typeof ctx.rest === 'function' ? (path, opts) => ctx.rest(path, opts) : null
     spritesDown = false
     spriteFailures = 0
@@ -7090,7 +7467,7 @@ export default {
     }
 
     // Themes: three fixed bases plus the live one Customize look edits.
-    ctx.registerMany(THEMES.map(t => ({ id: t.name, area: THEMES_AREA, data: t })))
+    regMany(THEMES.map(t => ({ id: t.name, area: THEMES_AREA, data: t })))
     let unregisterCustom = null
     const syncCustomTheme = () => {
       if (unregisterCustom) unregisterCustom()
@@ -7145,12 +7522,13 @@ export default {
     syncComposer()
 
     boardArgs = { looks, setLook, avatars, os: ctx.os }
+    customizeArgs = { prefs, setPrefs, applyLook, looks }
     ctx.onDispose(() => {
       if (boardTabClose) boardTabClose()
       boardArgs = null
     })
     // Status bar, titlebar, sidebar rows: the desk-wide layer.
-    ctx.registerMany([
+    regMany([
       { id: 'needs-you', area: 'statusBar.right', order: 116, render: () => jsx(NeedsYouChip, { prefs }) },
       { id: 'today', area: 'statusBar.right', order: 117, render: () => jsx(TodayChip, { prefs }) },
       { id: 'working', area: 'statusBar.right', order: 118, render: () => jsx(WorkingChip, { prefs }) },
@@ -7161,7 +7539,7 @@ export default {
     ])
 
     // Routes, nav rows, palette, keys.
-    ctx.registerMany([
+    regMany([
       { id: 'desk-route', area: ROUTES_AREA, data: { path: DESK_ROUTE }, render: () => jsx(DeskPage, { looks, prefs, setPrefs }) },
       { id: 'desk-nav', area: SIDEBAR_NAV_AREA, data: { path: DESK_ROUTE, label: 'Desk', codicon: 'home' } },
       {
@@ -7197,6 +7575,7 @@ export default {
       { id: 'session-chrome', area: 'composer.underside', order: 2, render: () => jsx(SessionChrome, { looks, prefs }) },
       { id: 'sidechat-key', area: KEYBINDS_AREA, data: { id: 'helm.side-chat', label: 'Side chat (/btw)', category: 'view', defaults: ['mod+;'], run: openSideChat } },
       { id: 'approvals-chip', area: 'statusBar.right', order: 121, render: () => jsx(ApprovalsChip, {}) },
+      { id: 'hooks-chip', area: 'statusBar.right', order: 125, render: () => jsx(HooksChip, {}) },
       { id: 'hud-panel', area: 'composer.top', order: 4, render: () => jsx(HudPanel, { looks, prefs }) },
       { id: 'hud-footer', area: 'composer.bottom', order: 90, render: () => jsx(HudFooter, { prefs }) },
       {
@@ -7210,7 +7589,10 @@ export default {
       { id: 'bots-nav', area: SIDEBAR_NAV_AREA, data: { path: BOTS_ROUTE, label: 'Bots board', codicon: 'hubot' } },
       { id: 'look-route', area: ROUTES_AREA, data: { path: LOOK_ROUTE }, render: () => jsx(LookPage, { prefs, setPrefs, applyLook, looks }) },
       { id: 'look-nav', area: SIDEBAR_NAV_AREA, data: { path: LOOK_ROUTE, label: 'Customize look', codicon: 'symbol-color' } },
-      { id: 'look-palette', area: PALETTE_AREA, data: { id: 'helm.look', label: 'Helm: Customize look', keywords: ['look', 'appearance', 'theme', 'skin', 'accent', 'font', 'helm'], run: () => host.navigate(LOOK_ROUTE) } },
+      { id: 'look-palette', area: PALETTE_AREA, data: { id: 'helm.look', label: 'Helm: Customize look', keywords: ['look', 'appearance', 'theme', 'skin', 'accent', 'font', 'helm'], run: () => openCustomizeTab() } },
+      { id: 'layout-focus', area: KEYBINDS_AREA, data: { id: 'helm.layout.focus', label: 'Layout: Focus', category: 'view', defaults: ['mod+alt+1'], run: () => applyHelmLayout('focus') } },
+      { id: 'layout-review', area: KEYBINDS_AREA, data: { id: 'helm.layout.review', label: 'Layout: Review', category: 'view', defaults: ['mod+alt+2'], run: () => applyHelmLayout('review') } },
+      { id: 'layout-crew', area: KEYBINDS_AREA, data: { id: 'helm.layout.crew', label: 'Layout: Crew', category: 'view', defaults: ['mod+alt+3'], run: () => applyHelmLayout('crew') } },
       { id: 'newbot-palette', area: PALETTE_AREA, data: { id: 'helm.new-bot', label: 'Helm: New bot (robot)', keywords: ['new', 'bot', 'create', 'robot', 'teammate', 'agent', 'helm'], run: openNewBot } },
       { id: 'bots-palette', area: PALETTE_AREA, data: { id: 'helm.bots', label: 'Helm: Bots board', keywords: ['bots', 'board', 'crew', 'robots', 'helm'], run: () => openBoardTab() } },
       {
@@ -7227,7 +7609,7 @@ export default {
         }
       },
       { id: 'bots-key', area: KEYBINDS_AREA, data: { id: 'helm.bots', label: 'Open the Bots board', category: 'view', defaults: ['mod+alt+r'], run: () => openBoardTab() } },
-      { id: 'look-key', area: KEYBINDS_AREA, data: { id: 'helm.look', label: 'Customize look', category: 'view', defaults: ['mod+alt+u'], run: () => host.navigate(LOOK_ROUTE) } },
+      { id: 'look-key', area: KEYBINDS_AREA, data: { id: 'helm.look', label: 'Customize look', category: 'view', defaults: ['mod+alt+u'], run: () => openCustomizeTab() } },
       ...THEMES.map(t => ({
         id: `palette-${t.name}`,
         area: PALETTE_AREA,
@@ -7296,6 +7678,7 @@ export default {
     // Chat board: filter pills under the session search, status dots on tabs.
     ctx.onDispose(startSidebarPills())
     ctx.onDispose(startTabDots())
+    ctx.onDispose(startAutoCollapse(prefs))
     {
       const d = prefs.get().activityDetail
       if (d && d !== 'normal') {
