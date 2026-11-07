@@ -235,7 +235,7 @@ const chips = Object.fromEntries(byArea('statusBar.right').map(c => [c.id, rende
 assert.ok(chips['needs-you'].includes('1 needs you'), `needs-you chip: ${chips['needs-you']}`)
 assert.ok(chips.today.includes('$0.36 today'), `today chip: ${chips.today}`)
 assert.ok(chips.working.includes('2 working'), `working chip: ${chips.working}`)
-assert.ok(chips.cost.includes('$0.42') && chips.cost.includes('18% ctx'), `cost chip: ${chips.cost}`)
+assert.equal(chips.cost, '', 'cost chip off by default (context % sits in the title bar)')
 const composer = contributions.find(c => c.area === 'composer.leading')
 assert.ok(renderToString(composer.render()).includes('Talking to vision'), 'composer chip names the focused bot')
 

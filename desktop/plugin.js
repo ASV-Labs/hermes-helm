@@ -527,7 +527,7 @@ const THEMES = [
 
 const DEFAULT_PREFS = {
   showWorkingChip: true,
-  showCostChip: true,
+  showCostChip: false,
   hideMessagingRow: false,
   showComposerBot: true,
   showRowBots: false,
@@ -3325,7 +3325,7 @@ function HelmChip({ label, count, active, tone, onClick }) {
     onClick,
     style: {
       height: 22, padding: '0 8px', borderRadius: 11, border: `1px solid ${V.hair2}`, font: 'inherit', fontSize: 11, cursor: 'pointer',
-      background: active ? HELM_RAISED : 'transparent', color: active ? V.t1 : tone || V.t2, whiteSpace: 'nowrap'
+      background: active ? HELM_RAISED : 'transparent', color: tone || (active ? V.t1 : '#98A4B1'), whiteSpace: 'nowrap'
     },
     children: count ? `${label} · ${count}` : label
   })
@@ -3346,7 +3346,7 @@ function HelmBotRow({ p, look, line, activity, selected }) {
       jsxs('span', {
         style: { display: 'flex', flexDirection: 'column', minWidth: 0 },
         children: [
-          jsxs('span', { style: { fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: [botLabel(p), role ? jsx('span', { style: { color: V.t3 }, children: ` · ${role}` }) : null] }),
+          jsxs('span', { style: { fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: [botLabel(p), role ? jsx('span', { style: { color: '#76838F' }, children: ` · ${role}` }) : null] }),
           jsx('span', { style: { fontSize: 11.5, color: line.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: line.text })
         ]
       }),
@@ -3361,6 +3361,111 @@ function HelmSectionLabel({ children, tone, count }) {
   return jsxs('div', {
     style: { padding: '12px 14px 4px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tone || V.t3 },
     children: [jsx('span', { children }), count ? jsx('span', { style: { color: V.t3, letterSpacing: 0, fontWeight: 500 }, children: count }) : null]
+  })
+}
+
+// CONNECTIONS: the other backends this window can reach (the Crew board's
+// "Model Router · OpenBot" row). Only shown when there is more than this Mac.
+const $helmConnections = atom({ ready: false, rows: [] })
+let helmConnInflight = false
+async function refreshHelmConnections() {
+  if (helmConnInflight || typeof host.connections !== 'function') return
+  helmConnInflight = true
+  try {
+    const rows = await host.connections()
+    $helmConnections.set({ ready: true, rows: Array.isArray(rows) ? rows : [] })
+  } catch {
+    $helmConnections.set({ ready: true, rows: [] })
+  } finally {
+    helmConnInflight = false
+  }
+}
+
+function HelmConnections() {
+  const conn = useValue($helmConnections)
+  useEffect(() => {
+    refreshHelmConnections()
+  }, [])
+  const rows = (conn.rows || []).filter(c => c && c.kind !== 'local')
+  if (!rows.length) return null
+  return jsxs(Fragment, {
+    children: [
+      jsx(HelmSectionLabel, { children: 'Connections' }),
+      ...rows.map(c => {
+        const label = c.label || c.name || c.id || 'Connection'
+        const mono = String(label).replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '··'
+        return jsxs('div', {
+          key: c.id || label,
+          style: { margin: '0 8px', padding: '6px 8px', borderRadius: 6, display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 8, alignItems: 'center', lineHeight: 1.3 },
+          children: [
+            jsx('span', { style: { width: 22, height: 22, boxSizing: 'border-box', borderRadius: 6, border: '1px solid #222B35', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#98A4B1', fontSize: 9.5, fontWeight: 600 }, children: mono }),
+            jsxs('span', {
+              style: { display: 'flex', flexDirection: 'column', minWidth: 0 },
+              children: [
+                jsxs('span', { style: { fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: [label, c.kind ? jsx('span', { style: { color: '#76838F' }, children: ` · ${c.kind}` }) : null] }),
+                jsx('span', { style: { fontSize: 11.5, color: '#98A4B1' }, children: c.primary ? 'online · this window' : 'registered' })
+              ]
+            }),
+            jsx('span', {})
+          ]
+        })
+      })
+    ]
+  })
+}
+
+// Footer: which bot you're on (swatch + name, a picker for the rest) and the
+// way to the full board.
+function HelmFooter({ rows, focusedProfile }) {
+  const [open, setOpen] = useState(false)
+  const current = rows.find(r => r.p.name === focusedProfile) || rows[0]
+  const swatch = r => {
+    const pal = PALETTE[r && r.look && r.look.color] || PALETTE.blue
+    return pal.dark
+  }
+  return jsxs('div', {
+    style: { marginTop: 'auto', position: 'relative', borderTop: '1px solid #1C242D', padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 6 },
+    children: [
+      current
+        ? jsxs('button', {
+            type: 'button',
+            'aria-haspopup': 'menu',
+            'aria-expanded': open,
+            title: 'Switch bot',
+            onClick: () => setOpen(v => !v),
+            style: { height: 26, padding: '0 8px', borderRadius: 6, border: '1px solid #1C242D', background: '#0F1419', color: '#E6EBF0', font: 'inherit', fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', maxWidth: 150 },
+            children: [
+              jsx('span', { style: { width: 8, height: 8, borderRadius: 2, background: swatch(current), flex: '0 0 8px' } }),
+              jsx('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: botLabel(current.p) }),
+              jsx('svg', { width: 10, height: 10, viewBox: '0 0 24 24', fill: 'none', stroke: '#76838F', strokeWidth: 2.5, 'aria-hidden': true, children: jsx('path', { d: 'M6 9l6 6 6-6' }) })
+            ]
+          })
+        : null,
+      open
+        ? jsx('div', {
+            role: 'menu',
+            style: { position: 'absolute', left: 10, bottom: 40, minWidth: 170, padding: 4, borderRadius: 8, border: '1px solid #222B35', background: '#121820', boxShadow: '0 8px 24px rgba(0,0,0,0.45)', zIndex: 20 },
+            children: rows.map(r =>
+              jsxs('button', {
+                key: r.p.name,
+                type: 'button',
+                role: 'menuitem',
+                onClick: () => {
+                  setOpen(false)
+                  openBot(r.p, r.activity)
+                },
+                style: { width: '100%', height: 28, padding: '0 8px', border: 0, borderRadius: 6, background: r.p.name === focusedProfile ? '#171E27' : 'transparent', color: '#E6EBF0', font: 'inherit', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', textAlign: 'left' },
+                children: [
+                  jsx('span', { style: { width: 8, height: 8, borderRadius: 2, background: swatch(r), flex: '0 0 8px' } }),
+                  jsx('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: botLabel(r.p) }),
+                  jsx('span', { style: { fontSize: 11, color: r.line.color }, children: r.line.key === 'working' ? 'working' : r.line.key === 'needs-you' ? 'needs you' : '' })
+                ]
+              })
+            )
+          })
+        : null,
+      jsx('button', { type: 'button', onClick: () => host.navigate(BOTS_ROUTE), style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit', fontSize: 11.5 }, children: 'Board view' })
+    ]
   })
 }
 
@@ -3393,7 +3498,7 @@ function HelmTab({ looks, prefs, setPrefs }) {
     return jsx('div', { style: { padding: '14px', fontSize: 12, color: V.t3 }, children: 'Loading your bots…' })
   }
   return jsxs('div', {
-    style: { height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', paddingBottom: 10, fontSize: 13, color: V.t1 },
+    style: { height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', fontSize: 13, color: V.t1 },
     children: [
       pinned.length
         ? jsx('div', {
@@ -3405,7 +3510,7 @@ function HelmTab({ looks, prefs, setPrefs }) {
         style: { padding: '8px 10px 0', display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap', overflow: 'hidden' },
         children: [
           jsx(HelmChip, { label: 'All', active: filter === 'all', onClick: () => setFilter('all') }),
-          jsx(HelmChip, { label: 'Needs you', count: needCount, active: filter === 'needs-you', tone: needCount ? V.amber : undefined, onClick: () => setFilter('needs-you') }),
+          jsx(HelmChip, { label: 'Needs you', count: needCount, active: filter === 'needs-you', tone: '#E8A657', onClick: () => setFilter('needs-you') }),
           jsx(HelmChip, { label: 'Working', count: workCount, active: filter === 'working', onClick: () => setFilter('working') }),
           jsx('button', {
             type: 'button',
@@ -3435,13 +3540,8 @@ function HelmTab({ looks, prefs, setPrefs }) {
       shown.length
         ? shown.map(r => jsx(HelmBotRow, { ...r, selected: r.p.name === focusedProfile }, r.p.name))
         : jsx('div', { style: { padding: '4px 16px', fontSize: 12, color: V.t3 }, children: filter === 'working' ? 'Nobody is working right now.' : 'Nothing is waiting on you.' }),
-      jsxs('div', {
-        style: { marginTop: 'auto', padding: '12px 14px 0', display: 'flex', gap: 14, fontSize: 12 },
-        children: [
-          jsx('button', { type: 'button', onClick: () => host.navigate(BOTS_ROUTE), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit' }, children: 'Board view' }),
-          jsx('button', { type: 'button', onClick: openNewBot, style: { border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit' }, children: 'New bot' })
-        ]
-      })
+      jsx(HelmConnections, {}),
+      jsx(HelmFooter, { rows, focusedProfile })
     ]
   })
 }
@@ -3972,6 +4072,11 @@ export default {
     // five-row nav; earlier installs saved the old defaults.
     if (!stored.designVersion || stored.designVersion < 2) {
       Object.assign(stored, { showRowBots: false, designNav: true, showRowStatus: true, designVersion: 2 })
+      ctx.storage.set('prefs', stored)
+    }
+    // Context % lives in the title bar on the boards, not the status bar.
+    if (stored.designVersion < 3) {
+      Object.assign(stored, { showCostChip: false, designVersion: 3 })
       ctx.storage.set('prefs', stored)
     }
     const prefs = atom({ ...DEFAULT_PREFS, ...stored })
