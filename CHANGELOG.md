@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.0 — 2026-11-07
+
+The app now matches the seven design boards: Main, Chat, Crew, Bot, Builder, Customize and HUD.
+
+- **Helm tab is the Bots board.** Picking it opens a *BOTS · BOARD* tab beside your chats, with Board, Roster, Routines and **Agent inbox** down the side. The inbox lists what waits on you and every bot-to-bot message with its delivery status.
+- **Bot view (Roster).** A bot profile panel on the right: robot, Edit profile / Duplicate / Share, Activity / Dispatch / Library, routines with on/off switches, permissions, the bot's computer (live screen view), exchanges with other bots, voice. The composer gains **To: <bot>** and **Route automatically**.
+- **Sessions to the Chat board.** A header with Summary / Normal / Verbose and Side chat (⌘;, a /btw question), a left-aligned 860 px column, a Working row with timer, Steer and Stop, a cost and context meter, quick chips, and a side panel inside the chat (Task / Lineage / Files / Terminal) with the plan, session details and scheduled jobs. Filter pills in the sidebar and status dots on title-bar tabs.
+- **Bot editor (Builder board).** Profile, Look, Skills, Model and SOUL.md in one dialog; Look has the status strip, Randomize, Upload image instead and Save look.
+- **Customize** opens as *SETTINGS · APPEARANCE* with a settings column. New: Helm Ember theme, code font, Surfaces (Matte/Glass), 175 % text, rail order and labels, collapse under 1100 px with hover peek, layout presets Focus / Review / Crew on ⌘⌥1–3.
+- **HUD.** Pinned mark, See my screen, To: picker, summon shortcut, plain-text Latest from.
+- **Survives Hermes updates.** helm checks the SDK hooks and markers it uses after every start and names anything a Hermes update moved (status bar: *n hooks need an update*), and keeps the helm theme if another plugin switches themes at launch (Customize › Theme).
+
 ## 1.1.0 — 2026-11-07
 
 - **Animated robots.** Every look is now animated, in the petdex/Codex sprite-sheet format that Hermes pets use. The sheet has 9 states: idle, working, needs you, done, failed, reading, waving, and roaming left and right.

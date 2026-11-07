@@ -45,7 +45,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '1.1.0'
+const VERSION = '1.2.0'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -660,6 +660,8 @@ const DEFAULT_PREFS = {
   designNav: true,
   showContextLine: false,
   chatBoard: true,
+  keepTheme: true,
+  lastHelmTheme: '',
   railOrder: [],
   railHidden: [],
   railLabels: false,
@@ -4126,8 +4128,14 @@ let hookCount = 0
 const $hookCount = atom(0)
 function HooksChip() {
   const n = useValue($hookCount)
+  const health = useValue($health)
   if (inHudWindow()) return null
-  return jsx('span', { title: 'helm contributions registered with Hermes', className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] text-(--ui-text-tertiary)', children: `helm ${VERSION} · ${n} hooks active` })
+  const bad = health.missing.length
+  return jsx('span', {
+    title: bad ? `Falling back to Hermes's look for: ${health.missing.join(', ')}` : 'Every helm hook is attached to this Hermes',
+    className: cn('inline-flex h-full items-center px-1.5 text-[0.6875rem]', bad ? 'text-(--ui-yellow)' : 'text-(--ui-text-tertiary)'),
+    children: bad ? `helm ${VERSION} · ${bad} ${bad === 1 ? 'hook' : 'hooks'} need an update` : `helm ${VERSION} · ${n} hooks active`
+  })
 }
 const $detail = atom('normal')
 function chatPanelOn() {
@@ -6687,6 +6695,76 @@ function BotEditorModal() {
   })
 }
 
+// ─────────────────────────────────────────── surviving Hermes updates
+// 1. Theme guard. Hermes keeps the chosen theme per profile across updates,
+//    but another plugin can switch it while the app loads. If a non-helm
+//    theme lands in the first seconds after start, helm puts its own back.
+//    A theme you pick yourself later is respected (keepTheme turns off).
+function startThemeGuard(prefs, setPrefs) {
+  if (typeof document === 'undefined' || !isPrimaryWindow()) return () => {}
+  const root = document.documentElement
+  const started = Date.now()
+  const current = () => String(root.getAttribute('data-hermes-theme') || '')
+  const remember = () => {
+    const t = current()
+    if (t.startsWith('helm') && prefs.get().lastHelmTheme !== t) setPrefs({ lastHelmTheme: t })
+  }
+  const restore = () => {
+    const p = prefs.get()
+    if (p.keepTheme === false) return
+    const t = current()
+    if (t && !t.startsWith('helm')) requestTheme(p.lastHelmTheme || (p.accent || p.font !== DEFAULT_PREFS.font ? 'helm-custom' : p.preferredTheme) || 'helm-dark')
+  }
+  const obs = new MutationObserver(() => {
+    const t = current()
+    if (t.startsWith('helm')) return remember()
+    if (Date.now() - started < 15000) restore()
+    else if (prefs.get().keepTheme !== false) setPrefs({ keepTheme: false })
+  })
+  obs.observe(root, { attributes: true, attributeFilter: ['data-hermes-theme'] })
+  const t1 = setTimeout(restore, 1500)
+  const t2 = setTimeout(restore, 6000)
+  remember()
+  return () => {
+    obs.disconnect()
+    clearTimeout(t1)
+    clearTimeout(t2)
+  }
+}
+
+// 2. Health check. Everything helm draws hangs on Hermes's plugin SDK and a
+//    few stable markers in its markup. After an update, helm checks them
+//    and names anything that moved, once, instead of failing silently.
+const $health = atom({ missing: [], checked: false })
+const HEALTH_SDK = [
+  ['openWorkspace', 'Bots board and Customize tabs'],
+  ['paneVisibility', 'Helm tab opening the board'],
+  ['revealPane', 'Helm tab and layout presets'],
+  ['newChat', 'New chat and dispatch'],
+  ['openSession', 'opening sessions from helm'],
+  ['requestProfile', 'per-bot permissions'],
+  ['onEvent', 'live approvals, plans and handoffs'],
+  ['listPersistedSessions', 'session status lines']
+]
+const HEALTH_DOM = [
+  ['[data-slot="statusbar"]', 'status bar styling'],
+  ['[data-tree-group]', 'sidebar and rail placement'],
+  ['[data-slot="pane-tab"]', 'title-bar tabs and dots']
+]
+function runHealthCheck(ctx) {
+  const missing = []
+  for (const [fn, what] of HEALTH_SDK) if (typeof host[fn] !== 'function') missing.push(what)
+  if (!host.composer || typeof host.composer.setDraft !== 'function') missing.push('quick chips and Side chat')
+  if (!host.settings || typeof host.settings.get !== 'function') missing.push('density, scale and surfaces')
+  if (typeof document !== 'undefined') for (const [sel, what] of HEALTH_DOM) if (!document.querySelector(sel)) missing.push(what)
+  $health.set({ missing, checked: true })
+  if (!missing.length) return
+  const key = missing.join('|')
+  if (ctx.storage.get('healthNotified', '') === key) return
+  ctx.storage.set('healthNotified', key)
+  host.notify?.({ kind: 'warning', message: `Hermes changed something helm uses. Falling back to Hermes's own look for: ${missing.join(', ')}. Update helm from Settings › Plugins.` })
+}
+
 // ─────────────────────────────────────────────────────────── settings page
 
 function ThemeButtons({ prefs, setPrefs }) {
@@ -7110,7 +7188,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
                       return jsxs('button', {
                         type: 'button',
                         'aria-pressed': on,
-                        onClick: () => (c.external ? requestTheme(c.name) : set({ preferredTheme: c.name })),
+                        onClick: () => (c.external ? (setPrefs({ keepTheme: false }), requestTheme(c.name)) : set({ preferredTheme: c.name, keepTheme: true })),
                         style: { border: `1px solid ${on ? accentHex : B.ctl}`, borderRadius: 8, background: B.panel, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, textAlign: 'left', cursor: 'pointer', font: 'inherit', color: B.t1 },
                         children: [
                           jsxs('span', {
@@ -7128,7 +7206,8 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
                       children: [jsx('span', { style: { fontSize: 11.5 }, children: 'Catppuccin, Midnight, Slate…' }), jsx('span', { style: { fontSize: 11, color: B.t4 }, children: 'every installed theme' })]
                     }, 'catalog')
                   ]
-                })
+                }),
+                jsx(Check, { k: 'keepTheme', label: 'Keep the helm theme through restarts and Hermes updates', hint: 'puts it back if another plugin switches themes at launch' })
               ]
             }),
             jsxs('div', {
@@ -7293,7 +7372,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
                   children: ['Import', jsx('input', { type: 'file', accept: 'application/json,.json', onChange: e => importPrefs(e.target.files && e.target.files[0]), style: { position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' } })]
                 }),
                 btn('Reset to Hermes defaults', () => {
-                  applyLook({ ...DEFAULT_PREFS, deskName: p.deskName, deskFolded: p.deskFolded })
+                  applyLook({ ...DEFAULT_PREFS, deskName: p.deskName, deskFolded: p.deskFolded, keepTheme: false })
                   requestTheme('nous')
                 }, true)
               ]
@@ -7912,7 +7991,7 @@ export default {
     helmPrefsRef = { prefs, setPrefs }
     // A look change re-registers the custom theme and switches to it.
     const applyLook = patch => {
-      setPrefs(patch)
+      setPrefs({ keepTheme: true, ...patch })
       syncCustomTheme()
       requestTheme('helm-custom')
     }
@@ -8078,6 +8157,11 @@ export default {
     ctx.onDispose(startSidebarPills())
     ctx.onDispose(startTabDots())
     ctx.onDispose(startAutoCollapse(prefs))
+    ctx.onDispose(startThemeGuard(prefs, setPrefs))
+    {
+      const h = setTimeout(() => runHealthCheck(ctx), 8000)
+      ctx.onDispose(() => clearTimeout(h))
+    }
     {
       const d = prefs.get().activityDetail
       if (d && d !== 'normal') {
