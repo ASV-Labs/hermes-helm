@@ -107,6 +107,32 @@ ${HELM_CSS_SCOPE} [data-slot="sidebar-input"] {
   font-size: 12px;
 }
 
+/* Sidebar section labels (Pinned, a project's name): the design's plain
+   tracked caps in #76838F, no colour square. */
+${HELM_CSS_SCOPE} [data-slot="sidebar"] span:has(> .dither) {
+  color: #76838F !important;
+  letter-spacing: 0.08em !important;
+  font-size: 10.5px !important;
+  gap: 6px;
+}
+${HELM_CSS_SCOPE} [data-slot="sidebar"] span:has(> .dither) > .dither { display: none !important; }
+
+/* Session search: the design's framed 28px field. */
+${HELM_CSS_SCOPE} [data-slot="sidebar"] div:has(> svg + input[type="text"]) {
+  width: 100%;
+  height: 28px;
+  box-sizing: border-box;
+  border: 1px solid #1C242D !important;
+  border-radius: 6px;
+  background: #0F1419;
+  padding: 0 9px;
+  opacity: 1 !important;
+}
+${HELM_CSS_SCOPE} [data-slot="sidebar"] div:has(> svg + input[type="text"]) input { font-size: 12px; }
+
+/* Tab strips: no dividers between tabs, underline for the open one. */
+${HELM_CSS_SCOPE} [data-slot="pane-tab"] { border-left-width: 0 !important; --tab-bg: transparent; }
+
 /* Session rows: helm's status decoration wraps onto its own line under the
    title (11.5px, secondary), the design's "Working · step 3 of 5 · $0.42". */
 ${HELM_CSS_SCOPE} div:has(> [data-helm-row-status]) { flex-wrap: wrap; row-gap: 1px; }
@@ -1112,6 +1138,29 @@ async function refreshCrew() {
           }
         })
       )
+    }
+    // The sidebar's own list (no profile = the window's current scope) can
+    // hold rows no per-bot read returned (a bot on its own gateway, older
+    // rows): index those too, so every visible row gets its status line.
+    if (typeof host.listPersistedSessions === 'function') {
+      try {
+        const page = await host.listPersistedSessions(null, { limit: 120 })
+        let focused = null
+        try {
+          focused = host.state && host.state.focusedSessionProfile && host.state.focusedSessionProfile.get ? host.state.focusedSessionProfile.get() : null
+        } catch {
+          focused = null
+        }
+        for (const r of (page && page.sessions) || []) {
+          if (!r || byId[r.id]) continue
+          const entry = { profile: r.profile || focused || 'default', row: r }
+          byId[r.id] = entry
+          if (r._lineage_root_id && !byId[r._lineage_root_id]) byId[r._lineage_root_id] = entry
+          for (const lid of r._lineage_ids || []) if (!byId[lid]) byId[lid] = entry
+        }
+      } catch {
+        /* the per-bot reads above still stand */
+      }
     }
     $crew.set({ ready: true, profiles, sessions, byId, error: null, at: Date.now() })
   } catch (err) {
@@ -3859,7 +3908,14 @@ export default {
     spriteRest = typeof ctx.rest === 'function' ? (path, opts) => ctx.rest(path, opts) : null
     spritesDown = false
     spriteFailures = 0
-    const prefs = atom({ ...DEFAULT_PREFS, ...ctx.storage.get('prefs', {}) })
+    const stored = ctx.storage.get('prefs', {}) || {}
+    // 1.2 layout migration: the design has no robots in session rows and a
+    // five-row nav; earlier installs saved the old defaults.
+    if (!stored.designVersion || stored.designVersion < 2) {
+      Object.assign(stored, { showRowBots: false, designNav: true, showRowStatus: true, designVersion: 2 })
+      ctx.storage.set('prefs', stored)
+    }
+    const prefs = atom({ ...DEFAULT_PREFS, ...stored })
     $animate.set(prefs.get().animateRobots !== false)
     prefs.subscribe(v => $animate.set(v.animateRobots !== false))
     const looks = atom(ctx.storage.get('looks', {}))
