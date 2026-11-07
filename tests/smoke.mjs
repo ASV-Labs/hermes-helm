@@ -124,7 +124,7 @@ assert.equal(byArea('sessionRow.leading').length, 1, 'session row robot')
 assert.equal(byArea('sessionRow.trailing').length, 1, 'session row cost')
 assert.equal(byArea('routes').length, 3, 'desk + bots + look routes')
 assert.equal(byArea('sidebarNav').length, 3, 'desk + bots + look nav rows')
-assert.equal(byArea('keybinds').length, 3)
+assert.equal(byArea('keybinds').length, 4, 'desk, bots, look, side chat')
 assert.ok(byArea('palette').find(c => c.data.id === 'helm.talk.vision'), 'per-bot palette commands follow the crew')
 assert.ok(byArea('palette').find(c => c.data.id === 'helm.resume.builder'), 'per-bot resume command')
 assert.equal(byArea('appearance.extra').length, 1)
@@ -144,7 +144,7 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
   for (const word of ['Good ', 'Needs you', 'What should we tackle?', 'Continue', 'Today', 'Refactor the auth flow', 'Install helm', 'Vision is', '2 things are waiting on you.', 'Draft', 'Send', 'Scheduled jobs', 'Answer'])
     assert.ok(html.includes(word), `desk: ${word}`)
   const pane = renderToString(contributions.find(c => c.area === 'panes').render())
-  for (const word of ['Session', 'Model', 'Crew', 'BUILDER', 'reply waiting', 'Scheduled jobs']) assert.ok(pane.includes(word), `session pane: ${word}`)
+  for (const word of ['Session', 'Model', 'Folder', 'Cost', 'Scheduled jobs', 'Open']) assert.ok(pane.includes(word), `task pane: ${word}`)
   // Task plan: the latest todo_list wins; nested and cancelled items survive
   const { latestPlan, refreshPlan, $plan } = mod._internals
   const plan = latestPlan(globalThis.__gw['session.history'].messages)
@@ -154,7 +154,7 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
   await refreshPlan('s2')
   assert.equal($plan.get().items.length, 5, 'plan read through session.history for the focused chat')
   const pane2 = renderToString(contributions.find(c => c.area === 'panes' && c.id === 'session-pane').render())
-  assert.ok(pane2.includes('Plan · 1 of 4') && pane2.includes('Package the artifact') && pane2.includes(' · now'), `plan pane: ${pane2.slice(0, 300)}`)
+  assert.ok(pane2.includes('Plan · 1 of 4') && pane2.includes('Package the artifact') && pane2.includes('#343D47'), `plan pane: ${pane2.slice(0, 300)}`)
   host_set_stored(null)
 
   // Today: scheduled jobs come from the gateway's cron.manage, per bot, deduped

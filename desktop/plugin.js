@@ -610,6 +610,8 @@ const DEFAULT_PREFS = {
   showRowStatus: true,
   designNav: true,
   showContextLine: false,
+  chatBoard: true,
+  activityDetail: 'normal',
   showNeedsYouChip: true,
   showTodayChip: true,
   autoAvatars: true,
@@ -2967,8 +2969,10 @@ function SessionRowStatus({ sessionId, prefs }) {
   const st = sessionStatusFor(sessionId, crew, inbox, plan)
   if (!st) return null
   const leadColor = st.tone === 'red' ? 'var(--ui-red, #E07080)' : st.tone === 'amber' ? 'var(--ui-yellow, #E8A657)' : st.tone === 'accent' ? 'var(--ui-accent)' : 'inherit'
+  const kind = st.tone === 'amber' ? 'needs' : st.tone === 'accent' ? 'working' : st.tone === 'red' ? 'failed' : 'done'
   return jsxs('span', {
     'data-helm-row-status': st.tone,
+    'data-helm-row-kind': kind,
     children: [
       st.lead ? jsx('span', { style: { color: leadColor }, children: st.lead }) : null,
       st.lead && st.rest ? ' · ' : null,
@@ -4001,7 +4005,8 @@ function ComposerAskPill() {
 }
 
 function ComposerHint() {
-  if (inHudWindow()) return null
+  const fresh = useFreshDraft()
+  if (inHudWindow() || !fresh) return null
   return jsx('span', { 'data-helm-hint': '', style: { fontSize: 11.5, color: '#76838F', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: '0 1 auto' }, children: '@ hands off to a bot · / runs a command' })
 }
 
@@ -4018,6 +4023,382 @@ function HomeCwdLine({ prefs }) {
       jsx('span', { style: { fontFamily: B.mono, fontSize: 11 }, children: home })
     ]
   })
+}
+
+// ──────────────────────────────────────────────────────────── Chat board
+// A session, to the Chat board: a 36px header over the transcript (bot,
+// folder, branch, start time, the Summary / Normal / Verbose switch and Side
+// chat), a left-aligned 860px column with 22px gutters, the live progress
+// row with Steer and Stop above the composer, and the quick-action chips
+// under it. Rendered from the composer's underside and placed against the
+// chat surface, so split tiles each get their own.
+const CHAT_CSS = `
+[data-chat-surface]:has([data-helm-chat]) { --composer-width: 860px; }
+[data-chat-surface]:has([data-helm-chat]) [data-slot="aui_thread-content"] {
+  margin-left: 0 !important; margin-right: auto !important; max-width: 904px !important; padding: 46px 22px 0 !important;
+}
+[data-chat-surface]:has([data-helm-chat]) [data-slot="composer-dock"]:not([data-popped-out]) {
+  left: 17px !important; transform: none !important; translate: none !important; width: calc(min(860px, 100% - 44px) + 10px) !important;
+}
+[data-chat-surface]:has([data-helm-chat]) [data-slot="composer-dock"] > :last-child { display: block !important; padding: 0 !important; }
+[data-chat-surface]:has([data-helm-chat-busy]) { --thread-last-message-clearance: calc(var(--composer-measured-height) + 2rem + 34px); }
+:root[data-helm-detail="summary"] [data-chat-surface] :is([data-slot="aui_turn-activity"], [data-slot="aui_thinking-disclosure"], [data-slot="tool-block"]) { display: none !important; }
+[data-helm-chat-head] button:hover { color: #E6EBF0 !important; }
+[data-helm-chat-chips] button:hover { background: #171E27 !important; }
+`
+
+const $detail = atom('normal')
+function setDetail(v) {
+  $detail.set(v)
+  try {
+    document.documentElement.setAttribute('data-helm-detail', v)
+  } catch {
+    /* no document */
+  }
+  try {
+    host.settings.set('reasoning.collapsedByDefault', v !== 'verbose')
+  } catch {
+    /* older host */
+  }
+  if (helmPrefsRef) helmPrefsRef.setPrefs({ activityDetail: v })
+}
+
+function openSideChat() {
+  const run = host.composer && typeof host.composer.setDraft === 'function' ? host.composer.setDraft(null, '/btw ') : null
+  Promise.resolve(run).then(() => {
+    const ed = document.querySelector('[data-chat-surface] [data-slot="composer-rich-input"]')
+    if (ed && typeof ed.focus === 'function') ed.focus()
+  })
+}
+
+function focusComposer() {
+  const ed = document.querySelector('[data-chat-surface] [data-slot="composer-rich-input"]')
+  if (ed && typeof ed.focus === 'function') ed.focus()
+}
+
+function tildePath(p) {
+  return String(p || '').replace(/^\/Users\/[^/]+/, '~').replace(/^\/home\/[^/]+/, '~')
+}
+
+function fmtElapsed(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const ss = String(s % 60).padStart(2, '0')
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
+}
+
+function useSessionChat() {
+  const fresh = useFreshDraft()
+  const active = useValue(host.state.activeSessionId)
+  const stored = useValue(host.state.focusedStoredSessionId)
+  return !fresh && (active || stored) && isPrimaryWindow() && !inHudWindow()
+}
+
+const CHIP_ICONS = {
+  report: '<path d="M4 20l16-8L4 4v6l10 2-10 2z"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  file: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+  book: '<path d="M4 19V5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2zM8 7h6"/>'
+}
+
+function QuickChips({ height = 32 }) {
+  const setDraft = text => host.composer && typeof host.composer.setDraft === 'function' && host.composer.setDraft(null, text)
+  const chip = (icon, label, onClick) =>
+    jsxs('button', {
+      type: 'button',
+      onClick,
+      style: { height, padding: '0 12px', borderRadius: 8, border: '1px solid #222B35', background: '#121820', color: '#E6EBF0', font: 'inherit', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', whiteSpace: 'nowrap' },
+      children: [jsx('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: '#98A4B1', strokeWidth: 1.8, 'aria-hidden': true, dangerouslySetInnerHTML: { __html: icon } }), label]
+    })
+  return jsxs('div', {
+    'data-helm-chat-chips': '',
+    style: { display: 'flex', gap: 8, alignItems: 'center', whiteSpace: 'nowrap', overflow: 'hidden' },
+    children: [
+      chip(CHIP_ICONS.report, 'Status report', () => setDraft('Give me a short status report: what you did, what is running, what needs me.')),
+      chip(CHIP_ICONS.clock, 'Automations', () => host.navigate('/cron')),
+      chip(CHIP_ICONS.file, 'Artifacts', () => host.navigate('/artifacts')),
+      chip(CHIP_ICONS.book, 'Hermes docs', () => window.open('https://hermes-agent.nousresearch.com/docs/user-guide/desktop', '_blank')),
+      jsx('button', { type: 'button', 'aria-label': 'Bots board', title: 'Bots board', onClick: () => host.navigate(BOTS_ROUTE), style: { width: height, height, borderRadius: 8, border: '1px solid #222B35', background: '#121820', color: '#98A4B1', font: 'inherit', fontSize: 17, cursor: 'pointer' }, children: '+' })
+    ]
+  })
+}
+
+function ChatHeader({ looks, width }) {
+  const crew = useValue($crew)
+  const looksValue = useValue(looks)
+  const storedId = useValue(host.state.focusedStoredSessionId)
+  const profile = useValue(host.state.focusedSessionProfile)
+  const cwd = useValue(host.state.cwd)
+  const busy = useValue(host.state.busy)
+  const detail = useValue($detail)
+  const hit = storedId && crew.byId ? crew.byId[storedId] : null
+  const r = hit ? hit.row : null
+  const owner = (hit && hit.profile) || profile
+  const p = (crew.profiles || []).find(x => x.name === owner)
+  const look = normalizeLook(looksValue[owner], owner || 'default')
+  const folder = tildePath((r && r.cwd) || cwd)
+  const sep = jsx('span', { style: { color: '#76838F' }, children: '·' })
+  const bits = []
+  if (folder) bits.push(sep, jsx('span', { className: 'truncate', style: { fontFamily: B.mono, fontSize: 11.5, minWidth: 0 }, children: folder }))
+  if (r && r.git_branch) bits.push(sep, jsx('span', { style: { whiteSpace: 'nowrap' }, children: r.git_branch }))
+  if (r && r.started_at) bits.push(sep, jsx('span', { style: { whiteSpace: 'nowrap' }, children: `started ${clock(toMs(r.started_at))}` }))
+  const opt = (v, label) =>
+    jsx('button', {
+      type: 'button',
+      'aria-pressed': detail === v,
+      onClick: () => setDetail(v),
+      style: { height: 22, padding: 0, border: 0, borderBottom: `1px solid ${detail === v ? V.accent : 'transparent'}`, background: 'transparent', color: detail === v ? '#E6EBF0' : '#76838F', font: 'inherit', fontSize: 11.5, cursor: 'pointer' },
+      children: label
+    })
+  return jsxs('div', {
+    'data-helm-chat-head': '',
+    style: { height: 36, width, display: 'flex', alignItems: 'center', gap: 8, padding: '0 22px', fontSize: 12, color: '#98A4B1', background: '#0F1419', boxSizing: 'border-box' },
+    children: [
+      jsx(RobotHead, { look, expr: busy ? 'focused' : look.face, size: 16, title: owner || 'bot' }),
+      jsx('span', { style: { color: '#E6EBF0', fontWeight: 500, whiteSpace: 'nowrap' }, children: p ? botLabel(p) : owner || 'Hermes' }),
+      ...bits,
+      jsxs('span', {
+        style: { marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, flexShrink: 0 },
+        children: [
+          opt('summary', 'Summary'),
+          opt('normal', 'Normal'),
+          opt('verbose', 'Verbose'),
+          jsxs('button', {
+            type: 'button',
+            title: 'Ask a side question without interrupting (/btw)',
+            onClick: openSideChat,
+            style: { height: 24, padding: '0 8px', borderRadius: 6, border: '1px solid #222B35', background: 'transparent', color: '#C3CCD5', font: 'inherit', fontSize: 11.5, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap', marginLeft: 2 },
+            children: ['Side chat', jsx('span', { style: { fontFamily: B.mono, color: '#76838F', fontSize: 10.5 }, children: '⌘;' })]
+          })
+        ]
+      })
+    ]
+  })
+}
+
+function ProgressRow({ plan, since }) {
+  const runtimeId = useValue(host.state.focusedSessionId)
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const h = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(h)
+  }, [])
+  const items = (plan || []).filter(t => t.status !== 'cancelled')
+  const cur = items.findIndex(t => t.status === 'in_progress')
+  const step = cur >= 0 ? `step ${cur + 1} of ${items.length}` : items.length ? `${items.filter(t => t.status === 'completed').length} of ${items.length} done` : ''
+  const what = cur >= 0 ? String(items[cur].content || '').replace(/\.$/, '') : ''
+  const stop = () => {
+    if (!runtimeId) return
+    host.request('session.interrupt', { session_id: runtimeId }).catch(err => host.notifyError?.(`Stop failed: ${err && err.message ? err.message : err}`))
+  }
+  const btn = (label, onClick, title) => jsx('button', { type: 'button', title, onClick, style: { height: 24, padding: '0 9px', borderRadius: 6, border: '1px solid #222B35', background: '#0F1419', color: '#C3CCD5', font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: label })
+  return jsxs('div', {
+    'data-helm-chat-progress': '',
+    style: { display: 'flex', alignItems: 'center', gap: 10, height: 24, fontSize: 12, color: '#98A4B1', whiteSpace: 'nowrap' },
+    children: [
+      jsx('span', { style: { width: 6, height: 6, borderRadius: 3, background: V.accent, flexShrink: 0 } }),
+      jsxs('span', {
+        className: 'truncate',
+        style: { minWidth: 0 },
+        children: [jsx('span', { style: { color: '#E6EBF0' }, children: 'Working' }), [step, what].filter(Boolean).map(s => ` · ${s}`).join('')]
+      }),
+      jsx('span', { style: { fontFamily: B.mono, color: '#76838F', fontSize: 11.5 }, children: fmtElapsed(now - since) }),
+      jsxs('span', { style: { marginLeft: 'auto', display: 'inline-flex', gap: 6, flexShrink: 0 }, children: [btn('Steer', focusComposer, 'Type a new direction — it reaches the bot mid-turn'), btn('Stop', stop, 'Stop this turn')] })
+    ]
+  })
+}
+
+function SessionChrome({ looks, prefs }) {
+  const { chatBoard } = useValue(prefs)
+  const on = useSessionChat() && chatBoard !== false
+  const busy = useValue(host.state.busy)
+  const plan = usePlan()
+  const root = useRef(null)
+  const [box, setBox] = useState(null)
+  const sinceRef = useRef(Date.now())
+  const [since, setSince] = useState(Date.now())
+  useEffect(() => {
+    if (busy) {
+      sinceRef.current = Date.now()
+      setSince(sinceRef.current)
+    }
+  }, [busy])
+  useEffect(() => {
+    if (!on) return undefined
+    const place = () => {
+      const el = root.current
+      if (!el) return
+      const surface = el.closest('[data-chat-surface]')
+      const dock = el.closest('[data-slot="composer-dock"]')
+      const op = el.offsetParent || dock
+      const sf = dock && dock.querySelector('[data-slot="composer-surface"]')
+      if (!surface || !dock || !op) return
+      const s = surface.getBoundingClientRect()
+      const o = op.getBoundingClientRect()
+      const d = dock.getBoundingClientRect()
+      const c = sf ? sf.getBoundingClientRect() : d
+      const next = { top: Math.round(s.top - o.top), left: Math.round(s.left - o.left), width: Math.round(Math.min(s.width, 904)), progTop: Math.round(d.top - o.top - 32), progLeft: Math.round(c.left - o.left), progWidth: Math.round(c.width) }
+      setBox(prev => (prev && Object.keys(next).every(k => prev[k] === next[k]) ? prev : next))
+    }
+    place()
+    const h = setInterval(place, 700)
+    window.addEventListener('resize', place)
+    return () => {
+      clearInterval(h)
+      window.removeEventListener('resize', place)
+    }
+  }, [on])
+  if (!on) return null
+  return jsxs('div', {
+    ref: root,
+    'data-helm-chat': '',
+    'data-helm-chat-busy': busy ? '' : undefined,
+    style: { padding: '8px 0 12px 5px' },
+    children: [
+      jsx('style', { children: CHAT_CSS }),
+      box ? jsx('div', { style: { position: 'absolute', top: box.top, left: box.left, zIndex: 5 }, children: jsx(ChatHeader, { looks, width: box.width }) }) : null,
+      busy && box ? jsx('div', { style: { position: 'absolute', top: box.progTop, left: box.progLeft, width: box.progWidth }, children: jsx(ProgressRow, { plan, since }) }) : null,
+      jsx(QuickChips, {})
+    ]
+  })
+}
+
+// Composer, right of the pills: "$0.42 · 37k / 200k" for this session.
+function ComposerMeter() {
+  const usage = useValue(host.state.focusedUsage)
+  const fresh = useFreshDraft()
+  if (inHudWindow() || fresh || !usage) return null
+  const cost = typeof usage.cost_usd === 'number' ? usage.cost_usd : null
+  const used = Number(usage.context_used) || 0
+  const max = Number(usage.context_max) || 0
+  const parts = [cost !== null ? fmtCost(cost) : null, used && max ? `${fmtTokens(used)} / ${fmtTokens(max)}` : used ? `${fmtTokens(used)} ctx` : null].filter(Boolean)
+  if (!parts.length) return null
+  return jsx('span', { 'data-helm-hint': '', title: 'Cost and context used in this session', style: { fontFamily: B.mono, fontSize: 11.5, color: '#76838F', whiteSpace: 'nowrap', flex: '0 0 auto' }, children: parts.join(' · ') })
+}
+
+// Composer top row in a session: the branch and folder this chat works in.
+function SessionContextRow() {
+  const on = useSessionChat()
+  const crew = useValue($crew)
+  const storedId = useValue(host.state.focusedStoredSessionId)
+  const cwd = useValue(host.state.cwd)
+  if (!on) return null
+  const hit = storedId && crew.byId ? crew.byId[storedId] : null
+  const r = hit ? hit.row : null
+  const branch = r && r.git_branch
+  const folder = tildePath((r && r.cwd) || cwd)
+  if (!branch && !folder) return null
+  return jsxs('div', {
+    style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: '#98A4B1', padding: '0 2px 2px' },
+    children: [
+      branch
+        ? jsxs('span', {
+            style: { display: 'inline-flex', alignItems: 'center', gap: 5 },
+            children: [jsx('svg', { width: 12, height: 12, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, 'aria-hidden': true, dangerouslySetInnerHTML: { __html: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-11 7"/>' } }), branch]
+          })
+        : null,
+      branch && folder ? jsx('span', { style: { color: '#76838F' }, children: '·' }) : null,
+      folder ? jsx('span', { style: { fontFamily: B.mono, fontSize: 11 }, children: folder }) : null
+    ]
+  })
+}
+
+// Sessions sidebar, to the Chat board: All / Needs you · n / Working / Done
+// pills under the search. They filter the list by each row's status line.
+const $rowFilter = atom('all')
+function startSidebarPills() {
+  if (typeof document === 'undefined' || !isPrimaryWindow()) return () => {}
+  const box = document.createElement('div')
+  box.id = 'helm-sidebar-pills'
+  box.setAttribute('role', 'group')
+  box.setAttribute('aria-label', 'Filter sessions')
+  const style = document.createElement('style')
+  style.textContent = `
+#helm-sidebar-pills { display: flex; gap: 4px; padding: 6px 8px 2px; }
+#helm-sidebar-pills button { height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid #222B35; background: transparent; color: #98A4B1; font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+#helm-sidebar-pills button[data-k="needs"] { color: #E8A657; }
+#helm-sidebar-pills button[aria-pressed="true"] { background: #171E27; color: #E6EBF0; }
+#helm-sidebar-pills button:hover { color: #E6EBF0; }
+:root:has([data-helm-home]) #helm-sidebar-pills { display: none; }
+:root:not(:has([data-helm-home])) #helm-sidebar-needs { display: none !important; }
+:root[data-helm-row-filter="working"] [data-slot="sidebar"] div:has(> [data-row-actions]):not(:has([data-helm-row-kind="working"])),
+:root[data-helm-row-filter="needs"] [data-slot="sidebar"] div:has(> [data-row-actions]):not(:has([data-helm-row-kind="needs"])),
+:root[data-helm-row-filter="done"] [data-slot="sidebar"] div:has(> [data-row-actions]):not(:has([data-helm-row-kind="done"])) { display: none !important; }
+`
+  document.head.appendChild(style)
+  const build = () => {
+    const f = $rowFilter.get()
+    const n = needsYouOf($inbox.get(), $crew.get())
+    const pills = [['all', 'All'], ['needs', n.total ? `Needs you · ${n.total}` : 'Needs you'], ['working', 'Working'], ['done', 'Done']]
+    box.innerHTML = pills.map(([k, l]) => `<button type="button" data-k="${k}" aria-pressed="${f === k}">${l}</button>`).join('')
+    box.querySelectorAll('button').forEach(b =>
+      b.addEventListener('click', () => {
+        const k = b.getAttribute('data-k')
+        $rowFilter.set($rowFilter.get() === k ? 'all' : k)
+      })
+    )
+    if (f === 'all') document.documentElement.removeAttribute('data-helm-row-filter')
+    else document.documentElement.setAttribute('data-helm-row-filter', f)
+  }
+  const place = () => {
+    try {
+      const sidebar = document.querySelector('[data-slot="sidebar"]')
+      const search = sidebar && sidebar.querySelector('input[type="search"], input[placeholder*="earch"]')
+      if (!search) return
+      let anchor = search
+      while (anchor.parentElement && anchor.parentElement !== sidebar && !anchor.parentElement.contains(document.querySelector('[data-session-pin-drop]'))) anchor = anchor.parentElement
+      if (anchor.nextElementSibling !== box) anchor.after(box)
+    } catch {
+      /* mid-render */
+    }
+  }
+  build()
+  place()
+  const offs = [$rowFilter.subscribe(build), $inbox.subscribe(build), $crew.subscribe(build)]
+  const h = setInterval(place, 800)
+  return () => {
+    offs.forEach(off => typeof off === 'function' && off())
+    clearInterval(h)
+    box.remove()
+    style.remove()
+    document.documentElement.removeAttribute('data-helm-row-filter')
+  }
+}
+
+// Title-bar session tabs: the board's 6px status dot before each label —
+// cyan while that chat works, amber when it waits on you, faint otherwise.
+function startTabDots() {
+  if (typeof document === 'undefined' || !isPrimaryWindow()) return () => {}
+  const style = document.createElement('style')
+  style.textContent = `
+[data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"])::before { content: ''; width: 6px; height: 6px; border-radius: 3px; background: #343D47; flex-shrink: 0; margin-right: 8px; align-self: center; }
+[data-slot="pane-tab"][data-helm-dot="working"]::before, [data-slot="pane-tab"][data-active="true"][data-helm-dot]::before { background: var(--ui-accent) !important; }
+[data-slot="pane-tab"][data-helm-dot="needs"]::before { background: #E8A657 !important; }
+`
+  document.head.appendChild(style)
+  const tick = () => {
+    try {
+      const busy = atomGet(host.state.busyBySession) || {}
+      const active = atomGet(host.state.activeSessionId)
+      const inbox = $inbox.get()
+      const waitingRuntime = new Set([...(inbox.approvals || []), ...(inbox.questions || [])].map(a => a.sessionId || a.runtimeId).filter(Boolean))
+      document.querySelectorAll('[data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"])').forEach(tab => {
+        const t = tab.getAttribute('data-tree-tab')
+        const rid = t === 'workspace' ? active : t.slice('session-tile:'.length)
+        const kind = rid && waitingRuntime.has(rid) ? 'needs' : rid && busy[rid] ? 'working' : 'idle'
+        if (tab.getAttribute('data-helm-dot') !== kind) tab.setAttribute('data-helm-dot', kind)
+      })
+    } catch {
+      /* mid-render */
+    }
+  }
+  tick()
+  const h = setInterval(tick, 1000)
+  return () => {
+    clearInterval(h)
+    style.remove()
+  }
 }
 
 // Above the composer on a fresh draft: jump back into recent work.
@@ -5167,88 +5548,93 @@ function fmtTokens(n) {
 function SessionPane({ looks }) {
   const crew = useValue($crew)
   const today = useValue($today)
-  const looksValue = useValue(looks)
   const storedId = useValue(host.state.focusedStoredSessionId)
-  const profile = useValue(host.state.focusedSessionProfile)
   const model = useValue(host.state.model)
   const cwd = useValue(host.state.cwd)
   const usage = useValue(host.state.focusedUsage)
-  const busy = useValue(host.state.busy)
+  const mode = useValue($approvalMode)
+  useValue(looks)
   useEffect(() => {
     if (!$today.get().ready) refreshToday()
+    if (!$approvalMode.get()) readApprovalMode()
   }, [])
   const hit = storedId && crew.byId ? crew.byId[storedId] : null
   const r = hit ? hit.row : null
-  const owner = (hit && hit.profile) || profile
-  const ownerProfile = (crew.profiles || []).find(p => p.name === owner)
-  const look = normalizeLook(looksValue[owner], owner || 'default')
   const cost = usage && typeof usage.cost_usd === 'number' ? usage.cost_usd : r ? rowCost(r) : 0
-  const ctxPct = usage && typeof usage.context_percent === 'number' ? Math.round(usage.context_percent) : null
+  const used = usage ? Number(usage.context_used) || 0 : 0
   const nextJob = today.jobs
     .filter(j => j.enabled !== false && toMs(j.next_run_at) > Date.now())
     .sort((a, b) => toMs(a.next_run_at) - toMs(b.next_run_at))[0]
-  const others = (crew.profiles || []).filter(p => p.name !== owner)
   const plan = usePlan()
-
+  const label = (text, extra) => jsx('div', { style: { ...B_CAPS, marginBottom: 8, ...extra }, children: text })
+  const kv = []
+  const add = (k, v, mono) => {
+    if (v === null || v === undefined || v === '') return
+    kv.push(jsx('span', { style: { color: B.t4 }, children: k }, `k${k}`))
+    kv.push(jsx('span', { className: 'truncate', title: String(v), style: { color: B.t2, minWidth: 0, fontFamily: mono ? B.mono : undefined, fontSize: mono ? 11.5 : 12.5 }, children: v }, `v${k}`))
+  }
+  add('Model', (r && r.model) || model)
+  add('Approvals', mode === 'manual' ? 'ask' : mode === 'smart' ? 'smart' : mode === 'off' ? 'off · acts without asking' : null)
+  add('Folder', tildePath((r && r.cwd) || cwd), true)
+  add('Branch', r && r.git_branch, true)
+  add('Started', r && r.started_at ? `${clock(toMs(r.started_at))} · ${ago(r.started_at)}` : null)
+  add('Cost', [cost >= 0.005 ? fmtCost(cost) : '$0.00', used ? `${fmtTokens(used)} ctx` : null].filter(Boolean).join(' · '), true)
   return jsxs('div', {
-    style: { height: '100%', overflowY: 'auto', padding: '14px 14px 20px' },
+    'data-helm-task-pane': '',
+    style: { height: '100%', display: 'flex', flexDirection: 'column', background: B.panel, fontSize: 12.5, color: B.t1 },
     children: [
       jsxs('div', {
-        style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 },
+        style: { flex: 1, minHeight: 0, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 16 },
         children: [
-          jsx(AnimatedRobot, { look, head: true, expr: busy ? 'focused' : r && r.unread ? 'question' : look.face, state: busy ? 'running' : r && r.unread ? 'waiting' : 'idle', size: 34, title: owner || 'bot' }),
-          jsxs('div', {
-            style: { minWidth: 0 },
-            children: [
-              jsx('div', { className: 'truncate', style: { fontSize: 14, fontWeight: 500, color: V.t1 }, children: ownerProfile ? botLabel(ownerProfile) : owner || 'New chat' }),
-              jsx('div', { className: 'truncate', style: { fontSize: 12, color: V.t3 }, children: r ? sessionTitle(r) : storedId ? 'This session' : 'Nothing sent yet' })
-            ]
-          })
+          plan && plan.length
+            ? jsx(TaskPlan, { items: plan, label })
+            : jsxs('div', { children: [label('Plan'), jsx('div', { style: { color: B.t4, fontSize: 12, lineHeight: 1.45 }, children: storedId ? 'No plan yet. The steps show here as soon as the bot breaks the work down.' : 'Start a chat and its plan shows here.' })] }),
+          storedId || model
+            ? jsxs('div', { children: [label('Session'), jsx('div', { style: { display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: '5px 12px', alignItems: 'baseline' }, children: kv })] })
+            : null
         ]
       }),
-      plan && plan.length ? jsx(PlanList, { items: plan }) : storedId ? jsx(PlanStatus, {}) : null,
-      jsx(PaneHead, { children: busy ? 'Session · working' : 'Session' }),
-      jsx(KV, { k: 'Model', v: (r && r.model) || model }),
-      jsx(KV, { k: 'Folder', v: basename((r && r.cwd) || cwd), mono: true }),
-      jsx(KV, { k: 'Branch', v: r && r.git_branch, mono: true }),
-      jsx(KV, { k: 'Started', v: r && r.started_at ? `${clock(toMs(r.started_at))} · ${ago(r.started_at)}` : null }),
-      jsx(KV, { k: 'Messages', v: r ? String(r.message_count || 0) : null, mono: true }),
-      jsx(KV, { k: 'Tool calls', v: r ? String(r.tool_call_count || 0) : null, mono: true }),
-      jsx(KV, { k: 'Tokens', v: r ? `${fmtTokens(r.input_tokens)} in · ${fmtTokens(r.output_tokens)} out` : null, mono: true }),
-      jsx(KV, { k: 'Cost', v: [cost >= 0.005 ? fmtCost(cost) : null, ctxPct !== null ? `${ctxPct}% ctx` : null].filter(Boolean).join(' · ') || null, mono: true }),
-      others.length ? jsx(PaneHead, { children: 'Crew' }) : null,
-      ...others.map(p => {
-        const act = activityFor(crew, p.name)
-        const st = botStatus(act, false)
-        const lk = normalizeLook(looksValue[p.name], p.name)
-        return jsxs(
-          'button',
-          {
-            type: 'button',
-            title: act.latest ? `Open ${sessionTitle(act.latest)}` : `New chat with ${botLabel(p)}`,
-            onClick: () => (act.latest ? openSession(act.latest, p.name) : host.newChat(p.name)),
-            style: { display: 'flex', width: '100%', alignItems: 'center', gap: 8, padding: '4px 2px', textAlign: 'left', fontSize: 12, background: 'none', border: 0, cursor: 'pointer', borderRadius: V.radius(6) },
-            children: [
-              jsx(RobotHead, { look: lk, expr: st.expr || lk.face, size: 18, title: p.name }),
-              jsx('span', { className: 'truncate', style: { minWidth: 0, flex: 1, color: V.t2 }, children: botLabel(p) }),
-              jsx('span', { style: { flexShrink: 0, color: TONE_COLOR[st.tone] }, children: st.label })
-            ]
-          },
-          p.name
-        )
-      }),
-      jsx(PaneHead, { children: 'Scheduled jobs' }),
       jsxs('div', {
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12, color: V.t3 },
+        style: { borderTop: `1px solid ${B.hair}`, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: B.t3, flexShrink: 0 },
         children: [
-          jsx('span', {
-            className: 'truncate', style: { minWidth: 0 },
-            children: !today.available ? 'Not loaded yet' : nextJob ? `${today.jobs.length} · next ${clock(toMs(nextJob.next_run_at))} ${nextJob.name || ''}` : `${today.jobs.length} · none due`
-          }),
-          jsx(LinkButton, { onClick: () => host.navigate('/cron'), children: 'Open' })
+          jsx('span', { style: { ...B_CAPS, whiteSpace: 'nowrap' }, children: 'Scheduled jobs' }),
+          jsx('span', { className: 'truncate', style: { minWidth: 0 }, children: !today.available ? '—' : nextJob ? `${today.jobs.length} · next ${clock(toMs(nextJob.next_run_at))}` : `${today.jobs.length} · none due` }),
+          jsx('button', { type: 'button', onClick: () => host.navigate('/cron'), style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: 'Open' })
         ]
-      }),
-      jsx('div', { style: { marginTop: 20 }, children: jsx(LinkButton, { onClick: () => host.navigate(DESK_ROUTE), children: '← Desk' }) })
+      })
+    ]
+  })
+}
+
+function TaskPlan({ items, label }) {
+  const counted = items.filter(t => t.status !== 'cancelled')
+  const done = counted.filter(t => t.status === 'completed').length
+  const mark = st =>
+    st === 'completed'
+      ? jsx('svg', { width: 13, height: 13, viewBox: '0 0 24 24', fill: 'none', stroke: B.green, strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true, style: { flexShrink: 0, marginTop: 2 }, children: jsx('path', { d: 'M5 12l5 5L20 7' }) })
+      : jsx('span', { 'aria-hidden': true, style: { width: 13, height: 13, flexShrink: 0, borderRadius: 7, border: `2px solid ${st === 'in_progress' ? V.accent : '#343D47'}`, boxSizing: 'border-box', marginTop: 2 } })
+  return jsxs('div', {
+    children: [
+      label(`Plan · ${done} of ${counted.length}`),
+      jsx('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: 6 },
+        children: items.map(t =>
+          jsxs(
+            'div',
+            {
+              style: { display: 'flex', gap: 8, alignItems: 'flex-start', lineHeight: 1.4 },
+              children: [
+                mark(t.status),
+                jsx('span', {
+                  style: { color: t.status === 'completed' ? B.t4 : t.status === 'in_progress' ? B.t1 : t.status === 'cancelled' ? B.t4 : B.t2, textDecoration: t.status === 'cancelled' ? 'line-through' : 'none' },
+                  children: t.content
+                })
+              ]
+            },
+            t.id
+          )
+        )
+      })
     ]
   })
 }
@@ -6195,14 +6581,18 @@ export default {
       { id: 'home-cwd', area: 'composer.top', order: 2, render: () => jsx(HomeCwdLine, { prefs }) },
       { id: 'ask-pill', area: 'composer.actions', order: 10, render: () => jsx(ComposerAskPill, {}) },
       { id: 'composer-hint', area: 'composer.actions', order: 20, render: () => jsx(ComposerHint, {}) },
+      { id: 'composer-meter', area: 'composer.actions', order: 21, render: () => jsx(ComposerMeter, {}) },
+      { id: 'session-chrome', area: 'composer.underside', order: 2, render: () => jsx(SessionChrome, { looks, prefs }) },
+      { id: 'session-context', area: 'composer.top', order: 3, render: () => jsx(SessionContextRow, {}) },
+      { id: 'sidechat-key', area: KEYBINDS_AREA, data: { id: 'helm.side-chat', label: 'Side chat (/btw)', category: 'view', defaults: ['mod+;'], run: openSideChat } },
       { id: 'approvals-chip', area: 'statusBar.right', order: 121, render: () => jsx(ApprovalsChip, {}) },
       { id: 'hud-panel', area: 'composer.top', order: 4, render: () => jsx(HudPanel, { looks, prefs }) },
       { id: 'hud-footer', area: 'composer.bottom', order: 90, render: () => jsx(HudFooter, { prefs }) },
       {
         id: 'session-pane',
         area: 'panes',
-        title: 'Session',
-        data: { placement: 'right', collapsible: true, dock: { pane: 'files', pos: 'center' }, tabTitleText: () => 'Session', width: '280px', minWidth: '240px' },
+        title: 'Task',
+        data: { placement: 'right', collapsible: true, dock: { pane: 'files', pos: 'center' }, tabTitleText: () => 'Task', width: '280px', minWidth: '240px' },
         render: () => jsx(SessionPane, { looks })
       },
       { id: 'bots-route', area: ROUTES_AREA, data: { path: BOTS_ROUTE }, render: () => jsx(BotsPage, { looks, setLook, avatars, os: ctx.os }) },
@@ -6292,6 +6682,16 @@ export default {
     ctx.onDispose(startRail(prefs))
     // The board's NEEDS YOU group at the top of the Sessions list.
     ctx.onDispose(startSidebarNeedsYou(prefs))
+    // Chat board: filter pills under the session search, status dots on tabs.
+    ctx.onDispose(startSidebarPills())
+    ctx.onDispose(startTabDots())
+    {
+      const d = prefs.get().activityDetail
+      if (d && d !== 'normal') {
+        $detail.set(d)
+        try { document.documentElement.setAttribute('data-helm-detail', d) } catch { /* no document */ }
+      }
+    }
     // Rooms for the Helm tab and the board.
     if (isPrimaryWindow()) startRooms(ctx)
     // The Helm tab: a third tab in the sessions column, beside SESSIONS and BOTS,
