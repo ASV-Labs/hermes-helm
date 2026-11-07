@@ -4501,7 +4501,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
     }).catch(err => host.notifyError?.(`Import failed: ${err && err.message ? err.message : err}`))
   }
   const btn = (label, onClick, quiet) =>
-    jsx('button', { type: 'button', onClick, style: { height: 28, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, background: 'transparent', color: quiet ? B.t3 : B.t2, font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: label })
+    jsx('button', { type: 'button', onClick, style: { height: 28, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, background: 'transparent', color: quiet ? B.t3 : B.t2, font: 'inherit', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto' }, children: label })
 
   return jsx('div', {
     style: { height: '100%', overflowY: 'auto', background: B.bg, color: B.t1, fontSize: 13, lineHeight: 1.45 },
@@ -4666,7 +4666,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
             jsx('span', { style: { color: B.t3, flex: '1 1 auto' }, children: 'Saved automatically. Hermes updates replace the app, not desktop-plugins/, so this survives them.' }),
             btn('Export helm.json', exportPrefs),
             jsxs('label', {
-              style: { height: 28, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, color: B.t2, fontSize: 12, display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative' },
+              style: { height: 28, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, color: B.t2, fontSize: 12, display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative', whiteSpace: 'nowrap', flex: '0 0 auto' },
               children: ['Import', jsx('input', { type: 'file', accept: 'application/json,.json', onChange: e => importPrefs(e.target.files && e.target.files[0]), style: { position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' } })]
             }),
             btn('Reset to helm defaults', () => applyLook({ ...DEFAULT_PREFS, deskName: p.deskName, deskFolded: p.deskFolded }), true)
