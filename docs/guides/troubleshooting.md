@@ -37,7 +37,11 @@ helm 1.0.1 · inbox: 12 live chats (primary), 1 waiting, 1 approvals, 0 question
 - **The bot was made with Hermes's own New bot dialog.** Bot Mode saved the classic face first and keeps that answer in memory until the app quits. helm replaces the face with the robot within about 20 seconds; quit and reopen Hermes Desktop to see it.
 - **The bot has a picture you uploaded.** helm never replaces your own picture. To use the robot, remove the picture in *Bot Mode → Edit*, then press **Done** in the robot's Look editor on the Bots board.
 - **Robots as Hermes avatars is off.** Turn it on in *Customize look → On the desk*.
-- **An older Hermes build saved the classic face as the bot's picture.** Bot Mode then keeps showing that face and never looks at the robot. Right-click the bot in the Bots tab, choose **Edit**, press **Remove image**, then **Save**. The robot appears within a few seconds.
+- **An older Hermes build saved the classic face as the bot's picture.** Bot Mode keeps that hidden picture and never looks at the robot, and its Edit dialog doesn't offer to remove it. Upload the robot instead:
+  1. Right-click the bot in the Bots tab and choose **Edit**.
+  2. Open the **Upload** tab and press **Choose an image…**.
+  3. Press **⌘⇧G**, paste `~/.hermes/profiles/<profile>/assets/avatar.png` (for the default bot, `~/.hermes/assets/avatar.png`), press **Return**, then **Open**.
+  4. Press **Save**. That file is helm's robot, so the Bots tab shows it right away.
 
 ## The Desk's Today list says "Couldn't read scheduled jobs"
 
