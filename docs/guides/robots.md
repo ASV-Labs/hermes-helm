@@ -17,6 +17,13 @@ Open it with `⌘⌥R` or *Helm: Bots board* in `⌘K`.
 - The filters at the top are **All**, **Needs you** and **Working**.
 - **New bot** creates a real Hermes bot, the same thing the app's Bot Mode does (`profiles.create`).
 
+## Hermes's own New bot dialog
+
+Hermes also has a **New bot** dialog of its own, from its built-in Bots plugin. That dialog uses Hermes's classic face shapes, and helm can't change it: the plugin catalog doesn't allow plugins to replace a built-in plugin's screens.
+
+- To build a bot with a helm robot from the start, use **+ New bot** in the Desk's bot picker, **New bot** on the Bots board, or **Helm: New bot (robot)** in ⌘K.
+- A bot made in Hermes's dialog still gets a helm robot. When **Robots as Hermes avatars** is on, helm gives it a robot avatar within a few seconds, unless you uploaded a photo.
+
 ## Building a robot
 
 Every robot is put together from layers that were rendered in Blender:

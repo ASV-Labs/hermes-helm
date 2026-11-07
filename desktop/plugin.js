@@ -39,10 +39,10 @@ import {
   KEYBINDS_AREA
 } from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '1.0.3'
+const VERSION = '1.0.4'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -1263,6 +1263,13 @@ async function autoAvatars(profiles, looks, avatars, prefs) {
 // ───────────────────────────────────────────────────────────── new bot
 const SLUG = /^[a-z0-9][a-z0-9_-]{0,31}$/
 
+// "New bot" from the Desk or the palette opens helm's robot builder.
+const $newBotAsked = atom(false)
+function openNewBot() {
+  $newBotAsked.set(true)
+  host.navigate(BOTS_ROUTE)
+}
+
 function NewBotView({ looks, setLook, avatars, onDone }) {
   const crew = useValue($crew)
   const [name, setName] = useState('')
@@ -1359,7 +1366,16 @@ function BotsPage({ looks, setLook, avatars, os }) {
   const focusedProfile = useValue(host.state.focusedSessionProfile)
   const filter = useValue($boardFilter)
   const [editing, setEditing] = useState(null)
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState(() => $newBotAsked.get())
+  useEffect(() => {
+    if ($newBotAsked.get()) $newBotAsked.set(false)
+    return $newBotAsked.listen(v => {
+      if (v) {
+        setCreating(true)
+        $newBotAsked.set(false)
+      }
+    })
+  }, [])
   const [ranks, setRanks] = useState({})
   const onStatus = (name, rank) => setRanks(prev => (prev[name] === rank ? prev : { ...prev, [name]: rank }))
 
@@ -1935,7 +1951,19 @@ function BotPicker({ profiles, value, onPick, looks }) {
         },
         p.name
       )
-    })
+    }).concat(
+      jsx(
+        'button',
+        {
+          type: 'button',
+          title: 'Build a new bot with its own robot',
+          onClick: openNewBot,
+          style: { height: 28, padding: '0 10px', borderRadius: 999, border: `1px dashed ${V.hair2}`, background: 'transparent', color: V.t3, fontSize: 12, cursor: 'pointer' },
+          children: '+ New bot'
+        },
+        'new-bot'
+      )
+    )
   })
 }
 
@@ -2152,11 +2180,23 @@ function DeskPage({ looks, prefs, setPrefs }) {
   const compact = viewport.narrow || (viewport.width && viewport.width < 900)
   const today = useValue($today)
   const fold = { prefs: p, setPrefs }
+  // Chat-shaped: the composer sits at the bottom, the Desk stacks above it and
+  // starts scrolled to its newest edge (the bottom), like a conversation.
+  const scroller = useRef(null)
+  useEffect(() => {
+    const el = scroller.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [])
+  const column = { width: '100%', maxWidth: 796, marginLeft: 'auto', marginRight: 'auto', boxSizing: 'border-box' }
 
-  return jsx('div', {
-    style: { height: '100%', overflowY: 'auto' },
-    children: jsxs('div', {
-      style: { margin: '0 auto', width: '100%', maxWidth: 796, padding: compact ? '20px 16px 40px' : '56px 28px 64px' },
+  return jsxs('div', {
+    style: { height: '100%', display: 'flex', flexDirection: 'column' },
+    children: [
+      jsx('div', {
+        ref: scroller,
+        style: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' },
+        children: jsxs('div', {
+      style: { ...column, marginTop: 'auto', padding: compact ? '20px 16px 12px' : '48px 28px 14px' },
       children: [
         jsxs('div', {
           style: { display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 12, rowGap: 4, marginBottom: 22 },
@@ -2185,7 +2225,6 @@ function DeskPage({ looks, prefs, setPrefs }) {
             jsx('p', { style: { fontSize: 12.5, color: V.t3, margin: 0 }, children: statusSentence(crew) })
           ]
         }),
-        jsx(DeskPrompt, { crew, looks: looksValue }),
         jsx(DeskSection, {
           id: 'continue',
           fold,
@@ -2219,7 +2258,7 @@ function DeskPage({ looks, prefs, setPrefs }) {
                   `${entry.profile.name}:${r.id}`
                 )
               })
-            : jsx(Quiet, { children: crew.ready ? 'No sessions yet. Start one above.' : 'Loading sessions…' })
+            : jsx(Quiet, { children: crew.ready ? 'No sessions yet. Start one below.' : 'Loading sessions…' })
         }),
         jsx(DeskNeedsYou, { looks: looksValue, lookOf, fold }),
         jsx(DeskSection, {
@@ -2231,7 +2270,7 @@ function DeskPage({ looks, prefs, setPrefs }) {
           children: jsx(TodayList, {})
         }),
         jsxs('div', {
-          style: { marginTop: 28, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+          style: { marginTop: 22, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
           children: [
             ...[
               ['hubot', 'Bots board', BOTS_ROUTE],
@@ -2258,6 +2297,12 @@ function DeskPage({ looks, prefs, setPrefs }) {
         })
       ]
     })
+      }),
+      jsx('div', {
+        style: { ...column, flexShrink: 0, padding: compact ? '6px 16px 14px' : '6px 28px 22px' },
+        children: jsx(DeskPrompt, { crew, looks: looksValue })
+      })
+    ]
   })
 }
 
@@ -3440,6 +3485,7 @@ export default {
       { id: 'look-route', area: ROUTES_AREA, data: { path: LOOK_ROUTE }, render: () => jsx(LookPage, { prefs, setPrefs, applyLook, looks }) },
       { id: 'look-nav', area: SIDEBAR_NAV_AREA, data: { path: LOOK_ROUTE, label: 'Customize look', codicon: 'symbol-color' } },
       { id: 'look-palette', area: PALETTE_AREA, data: { id: 'helm.look', label: 'Helm: Customize look', keywords: ['look', 'appearance', 'theme', 'skin', 'accent', 'font', 'helm'], run: () => host.navigate(LOOK_ROUTE) } },
+      { id: 'newbot-palette', area: PALETTE_AREA, data: { id: 'helm.new-bot', label: 'Helm: New bot (robot)', keywords: ['new', 'bot', 'create', 'robot', 'teammate', 'agent', 'helm'], run: openNewBot } },
       { id: 'bots-palette', area: PALETTE_AREA, data: { id: 'helm.bots', label: 'Helm: Bots board', keywords: ['bots', 'board', 'crew', 'robots', 'helm'], run: () => host.navigate(BOTS_ROUTE) } },
       {
         id: 'needs-palette',

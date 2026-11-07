@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.4 — 2026-11-07
+
+- **The Desk is chat-shaped.** The composer is pinned to the bottom, and Continue, Needs you, Today and the quick actions stack above it, so the newest content sits nearest the composer. The Desk opens scrolled to the bottom.
+- **+ New bot** in the Desk's bot picker, and **Helm: New bot (robot)** in ⌘K, open helm's robot builder.
+
 ## 1.0.3 — 2026-11-06
 
 - **The Desk now matches the approved design (the Main board):**

@@ -50,7 +50,7 @@ Requires **Hermes ≥ 0.22.0**. The step-by-step version, including updating, ba
 Hermes opens on the Desk.
 
 - **Greeting:** a one-line status of the whole crew.
-- **Prompt:** hands work to any bot. **↵** sends; **Draft** opens the chat with your text unsent.
+- **Prompt**, pinned to the bottom like a chat: hands work to any bot. **↵** sends; **Draft** opens the chat with your text unsent. **+ New bot** builds a new bot with its own robot.
 - **Continue:** your latest sessions across every bot.
 - **Needs you:** approvals, questions and unread replies.
 - **Today:** scheduled jobs that ran, failed or are due. It shows the five that matter most, and *Show all* lists the rest.
