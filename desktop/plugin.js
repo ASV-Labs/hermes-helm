@@ -42,7 +42,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '1.0.1'
+const VERSION = '1.0.2'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -404,7 +404,9 @@ const DEFAULT_PREFS = {
   openDeskAtLaunch: true,
   showNeedsYouPane: true,
   showDeskStrip: true,
-  deskName: ''
+  deskName: '',
+  // Desk sections you folded, comma-separated ids ('continue,today').
+  deskFolded: ''
 }
 
 // ────────────────────────────────────────────────────────────── robot looks
@@ -1805,17 +1807,46 @@ const V = {
 const TONE_COLOR = { amber: V.amber, accent: V.accent, muted: V.t3 }
 const CAPS = { fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: V.t3 }
 
-function DeskSection({ title, action, children }) {
+// A Desk section. With `id` + `fold` it folds: the header toggles it, the
+// choice is remembered (prefs.deskFolded), and a folded section shows its count.
+function DeskSection({ id, title, count, action, fold, children }) {
+  const folded = !!(fold && id && foldedIds(fold.prefs).has(id))
+  const toggle = () => {
+    if (!fold || !id) return
+    const ids = foldedIds(fold.prefs)
+    if (ids.has(id)) ids.delete(id)
+    else ids.add(id)
+    fold.setPrefs({ deskFolded: [...ids].join(',') })
+  }
+  const head = fold && id
+    ? jsxs('button', {
+        type: 'button',
+        onClick: toggle,
+        'aria-expanded': !folded,
+        title: folded ? 'Show' : 'Hide',
+        style: { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'inherit' },
+        children: [
+          jsx('span', { style: { ...CAPS, display: 'inline-block', width: 10, transition: 'transform 120ms', transform: folded ? 'rotate(-90deg)' : 'none' }, children: '▾' }),
+          jsx('h2', { style: CAPS, children: title }),
+          folded && count ? jsx('span', { style: { fontSize: 11, color: V.t3, fontVariantNumeric: 'tabular-nums' }, children: count }) : null
+        ]
+      })
+    : jsx('h2', { style: CAPS, children: title })
   return jsxs('section', {
-    style: { marginTop: 28 },
+    style: { marginTop: folded ? 18 : 28 },
     children: [
       jsxs('div', {
         style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${V.hair}`, paddingBottom: 6, marginBottom: 2 },
-        children: [jsx('h2', { style: CAPS, children: title }), action || null]
+        children: [head, action || null]
       }),
-      children
+      folded ? null : children
     ]
   })
+}
+
+function foldedIds(prefs) {
+  const raw = prefs && typeof prefs.deskFolded === 'string' ? prefs.deskFolded : ''
+  return new Set(raw.split(',').map(x => x.trim()).filter(Boolean))
 }
 
 function LinkButton({ onClick, children, tone }) {
@@ -2012,8 +2043,12 @@ function Quiet({ children }) {
   return jsx('p', { style: { padding: '12px 0', fontSize: 12, color: V.t3 }, children })
 }
 
+const TODAY_SHORT = 5
+const TODAY_RANK = { failed: 0, running: 1, due: 2 }
+
 function TodayList() {
   const today = useValue($today)
+  const [all, setAll] = useState(false)
   useEffect(() => {
     refreshToday()
     const h = setInterval(refreshToday, 30000)
@@ -2023,8 +2058,17 @@ function TodayList() {
   if (!today.ready) return jsx(Quiet, { children: 'Reading scheduled jobs…' })
   if (!today.available) return jsx(Quiet, { children: 'Couldn’t read scheduled jobs: the gateway didn’t answer. Retrying every 30 seconds.' })
   if (!rows.length) return jsx(Quiet, { children: `Nothing ran or is due today${today.jobs.length ? ` · ${today.jobs.length} scheduled job${today.jobs.length === 1 ? '' : 's'} in all` : ''}.` })
-  return jsx('div', {
-    children: rows.map(({ at, word, job }) =>
+  // Short list: failures, what's running and what's due next, then the latest
+  // finished runs; the full day stays in time order behind "Show all".
+  const shown = all || rows.length <= TODAY_SHORT
+    ? rows
+    : [...rows]
+        .sort((a, b) => (TODAY_RANK[a.word] ?? 3) - (TODAY_RANK[b.word] ?? 3) || (a.word in TODAY_RANK ? a.at - b.at : b.at - a.at))
+        .slice(0, TODAY_SHORT)
+        .sort((a, b) => a.at - b.at)
+  return jsxs('div', {
+    children: [
+      ...shown.map(({ at, word, job }) =>
       jsx(
         DeskRow,
         {
@@ -2035,13 +2079,29 @@ function TodayList() {
         },
         job.id
       )
-    )
+    ),
+      rows.length > TODAY_SHORT
+        ? jsx('div', {
+            style: { paddingTop: 8 },
+            children: jsx(LinkButton, { tone: 'muted', onClick: () => setAll(v => !v), children: all ? 'Show fewer' : `Show all ${rows.length}` })
+          })
+        : null
+    ]
   })
 }
 
-function DeskNeedsYou({ looks, lookOf }) {
+function todayCount(today) {
+  const rows = (today.jobs || []).map(jobRow).filter(Boolean)
+  const failed = rows.filter(r => r.word === 'failed').length
+  return rows.length ? `${rows.length}${failed ? ` · ${failed} failed` : ''}` : ''
+}
+
+function DeskNeedsYou({ looks, lookOf, fold }) {
   const n = useNeedsYou()
   return jsx(DeskSection, {
+    id: 'needs',
+    fold,
+    count: n.total ? String(n.total) : '',
     title: jsxs('span', { children: ['Needs you', n.total ? jsx('span', { style: { color: V.amber, marginLeft: 6 }, children: n.total }) : null] }),
     action: n.unread.length
       ? jsx(LinkButton, {
@@ -2075,6 +2135,8 @@ function DeskPage({ looks, prefs, setPrefs }) {
   const name = (p.deskName || '').trim()
   const viewport = useValue(host.state.viewport) || {}
   const compact = viewport.narrow || (viewport.width && viewport.width < 900)
+  const today = useValue($today)
+  const fold = { prefs: p, setPrefs }
 
   return jsx('div', {
     style: { height: '100%', overflowY: 'auto' },
@@ -2110,6 +2172,9 @@ function DeskPage({ looks, prefs, setPrefs }) {
         }),
         jsx(DeskPrompt, { crew, looks: looksValue }),
         jsx(DeskSection, {
+          id: 'continue',
+          fold,
+          count: recent.length ? String(recent.length) : '',
           title: 'Continue',
           action: jsx(LinkButton, { onClick: () => host.navigate(BOTS_ROUTE), children: 'Bots board' }),
           children: recent.length
@@ -2142,8 +2207,11 @@ function DeskPage({ looks, prefs, setPrefs }) {
               })
             : jsx(Quiet, { children: crew.ready ? 'No sessions yet. Start one above.' : 'Loading sessions…' })
         }),
-        jsx(DeskNeedsYou, { looks: looksValue, lookOf }),
+        jsx(DeskNeedsYou, { looks: looksValue, lookOf, fold }),
         jsx(DeskSection, {
+          id: 'today',
+          fold,
+          count: todayCount(today),
           title: 'Today',
           action: jsx(LinkButton, { onClick: () => host.navigate('/cron'), children: 'Scheduled jobs' }),
           children: jsx(TodayList, {})
@@ -3229,7 +3297,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
 // ───────────────────────────────────────────────────────────────── plugin
 
 // Pure helpers, exported for the test suite only.
-export const _internals = { $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
+export const _internals = { DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
 
 export default {
   id: ID,

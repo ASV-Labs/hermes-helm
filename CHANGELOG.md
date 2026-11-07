@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2 — 2026-11-06
+
+- **Desk sections fold.** Click the *Continue*, *Needs you* or *Today* header to fold or unfold that section, and the Desk remembers your choice. A folded section shows its count, for example *Today 12 · 1 failed*.
+- **Today shows five rows by default:** failures, anything running, what's due next, then the latest finished runs. *Show all* lists the whole day in time order.
+
 ## 1.0.1 — 2026-11-06
 
 - Moved to the **ASV Labs** organization: `ASV-Labs/hermes-helm`. Old links redirect.

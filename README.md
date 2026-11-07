@@ -53,7 +53,9 @@ Hermes opens on the Desk.
 - **Prompt:** hands work to any bot. **↵** sends; **Draft** opens the chat with your text unsent.
 - **Continue:** your latest sessions across every bot.
 - **Needs you:** approvals, questions and unread replies.
-- **Today:** scheduled jobs that ran, failed or are due.
+- **Today:** scheduled jobs that ran, failed or are due. It shows the five that matter most, and *Show all* lists the rest.
+
+Each section folds: click its header, and the Desk remembers your choice. A folded section shows its count.
 
 ![The Desk: greeting, prompt, Continue, Needs you with Approve / Allow session / Deny, Today's scheduled jobs](docs/screens/desk.png)
 

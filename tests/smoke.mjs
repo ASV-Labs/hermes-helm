@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { renderToString } from 'react-dom/server'
 import { jsx } from 'react/jsx-runtime'
+import { createElement } from 'react'
 import assert from 'node:assert/strict'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -165,6 +166,25 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
     assert.equal(today.jobs.find(j => j.id === 'j-b').last_error.length, 300)
     const deskT = renderToString(byArea('routes').find(c => c.data.path === '/helm/desk').render())
     assert.ok(deskT.includes('Nightly build check') && deskT.includes('failed') && deskT.includes('Morning digest'), `today list: ${deskT.slice(0, 200)}`)
+    // Folding: a folded section hides its rows, keeps its title and shows the count
+    {
+      const { DeskSection, TodayList, foldedIds } = mod._internals
+      let saved = null
+      const fold = { prefs: { deskFolded: 'today, continue' }, setPrefs: patch => { saved = patch } }
+      assert.deepEqual([...foldedIds(fold.prefs)].sort(), ['continue', 'today'])
+      const folded = renderToString(createElement(DeskSection, { id: 'today', fold, count: '7 · 1 failed', title: 'Today', children: createElement('p', null, 'ROWS') }))
+      assert.ok(folded.includes('Today') && folded.includes('7 · 1 failed') && !folded.includes('ROWS') && folded.includes('aria-expanded="false"'), folded)
+      const open = renderToString(createElement(DeskSection, { id: 'needs', fold, count: '2', title: 'Needs you', children: createElement('p', null, 'ROWS') }))
+      assert.ok(open.includes('ROWS') && open.includes('aria-expanded="true"'), open)
+      // A long day shows five rows and a "Show all" link
+      const ran = new Date(new Date().setHours(0, 2, 0, 0)).toISOString()
+      const keep = mod._internals.$today.get()
+      mod._internals.$today.set({ ready: true, available: true, at: Date.now(), jobs: Array.from({ length: 8 }, (_, i) => ({ id: `d${i}`, name: `daily-${i}`, last_run_at: ran, last_status: i === 6 ? 'error' : 'ok', enabled: true, profile: 'builder' })) })
+      const short = renderToString(createElement(TodayList))
+      assert.ok(short.includes('Show all 8') && short.includes('daily-6'), 'short Today keeps the failure and offers Show all')
+      assert.equal((short.match(/daily-\d/g) || []).length, 5, short)
+      mod._internals.$today.set(keep)
+    }
     host_set_stored('s2')
     dump('session-pane', renderToString(contributions.find(c => c.area === 'panes' && c.id === 'session-pane').render()))
     host_set_stored(null)

@@ -29,6 +29,8 @@ Then, in Hermes Desktop:
 - **The Desk opens at launch**, in the main window only. Pop-out, HUD and peer windows are left alone. To turn this off, go to *Customize look → On the desk → Open the Desk at launch*.
 - **Desk** is also added to the sidebar, just under *New session*.
 - The Desk greets you by name. Click the greeting to set the name.
+- **Continue**, **Needs you** and **Today** fold. Click a section header to hide its rows, and the Desk remembers your choice. A folded section shows its count.
+- **Today** shows five rows by default: failures, what's running, what's due next, then the latest finished runs. **Show all** lists the whole day.
 
 ## Shortcuts and commands
 
