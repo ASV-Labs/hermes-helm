@@ -78,25 +78,62 @@ ${HELM_CSS_SCOPE} [data-slot="sidebar"] { border-right: 1px solid var(--helm-hai
 ${HELM_CSS_SCOPE} [data-slot="sidebar-group-label"] {
   font-size: 10.5px !important;
   font-weight: 600 !important;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ui-text-tertiary) !important;
+  color: #76838F !important;
 }
-${HELM_CSS_SCOPE} [data-slot="sidebar-menu-button"] { border-radius: calc(6px * var(--radius-scalar)); }
+${HELM_CSS_SCOPE} [data-slot="sidebar-menu-button"] {
+  min-height: 30px;
+  gap: 9px;
+  padding-inline: 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #C3CCD5;
+}
+${HELM_CSS_SCOPE} [data-slot="sidebar-menu-button"] svg { width: 14px; height: 14px; }
+${HELM_CSS_SCOPE} [data-slot="sidebar-menu-button"]:hover { background: #171E27; color: var(--ui-text-primary); }
 ${HELM_CSS_SCOPE} [data-slot="sidebar-menu-button"][data-active="true"],
 ${HELM_CSS_SCOPE} [data-slot="sidebar-menu-button"][aria-current="page"] {
-  box-shadow: inset 2px 0 0 var(--ui-accent);
+  background: #171E27 !important;
+  color: var(--ui-text-primary) !important;
+  box-shadow: none;
 }
-${HELM_CSS_SCOPE} [data-slot="sidebar-input"] { border-radius: calc(7px * var(--radius-scalar)); }
+${HELM_CSS_SCOPE} [data-slot="sidebar-input"] {
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #1C242D !important;
+  background: #0F1419 !important;
+  padding-inline: 9px;
+  font-size: 12px;
+}
+
+/* Session rows: helm's status decoration wraps onto its own line under the
+   title (11.5px, secondary), the design's "Working · step 3 of 5 · $0.42". */
+${HELM_CSS_SCOPE} div:has(> [data-helm-row-status]) { flex-wrap: wrap; row-gap: 1px; }
+${HELM_CSS_SCOPE} [data-helm-row-status] {
+  flex: 0 0 100%;
+  order: 99;
+  min-width: 0;
+  padding-left: var(--helm-row-indent, 22px);
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--ui-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* Tabs: tracked caps, an underline for the open one. */
 ${HELM_CSS_SCOPE} [data-slot="pane-tab"],
 ${HELM_CSS_SCOPE} [data-slot="tabs-trigger"] {
-  letter-spacing: 0.07em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
+  color: #98A4B1;
 }
+${HELM_CSS_SCOPE} [data-slot="pane-tab"][data-active="true"],
+${HELM_CSS_SCOPE} [data-slot="tabs-trigger"][data-state="active"] { color: var(--ui-text-primary); }
 ${HELM_CSS_SCOPE} [data-slot="pane-tab"][data-active="true"],
 ${HELM_CSS_SCOPE} [data-slot="tabs-trigger"][data-state="active"] {
   box-shadow: inset 0 -2px 0 var(--ui-accent);
@@ -389,8 +426,10 @@ const DEFAULT_PREFS = {
   showCostChip: true,
   hideMessagingRow: false,
   showComposerBot: true,
-  showRowBots: true,
+  showRowBots: false,
   showRowCost: true,
+  showRowStatus: true,
+  designNav: true,
   showContextLine: true,
   showNeedsYouChip: true,
   showTodayChip: true,
@@ -1711,6 +1750,56 @@ function SessionRowCost({ sessionId, prefs }) {
   const cost = hit ? rowCost(hit.row) : 0
   if (!showRowCost || cost < 0.01) return null
   return jsx('span', { className: 'shrink-0 text-[0.625rem] tabular-nums text-(--ui-text-quaternary)', children: fmtCost(cost) })
+}
+
+// The design's second line under every session title: what that session is
+// doing, in words. It renders in the row's trailing slot and the theme wraps it
+// onto its own line (see "Session rows" in HELM_CSS).
+function sessionStatusFor(sessionId, crew, inbox, plan) {
+  const hit = crew.byId && crew.byId[sessionId]
+  const r = hit ? hit.row : null
+  const ids = new Set([sessionId, r && r.id, r && r._lineage_root_id].filter(Boolean))
+  const approval = inbox.approvals.find(a => ids.has(a.storedId) || ids.has(a.sessionId))
+  if (approval) return { lead: 'Approval', rest: approval.command ? approval.command.split('\n')[0].slice(0, 60) : approval.description, tone: 'amber' }
+  const question = inbox.questions.find(q => ids.has(q.storedId) || ids.has(q.sessionId))
+  if (question) return { lead: 'Question', rest: 'waiting for your answer', tone: 'amber' }
+  if (!r) return null
+  const cost = rowCost(r)
+  const money = cost >= 0.01 ? fmtCost(cost) : null
+  if (r.handoff_error) return { lead: 'Failed', rest: String(r.handoff_error).slice(0, 48), tone: 'red' }
+  if (r.is_active && !r.ended_at) {
+    let step = null
+    if (plan && plan.items && plan.items.length && ids.has(plan.sessionId)) {
+      const done = plan.items.filter(i => i.status === 'completed' || i.status === 'cancelled').length
+      step = `step ${Math.min(done + 1, plan.items.length)} of ${plan.items.length}`
+    } else if (r.tool_call_count > 0) {
+      step = `${r.tool_call_count} tool ${r.tool_call_count === 1 ? 'call' : 'calls'}`
+    }
+    return { lead: 'Working', rest: [step, money].filter(Boolean).join(' · '), tone: 'accent' }
+  }
+  if (r.unread) return { lead: 'Replied', rest: [money].filter(Boolean).join(' · '), tone: 'plain' }
+  if (r.ended_at) return { lead: 'Done', rest: [r.message_count ? `${r.message_count} msgs` : null, money].filter(Boolean).join(' · '), tone: 'plain' }
+  const bits = [r.message_count ? `${r.message_count} msgs` : null, money].filter(Boolean)
+  return bits.length ? { lead: null, rest: bits.join(' · '), tone: 'plain' } : null
+}
+
+function SessionRowStatus({ sessionId, prefs }) {
+  const { showRowStatus } = useValue(prefs)
+  const crew = useValue($crew)
+  const inbox = useValue($inbox)
+  const plan = useValue($plan)
+  if (showRowStatus === false) return null
+  const st = sessionStatusFor(sessionId, crew, inbox, plan)
+  if (!st) return null
+  const leadColor = st.tone === 'red' ? 'var(--ui-red, #E07080)' : st.tone === 'amber' ? 'var(--ui-yellow, #E8A657)' : st.tone === 'accent' ? 'var(--ui-accent)' : 'inherit'
+  return jsxs('span', {
+    'data-helm-row-status': st.tone,
+    children: [
+      st.lead ? jsx('span', { style: { color: leadColor }, children: st.lead }) : null,
+      st.lead && st.rest ? ' · ' : null,
+      st.rest || null
+    ]
+  })
 }
 
 function basename(path) {
@@ -3638,6 +3727,8 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
     ['autoAvatars', 'Robots as Hermes avatars', 'New bots get a robot as their Hermes avatar (never replaces a photo you uploaded).'],
     ['animateRobots', 'Animated robots', 'Robots move with what their bot is doing: working, waiting on you, done, failed. Follows Reduce motion.'],
     ['robotPets', 'Robots as Hermes pets', 'Each bot’s robot becomes its Hermes pet, the animated companion on your desktop. It is switched on only for bots without a pet of their own.'],
+    ['designNav', 'Design sidebar nav', 'New session, Desk, Capabilities and your plugin rows only. Messaging, Artifacts and Scheduled jobs stay in ⌘K and on the Desk.'],
+    ['showRowStatus', 'Status line under each session', 'Working, waiting on you, done or failed, with cost.'],
     ['hideMessagingRow', 'Hide the Messaging row', 'Capabilities can never be hidden.']
   ]
 
@@ -3801,7 +3892,12 @@ export default {
     let unregisterNav = null
     let navKey = ''
     const syncNavPrefs = () => {
-      const hide = prefs.get().hideMessagingRow ? ['messaging'] : []
+      // The design's sidebar nav: New session, Desk, Capabilities and the
+      // plugin rows (Lineage, OpenBot, Kanban). Messaging, Artifacts and
+      // Scheduled jobs live on the Desk chips and in ⌘K; the Bots board in the
+      // Helm tab; Customize look in ⌘K and Settings.
+      const p = prefs.get()
+      const hide = p.designNav !== false ? ['messaging', 'artifacts', 'cron', `${ID}:bots-nav`, `${ID}:look-nav`] : p.hideMessagingRow ? ['messaging'] : []
       const key = hide.join(',')
       if (unregisterNav && key === navKey) return
       if (unregisterNav) unregisterNav()
@@ -3845,7 +3941,7 @@ export default {
       { id: 'cost', area: 'statusBar.right', order: 119, render: () => jsx(CostChip, { prefs }) },
       { id: 'context', area: 'titleBar.center', order: 50, render: () => jsx(ContextLine, { looks, prefs }) },
       { id: 'row-bot', area: 'sessionRow.leading', data: { render: ({ sessionId }) => jsx(SessionRowBot, { sessionId, looks, prefs }) } },
-      { id: 'row-cost', area: 'sessionRow.trailing', data: { render: ({ sessionId }) => jsx(SessionRowCost, { sessionId, prefs }) } }
+      { id: 'row-status', area: 'sessionRow.trailing', data: { render: ({ sessionId }) => jsx(SessionRowStatus, { sessionId, prefs }) } }
     ])
 
     // Routes, nav rows, palette, keys.

@@ -132,7 +132,7 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
 {
   const np = byArea('sidebarNav.prefs')
   assert.equal(np.length, 1, 'one nav-prefs contribution')
-  assert.deepEqual(np[0].data.hide, [], 'messaging row visible by default')
+  assert.deepEqual(np[0].data.hide, ['messaging', 'artifacts', 'cron', 'helm:bots-nav', 'helm:look-nav'], 'design nav by default: New session, Desk, Capabilities, plugin rows')
   assert.deepEqual(np[0].data.order, ['new-session', 'helm:desk-nav'], 'Desk sits under New session')
 }
 // The Desk: greeting, status sentence, prompt, continue, needs you, today
@@ -225,8 +225,9 @@ assert.ok(boardHtml.includes('Needs you') && boardHtml.includes('New bot'), 'fil
 
 // Desk-wide layer
 const rowBot = byArea('sessionRow.leading')[0].data.render({ sessionId: 'root-1' })
-assert.ok(renderToString(rowBot).length > 20, 'row robot renders for a lineage root id')
-assert.ok(renderToString(byArea('sessionRow.trailing')[0].data.render({ sessionId: 's1' })).includes('$0.31'), 'row cost')
+assert.equal(renderToString(rowBot), '', 'no robot heads in session rows by default (the design has none)')
+const rowStatus = renderToString(byArea('sessionRow.trailing')[0].data.render({ sessionId: 's1' }))
+assert.ok(rowStatus.includes('data-helm-row-status') && rowStatus.includes('Question'), `row status line: ${rowStatus}`)
 assert.equal(renderToString(byArea('sessionRow.trailing')[0].data.render({ sessionId: 'nope' })), '', 'unknown rows untouched')
 const ctxLine = renderToString(byArea('titleBar.center')[0].render())
 assert.ok(ctxLine.includes('vision') && ctxLine.includes('$0.42'), `context line: ${ctxLine.slice(0, 200)}`)
