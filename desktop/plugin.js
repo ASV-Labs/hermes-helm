@@ -175,7 +175,7 @@ ${HELM_CSS_SCOPE} .helm-nav-row:hover { background: #171E27; color: #E6EBF0; }
 
 /* Titlebar session tabs (the main zone's strip): the board's pills, 28px,
    12px caps at 0.02em, open tab on #171E27, no underline. */
-${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"]) {
+${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"], [data-tree-tab^="plugin-workspace:"]) {
   height: 28px;
   align-self: center;
   border-radius: 6px;
@@ -188,9 +188,9 @@ ${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-t
   --tab-bg: transparent;
   background: transparent;
 }
-${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"]) span { letter-spacing: 0.02em; }
-${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"]):hover { background: #141B23; }
-${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"])[data-active="true"] {
+${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"], [data-tree-tab^="plugin-workspace:"]) span { letter-spacing: 0.02em; }
+${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"], [data-tree-tab^="plugin-workspace:"]):hover { background: #141B23; }
+${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"], [data-tree-tab^="plugin-workspace:"])[data-active="true"] {
   background: #171E27 !important;
   --tab-bg: #171E27;
   color: #E6EBF0;
@@ -611,6 +611,7 @@ const DEFAULT_PREFS = {
   designNav: true,
   showContextLine: false,
   chatBoard: true,
+  routeAuto: false,
   activityDetail: 'normal',
   showNeedsYouChip: true,
   showTodayChip: true,
@@ -1687,7 +1688,7 @@ const SLUG = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const $newBotAsked = atom(false)
 function openNewBot() {
   $newBotAsked.set(true)
-  host.navigate(BOTS_ROUTE)
+  openBoardTab()
 }
 
 function NewBotView({ looks, setLook, avatars, onDone }) {
@@ -2260,7 +2261,7 @@ function onHandoffEvent(e) {
   const list = $handoffs.get().slice()
   let entry = id ? list.find(h => h.id === id) : null
   if (!entry && (args.target || args.message)) {
-    entry = { id: id || `h-${Date.now()}`, from, to: String(args.target || ''), message: String(args.message || '').slice(0, 300), at: Date.now(), status: 'sent' }
+    entry = { id: id || `h-${Date.now()}`, from, to: String(args.target || ''), message: String(args.message || '').slice(0, 300), at: Date.now(), status: 'sent', session: (hit && hit.row && hit.row.id) || sessionId || null }
     list.unshift(entry)
   }
   if (!entry) return
@@ -2722,7 +2723,8 @@ function DispatchPanel({ rows }) {
   })
 }
 
-function BoardView({ looks, onLook }) {
+function BoardView({ looks, onLook, inTab }) {
+  const boardMode = useValue($boardMode)
   const crew = useValue($crew)
   const today = useValue($today)
   const looksValue = useValue(looks)
@@ -2731,7 +2733,7 @@ function BoardView({ looks, onLook }) {
   const perms = useValue($perms)
   const roomsValue = useValue($rooms)
   useEffect(() => {
-    $boardMounted.set(true)
+    if (!inTab) $boardMounted.set(true)
     if (!$perms.get().ready || Date.now() - $perms.get().at > 120000) refreshPerms()
     const permTimer = setInterval(() => {
       if (!$perms.get().ready) refreshPerms()
@@ -2739,7 +2741,7 @@ function BoardView({ looks, onLook }) {
     if (!$today.get().ready) refreshToday()
     return () => {
       clearInterval(permTimer)
-      $boardMounted.set(false)
+      if (!inTab) $boardMounted.set(false)
     }
   }, [])
   const needs = useMemo(() => {
@@ -2768,7 +2770,7 @@ function BoardView({ looks, onLook }) {
     children: [
       jsxs('div', {
         style: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', padding: '14px 22px 0', gap: 14, overflow: 'hidden' },
-        children: [
+        children: boardMode === 'inbox' ? [jsx(AgentInbox, { looks })] : [
           jsx(BoardDispatch, { rows }),
           jsxs('div', {
             style: { display: 'flex', flexDirection: 'column', minHeight: 0, flex: '1 1 auto' },
@@ -2801,7 +2803,7 @@ function BoardView({ looks, onLook }) {
   })
 }
 
-function BotsPage({ looks, setLook, avatars, os }) {
+function BotsPage({ looks, setLook, avatars, os, inTab }) {
   const crew = useValue($crew)
   const looksValue = useValue(looks)
   const busy = useValue(host.state.busy)
@@ -2886,7 +2888,7 @@ function BotsPage({ looks, setLook, avatars, os }) {
   } else if (crew.error && !profiles.length) {
     body = jsx('div', { className: 'p-6 text-sm text-(--ui-text-secondary)', children: `Could not list profiles: ${crew.error}` })
   } else {
-    body = jsx(BoardView, { looks, onLook: name => setEditing(name) })
+    body = jsx(BoardView, { looks, inTab, onLook: name => setEditing(name) })
   }
 
   if (!editingProfile && !creating && !(crew.error && !profiles.length)) {
@@ -2905,7 +2907,7 @@ function ComposerBotChip({ looks }) {
   return jsx('button', {
     type: 'button',
     title: `Talking to ${profile} — open the Bots board`,
-    onClick: () => host.navigate(BOTS_ROUTE),
+    onClick: () => openBoardTab(),
     'aria-label': `Talking to ${profile}`,
     className: 'flex h-7 w-7 items-center justify-center rounded-full hover:bg-(--chrome-action-hover)',
     children: jsx(AnimatedRobot, { look, head: true, expr: busy ? 'focused' : look.face, state: busy ? 'running' : 'idle', size: 22, title: profile })
@@ -3016,7 +3018,7 @@ function ContextLine({ looks, prefs }) {
   return jsxs('button', {
     type: 'button',
     title: 'Open the Bots board',
-    onClick: () => host.navigate(BOTS_ROUTE),
+    onClick: () => openBoardTab(),
     className: 'flex h-6 max-w-md items-center gap-1.5 rounded-md px-1.5 text-[0.6875rem] text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover)',
     children: [
       jsx(AnimatedRobot, { look, head: true, expr: busy ? 'focused' : look.face, state: busy ? 'running' : 'idle', size: 18, title: profile }),
@@ -3036,7 +3038,7 @@ function NeedsYouChip({ prefs }) {
     title: 'Sessions with a reply you have not read — open the Bots board',
     onClick: () => {
       $boardFilter.set('attention')
-      host.navigate(BOTS_ROUTE)
+      openBoardTab()
     },
     className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] font-medium text-(--ui-yellow) hover:underline',
     children: needYou === 1 ? '1 needs you' : `${needYou} need you`
@@ -3635,7 +3637,7 @@ function DeskNeedsYou({ looks, lookOf, fold }) {
       ? jsx(LinkButton, {
           onClick: () => {
             $boardFilter.set('attention')
-            host.navigate(BOTS_ROUTE)
+            openBoardTab()
           },
           children: 'All replies'
         })
@@ -3715,7 +3717,7 @@ function DeskPage({ looks, prefs, setPrefs }) {
           fold,
           count: recent.length ? String(recent.length) : '',
           title: 'Continue',
-          action: jsx(LinkButton, { onClick: () => host.navigate(BOTS_ROUTE), children: 'Bots board' }),
+          action: jsx(LinkButton, { onClick: () => openBoardTab(), children: 'Bots board' }),
           children: recent.length
             ? recent.map(entry => {
                 const r = entry.row
@@ -3958,7 +3960,7 @@ function HomeUnderside({ looks, prefs }) {
           jsx(HomeChip, { icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', label: 'Automations', onClick: () => host.navigate('/cron') }),
           jsx(HomeChip, { icon: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>', label: 'Artifacts', onClick: () => host.navigate('/artifacts') }),
           jsx(HomeChip, { icon: '<path d="M4 19V5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2zM8 7h6"/>', label: 'Hermes docs', onClick: () => window.open('https://hermes-agent.nousresearch.com/docs/user-guide/desktop', '_blank') }),
-          jsx('button', { type: 'button', 'aria-label': 'Bots board', title: 'Bots board', onClick: () => host.navigate(BOTS_ROUTE), style: { width: 34, height: 34, borderRadius: 8, border: '1px solid #222B35', background: '#121820', color: '#98A4B1', font: 'inherit', fontSize: 17, cursor: 'pointer' }, children: '+' })
+          jsx('button', { type: 'button', 'aria-label': 'Bots board', title: 'Bots board', onClick: () => openBoardTab(), style: { width: 34, height: 34, borderRadius: 8, border: '1px solid #222B35', background: '#121820', color: '#98A4B1', font: 'inherit', fontSize: 17, cursor: 'pointer' }, children: '+' })
         ]
       })
     ]
@@ -4132,7 +4134,7 @@ function QuickChips({ height = 32 }) {
       chip(CHIP_ICONS.clock, 'Automations', () => host.navigate('/cron')),
       chip(CHIP_ICONS.file, 'Artifacts', () => host.navigate('/artifacts')),
       chip(CHIP_ICONS.book, 'Hermes docs', () => window.open('https://hermes-agent.nousresearch.com/docs/user-guide/desktop', '_blank')),
-      jsx('button', { type: 'button', 'aria-label': 'Bots board', title: 'Bots board', onClick: () => host.navigate(BOTS_ROUTE), style: { width: height, height, borderRadius: 8, border: '1px solid #222B35', background: '#121820', color: '#98A4B1', font: 'inherit', fontSize: 17, cursor: 'pointer' }, children: '+' })
+      jsx('button', { type: 'button', 'aria-label': 'Bots board', title: 'Bots board', onClick: () => openBoardTab(), style: { width: height, height, borderRadius: 8, border: '1px solid #222B35', background: '#121820', color: '#98A4B1', font: 'inherit', fontSize: 17, cursor: 'pointer' }, children: '+' })
     ]
   })
 }
@@ -4145,6 +4147,7 @@ function ChatHeader({ looks, width }) {
   const cwd = useValue(host.state.cwd)
   const busy = useValue(host.state.busy)
   const detail = useValue($detail)
+  const botView = useValue($helmTabVisible)
   const hit = storedId && crew.byId ? crew.byId[storedId] : null
   const r = hit ? hit.row : null
   const owner = (hit && hit.profile) || profile
@@ -4153,9 +4156,10 @@ function ChatHeader({ looks, width }) {
   const folder = tildePath((r && r.cwd) || cwd)
   const sep = jsx('span', { style: { color: '#76838F' }, children: '·' })
   const bits = []
-  if (folder) bits.push(sep, jsx('span', { className: 'truncate', style: { fontFamily: B.mono, fontSize: 11.5, minWidth: 0 }, children: folder }))
-  if (r && r.git_branch) bits.push(sep, jsx('span', { style: { whiteSpace: 'nowrap' }, children: r.git_branch }))
-  if (r && r.started_at) bits.push(sep, jsx('span', { style: { whiteSpace: 'nowrap' }, children: `started ${clock(toMs(r.started_at))}` }))
+  if (botView) bits.push(sep, jsx('span', { style: { whiteSpace: 'nowrap' }, children: 'Bot chat' }), sep, jsxs('span', { style: { whiteSpace: 'nowrap' }, children: ['profile ', jsx('span', { style: { fontFamily: B.mono, fontSize: 11.5 }, children: owner || 'default' })] }))
+  else if (folder) bits.push(sep, jsx('span', { className: 'truncate', style: { fontFamily: B.mono, fontSize: 11.5, minWidth: 0 }, children: folder }))
+  if (!botView && r && r.git_branch) bits.push(sep, jsx('span', { style: { whiteSpace: 'nowrap' }, children: r.git_branch }))
+  if (!botView && r && r.started_at) bits.push(sep, jsx('span', { style: { whiteSpace: 'nowrap' }, children: `started ${clock(toMs(r.started_at))}` }))
   const opt = (v, label) =>
     jsx('button', {
       type: 'button',
@@ -4171,7 +4175,18 @@ function ChatHeader({ looks, width }) {
       jsx(RobotHead, { look, expr: busy ? 'focused' : look.face, size: 16, title: owner || 'bot' }),
       jsx('span', { style: { color: '#E6EBF0', fontWeight: 500, whiteSpace: 'nowrap' }, children: p ? botLabel(p) : owner || 'Hermes' }),
       ...bits,
-      jsxs('span', {
+      botView
+        ? jsx('button', {
+            type: 'button',
+            onClick: () => {
+              const vp = document.querySelector('[data-chat-surface] [data-slot="aui_thread-viewport"]')
+              if (vp) vp.scrollTo({ top: 0, behavior: 'smooth' })
+            },
+            style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11.5, cursor: 'pointer', whiteSpace: 'nowrap' },
+            children: 'Show earlier messages'
+          })
+        : null,
+      botView ? null : jsxs('span', {
         style: { marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 10, flexShrink: 0 },
         children: [
           opt('summary', 'Summary'),
@@ -4281,7 +4296,8 @@ function SessionChrome({ looks, prefs }) {
 function ComposerMeter() {
   const usage = useValue(host.state.focusedUsage)
   const fresh = useFreshDraft()
-  if (inHudWindow() || fresh || !usage) return null
+  const botView = useValue($helmTabVisible)
+  if (inHudWindow() || fresh || !usage || botView) return null
   const cost = typeof usage.cost_usd === 'number' ? usage.cost_usd : null
   const used = Number(usage.context_used) || 0
   const max = Number(usage.context_max) || 0
@@ -4385,9 +4401,10 @@ function startTabDots() {
   if (typeof document === 'undefined' || !isPrimaryWindow()) return () => {}
   const style = document.createElement('style')
   style.textContent = `
-[data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"])::before { content: ''; width: 6px; height: 6px; border-radius: 3px; background: #343D47; flex-shrink: 0; margin-right: 8px; align-self: center; }
+[data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"], [data-tree-tab^="plugin-workspace:"])::before { content: ''; width: 6px; height: 6px; border-radius: 3px; background: #343D47; flex-shrink: 0; margin-right: 8px; align-self: center; }
 [data-slot="pane-tab"][data-helm-dot="working"]::before, [data-slot="pane-tab"][data-active="true"][data-helm-dot]::before { background: var(--ui-accent) !important; }
 [data-slot="pane-tab"][data-helm-dot="needs"]::before { background: #E8A657 !important; }
+[data-slot="pane-tab"][data-tree-tab="plugin-workspace:helm:board"]::before { display: none !important; }
 `
   document.head.appendChild(style)
   const tick = () => {
@@ -4396,7 +4413,7 @@ function startTabDots() {
       const active = atomGet(host.state.activeSessionId)
       const inbox = $inbox.get()
       const waitingRuntime = new Set([...(inbox.approvals || []), ...(inbox.questions || [])].map(a => a.sessionId || a.runtimeId).filter(Boolean))
-      document.querySelectorAll('[data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"])').forEach(tab => {
+      document.querySelectorAll('[data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"], [data-tree-tab^="plugin-workspace:"])').forEach(tab => {
         const t = tab.getAttribute('data-tree-tab')
         const rid = t === 'workspace' ? active : t.slice('session-tile:'.length)
         const kind = rid && waitingRuntime.has(rid) ? 'needs' : rid && busy[rid] ? 'working' : 'idle'
@@ -4520,7 +4537,7 @@ function HudPanel({ looks, prefs }) {
             type: 'button',
             title: 'Open the full app',
             'aria-label': 'Open the full app',
-            onClick: () => (hud && typeof hud.close === 'function' ? hud.close() : host.navigate(BOTS_ROUTE)),
+            onClick: () => (hud && typeof hud.close === 'function' ? hud.close() : openBoardTab()),
             style: { width: 24, height: 24, borderRadius: 6, border: 0, background: 'transparent', color: B.t3, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 },
             children: jsx('svg', { width: 13, height: 13, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, 'aria-hidden': true, children: jsx('path', { d: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5' }) })
           })
@@ -5208,6 +5225,12 @@ function needsByBot(n) {
 
 function openBot(p, activity) {
   haptic('tap')
+  $botFocus.set(p.name)
+  try {
+    if (host.revealPane) setTimeout(() => host.revealPane(`${ID}:bot-pane`), 300)
+  } catch {
+    /* older host */
+  }
   const target = activity.sessions.find(r => r.unread) || activity.sessions.find(r => r.is_active && !r.ended_at) || activity.latest
   if (target) openSession(target, p.name)
   else host.newChat(p.name)
@@ -5379,7 +5402,7 @@ function HelmFooter({ rows, focusedProfile, board }) {
             )
           })
         : null,
-      board ? null : jsx('button', { type: 'button', onClick: () => host.navigate(BOTS_ROUTE), style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit', fontSize: 11.5 }, children: 'Board view' })
+      board ? null : jsx('button', { type: 'button', onClick: () => openBoardTab(), style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit', fontSize: 11.5 }, children: 'Board view' })
     ]
   })
 }
@@ -5409,7 +5432,10 @@ function HelmTab({ looks, prefs, setPrefs }) {
   const workCount = rows.filter(r => r.line.key === 'working').length
   const shown = sorted.filter(r => filter === 'all' || r.line.key === filter)
   const focusedProfile = useValue(host.state.focusedSessionProfile)
-  const boardOpen = useValue($boardMounted)
+  const boardRoute = useValue($boardMounted)
+  const boardTab = useValue($boardTabVisible)
+  const boardMode = useValue($boardMode)
+  const boardOpen = boardRoute || boardTab
   const roomsValue = useValue($rooms)
   const [newRoom, setNewRoom] = useState(false)
   const today = useValue($today)
@@ -5426,13 +5452,15 @@ function HelmTab({ looks, prefs, setPrefs }) {
       atom = null
     }
     const open = () => {
-      if (!$boardMounted.get()) host.navigate(BOTS_ROUTE)
+      if (!$boardMounted.get()) openBoardTab()
     }
     if (!atom || typeof atom.subscribe !== 'function') {
+      $helmTabVisible.set(true)
       open()
       return undefined
     }
     const off = atom.subscribe(v => {
+      $helmTabVisible.set(!!v)
       if (v && !was) open()
       was = !!v
     })
@@ -5461,16 +5489,13 @@ function HelmTab({ looks, prefs, setPrefs }) {
         jsxs('div', {
           style: { padding: '10px 8px 0', display: 'flex', flexDirection: 'column', gap: 1 },
           children: [
-            navRow('Board', [{ r: { x: 3, y: 4, width: 5, height: 16, rx: 1 } }, { r: { x: 10, y: 4, width: 5, height: 10, rx: 1 } }, { r: { x: 17, y: 4, width: 4, height: 13, rx: 1 } }], { selected: true }),
+            navRow('Board', [{ r: { x: 3, y: 4, width: 5, height: 16, rx: 1 } }, { r: { x: 10, y: 4, width: 5, height: 10, rx: 1 } }, { r: { x: 17, y: 4, width: 4, height: 13, rx: 1 } }], { selected: boardMode !== 'inbox', onClick: () => openBoardTab('board') }),
             navRow('Roster', ['M4 6h16M4 12h16M4 18h10'], { onClick: () => { const r = rows.find(x => x.p.name === focusedProfile) || sorted[0]; if (r) openBot(r.p, r.activity) } }),
             navRow('Routines', [{ c: { cx: 12, cy: 12, r: 9 } }, 'M12 7v5l3 2'], { count: routines || null, onClick: () => host.navigate('/cron') }),
             navRow('Agent inbox', ['M4 6h16v10H8l-4 4z'], {
-              count: (handoffs || []).length || null,
-              onClick: () => {
-                const el = document.querySelector('[data-helm-handoffs]')
-                if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' })
-                else host.navigate(BOTS_ROUTE)
-              }
+              count: (handoffs || []).length + n.total || null,
+              selected: boardMode === 'inbox',
+              onClick: () => openBoardTab('inbox')
             })
           ]
         }),
@@ -5683,6 +5708,503 @@ function TaskPlan({ items, label }) {
       })
     ]
   })
+}
+
+// ──────────────────────────────────────────────── Bots board as a tab
+// The board is a session-style tab in the title-bar strip ("BOTS · BOARD"),
+// beside the chats, not a page that replaces them.
+const BOARD_KEY = `${ID}:board`
+const BOARD_PANE = `plugin-workspace:${BOARD_KEY}`
+const $boardTabVisible = atom(false)
+const $boardMode = atom('board')
+let boardArgs = null
+let boardTabClose = null
+let boardTabOff = null
+function openBoardTab(mode) {
+  if (mode) $boardMode.set(mode)
+  if (boardTabClose && host.revealPane) {
+    host.revealPane(BOARD_PANE)
+    return
+  }
+  if (typeof host.openWorkspace !== 'function' || !boardArgs) {
+    host.navigate(BOTS_ROUTE)
+    return
+  }
+  try {
+    boardTabClose = host.openWorkspace(BOARD_KEY, {
+      title: 'Bots · Board',
+      minWidth: '30rem',
+      render: () => jsx(BotsPage, { ...boardArgs, inTab: true }),
+      onClose: () => {
+        boardTabClose = null
+        if (boardTabOff) boardTabOff()
+        boardTabOff = null
+        $boardTabVisible.set(false)
+      }
+    })
+    const vis = typeof host.paneVisibility === 'function' ? host.paneVisibility(BOARD_PANE) : null
+    if (vis && typeof vis.subscribe === 'function') boardTabOff = vis.subscribe(v => $boardTabVisible.set(!!v))
+    else $boardTabVisible.set(true)
+  } catch (err) {
+    host.notifyError?.(`Could not open the board: ${err && err.message ? err.message : err}`)
+    host.navigate(BOTS_ROUTE)
+  }
+}
+
+// ─────────────────────────────────────────────────────── Agent inbox
+// Everything the bots sent each other (message_agent), newest first, with
+// what still waits on you above it.
+function AgentInbox({ looks }) {
+  const list = useValue($handoffs)
+  const crew = useValue($crew)
+  const looksValue = useValue(looks)
+  const n = useNeedsYou()
+  const byName = Object.fromEntries((crew.profiles || []).map(p => [p.name, p]))
+  const label = name => (byName[name] ? botLabel(byName[name]) : name || 'a bot')
+  const statusColor = s => (s === 'failed' ? B.red : s === 'replied' ? B.green : s === 'delivered' ? B.t2 : V.accent)
+  return jsxs('div', {
+    'data-helm-agent-inbox': '',
+    style: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 18, paddingBottom: 18 },
+    children: [
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'baseline', gap: 10 },
+        children: [
+          jsx('h2', { style: { margin: 0, fontSize: 15, fontWeight: 500, color: B.t1 }, children: 'Agent inbox' }),
+          jsx('span', { style: { fontSize: 12, color: B.t4 }, children: `${list.length} bot-to-bot ${list.length === 1 ? 'message' : 'messages'} · ${n.total} waiting on you` }),
+          jsx('button', { type: 'button', onClick: () => $boardMode.set('board'), style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: '← Board' })
+        ]
+      }),
+      n.approvals.length + n.questions.length
+        ? jsxs('section', {
+            children: [
+              jsx('div', { style: { ...B_CAPS, color: B.amber, marginBottom: 6 }, children: 'Waiting on you' }),
+              jsx('div', {
+                style: { borderTop: `1px solid ${B.hair}` },
+                children: [...n.approvals.map(item => jsx(ApprovalRow, { item, looks: looksValue }, item.requestId)), ...n.questions.map(item => jsx(QuestionRow, { item, looks: looksValue }, `q:${item.sessionId}`))]
+              })
+            ]
+          })
+        : null,
+      jsxs('section', {
+        children: [
+          jsx('div', { style: { ...B_CAPS, marginBottom: 6 }, children: 'Bot to bot' }),
+          list.length
+            ? jsx('div', {
+                style: { borderTop: `1px solid ${B.hair}` },
+                children: list.map(h =>
+                  jsxs('div', {
+                    style: { display: 'grid', gridTemplateColumns: '64px 1fr auto', gap: 12, alignItems: 'start', padding: '10px 2px', borderBottom: `1px solid ${B.hair}` },
+                    children: [
+                      jsx('span', { style: { fontFamily: B.mono, fontSize: 11, color: B.t4, paddingTop: 2 }, children: h.at ? new Date(h.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '' }),
+                      jsxs('div', {
+                        style: { display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 },
+                        children: [
+                          jsxs('div', {
+                            style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 },
+                            children: [
+                              jsx(RobotHead, { look: normalizeLook(looksValue[h.from], h.from || 'default'), size: 16, title: label(h.from) }),
+                              jsx('span', { style: { color: B.t1 }, children: label(h.from) }),
+                              jsx('span', { style: { color: B.t4 }, children: '→' }),
+                              jsx('span', { style: { color: B.t1 }, children: label(h.to) }),
+                              jsx('span', { style: { color: statusColor(h.status), fontSize: 12 }, children: `· ${h.status === 'failed' ? 'not delivered' : h.status}` })
+                            ]
+                          }),
+                          jsx('div', { style: { fontSize: 12.5, color: B.t2, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }, children: h.message })
+                        ]
+                      }),
+                      h.session
+                        ? jsx('button', { type: 'button', onClick: () => host.openSession && host.openSession(h.session, { profile: h.from || undefined }), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }, children: 'Open exchange' })
+                        : jsx('span', {})
+                    ]
+                  }, h.id)
+                )
+              })
+            : jsx('div', { style: { color: B.t4, fontSize: 12.5, padding: '10px 2px', borderTop: `1px solid ${B.hair}` }, children: 'No bot-to-bot messages yet. When one bot messages another (message_agent), it lands here with the reply status.' })
+        ]
+      })
+    ]
+  })
+}
+
+// ─────────────────────────────────────────── bot profile (right sidebar)
+// The Crew board's right panel for the bot you are talking to: who it is,
+// its routines with on/off switches, what it may do, its computer, its
+// exchanges with other bots, and its voice.
+const $botFocus = atom(null)
+const $botDetails = atom({})
+async function refreshBotDetails(name) {
+  if (!name || typeof host.request !== 'function') return
+  const keys = ['terminal.backend', 'tts.provider', 'bot_desktop.placement']
+  const out = { at: Date.now() }
+  const res = await Promise.allSettled(keys.map(key => readScoped(name, 'config.get', { key })))
+  res.forEach((r, i) => {
+    if (r.status === 'fulfilled' && r.value && r.value.value !== undefined) out[keys[i]] = r.value.value
+  })
+  if (typeof out['tts.provider'] === 'string' && out['tts.provider']) {
+    const prov = out['tts.provider']
+    for (const k of ['voice', 'voice_id']) {
+      try {
+        const v = await readScoped(name, 'config.get', { key: `tts.${prov}.${k}` })
+        if (v && typeof v.value === 'string' && v.value) {
+          out.voice = v.value
+          break
+        }
+      } catch {
+        /* that provider keeps no voice key */
+      }
+    }
+  }
+  try {
+    const st = await readScoped(name, 'display.status', {})
+    if (st && typeof st === 'object') out.display = st
+  } catch {
+    out.display = null
+  }
+  $botDetails.set({ ...$botDetails.get(), [name]: out })
+}
+
+function voiceLabel(v) {
+  if (!v) return ''
+  const m = String(v).match(/-([A-Z][a-z]+)Neural$/)
+  return m ? m[1] : String(v).length > 18 ? `${String(v).slice(0, 8)}…` : String(v)
+}
+
+function openBotComputer(p) {
+  const key = `${ID}:computer:${p.name}`
+  if (typeof host.openWorkspace !== 'function') return
+  try {
+    host.openWorkspace(key, { title: `${botLabel(p)} · Computer`, minWidth: '24rem', render: () => jsx(BotComputerView, { name: p.name, label: botLabel(p) }) })
+  } catch {
+    if (host.revealPane) host.revealPane(`plugin-workspace:${key}`)
+  }
+}
+
+function BotComputerView({ name, label }) {
+  const [shot, setShot] = useState(null)
+  const [status, setStatus] = useState(null)
+  const [err, setErr] = useState(null)
+  useEffect(() => {
+    let alive = true
+    const tick = async () => {
+      try {
+        const st = await readScoped(name, 'display.status', {})
+        if (alive) setStatus(st)
+        const t = await readScoped(name, 'display.thumbnail', {})
+        if (alive) {
+          setShot(t && t.data_url ? t.data_url : null)
+          setErr(t && t.suppressed ? 'You have control of this screen right now.' : null)
+        }
+      } catch (e) {
+        if (alive) setErr(e && e.message ? e.message : String(e))
+      }
+    }
+    tick()
+    const h = setInterval(tick, 2500)
+    return () => {
+      alive = false
+      clearInterval(h)
+    }
+  }, [name])
+  const running = status && (status.running || status.state === 'running')
+  const start = async () => {
+    try {
+      await readScoped(name, 'display.start', {})
+    } catch (e) {
+      host.notifyError?.(`Could not start ${label}'s screen: ${e && e.message ? e.message : e}`)
+    }
+  }
+  return jsxs('div', {
+    style: { height: '100%', display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 22px', background: B.bg, color: B.t1, fontSize: 13 },
+    children: [
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'center', gap: 8, color: B.t3, fontSize: 12 },
+        children: [
+          jsx('span', { style: { color: B.t1, fontWeight: 500 }, children: `${label}'s computer` }),
+          jsx('span', { style: { color: running ? B.green : B.t4 }, children: running ? '· awake' : '· asleep' }),
+          running ? null : jsx('button', { type: 'button', onClick: start, style: { marginLeft: 'auto', height: 26, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, background: 'transparent', color: B.t2, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: 'Start screen' })
+        ]
+      }),
+      shot
+        ? jsx('img', { src: shot, alt: `${label}'s screen`, style: { maxWidth: '100%', maxHeight: 'calc(100% - 40px)', objectFit: 'contain', borderRadius: 8, border: `1px solid ${B.hair}`, alignSelf: 'flex-start' } })
+        : jsx('div', { style: { color: B.t4, fontSize: 12.5 }, children: err || (running ? 'Waiting for the first frame…' : 'The screen is off. It starts the next time the bot uses its computer, or with Start screen.') })
+    ]
+  })
+}
+
+function Toggle({ on, onChange, label }) {
+  return jsx('button', {
+    type: 'button',
+    role: 'switch',
+    'aria-checked': !!on,
+    'aria-label': label,
+    onClick: () => onChange(!on),
+    style: { width: 30, height: 16, borderRadius: 8, border: 0, padding: 2, background: on ? V.accent : '#343D47', cursor: 'pointer', display: 'inline-flex', justifyContent: on ? 'flex-end' : 'flex-start', flexShrink: 0 },
+    children: jsx('span', { style: { width: 12, height: 12, borderRadius: 6, background: on ? '#06161A' : '#98A4B1' } })
+  })
+}
+
+async function setRoutineEnabled(job, on) {
+  try {
+    const params = { action: on ? 'resume' : 'pause', name: job.id }
+    if (job.profile) params.profile = job.profile
+    await host.request('cron.manage', params, 15000)
+    host.notify?.({ kind: 'success', message: `${job.name || 'Routine'} ${on ? 'is on' : 'is paused'}.` })
+  } catch (err) {
+    host.notifyError?.(`Could not change ${job.name || 'the routine'}: ${err && err.message ? err.message : err}`)
+  }
+  refreshToday()
+}
+
+function BotProfilePane({ looks }) {
+  const crew = useValue($crew)
+  const looksValue = useValue(looks)
+  const focus = useValue($botFocus)
+  const sessionOwner = useValue(host.state.focusedSessionProfile)
+  const today = useValue($today)
+  const perms = useValue($perms)
+  const details = useValue($botDetails)
+  const handoffs = useValue($handoffs)
+  const usage = useValue(host.state.focusedUsage)
+  const [showAll, setShowAll] = useState(false)
+  const name = focus || sessionOwner || ((crew.profiles || [])[0] || {}).name
+  const p = (crew.profiles || []).find(x => x.name === name)
+  useEffect(() => {
+    if (!$today.get().ready) refreshToday()
+    if (!$perms.get().ready) refreshPerms()
+  }, [])
+  useEffect(() => {
+    if (name) refreshBotDetails(name)
+  }, [name])
+  if (!p) return jsx('div', { style: { padding: 16, color: B.t4, fontSize: 12.5, background: B.panel, height: '100%' }, children: crew.ready ? 'Open a bot to see its profile.' : 'Loading your bots…' })
+  const look = normalizeLook(looksValue[p.name], p.name)
+  const activity = activityFor(crew, p.name)
+  const live = activity.sessions.find(r => r.is_active && !r.ended_at)
+  const d = details[p.name] || {}
+  const perm = perms.byProfile[p.name]
+  const role = botRole(p)
+  const jobs = (today.jobs || []).filter(j => j.profile === p.name).sort((a, b) => (toMs(a.next_run_at) || 9e15) - (toMs(b.next_run_at) || 9e15))
+  const shownJobs = showAll ? jobs : jobs.slice(0, 3)
+  const spend = activity.sessions.filter(r => isToday(r.last_active || r.started_at)).reduce((s, r) => s + rowCost(r), 0)
+  const mine = handoffs.filter(h => h.from === p.name || h.to === p.name).slice(0, 3)
+  const backend = d['terminal.backend']
+  const disp = d.display
+  const awake = disp && (disp.running || disp.state === 'running')
+  const label = text => jsx('div', { style: { ...B_CAPS, marginBottom: 8, display: 'flex', alignItems: 'center' }, children: text })
+  const link = (text, onClick) => jsx('button', { type: 'button', onClick, style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11.5, fontWeight: 500, letterSpacing: 0, textTransform: 'none', cursor: 'pointer' }, children: text })
+  const btn = (text, onClick) => jsx('button', { type: 'button', onClick, style: { height: 26, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, background: 'transparent', color: B.t2, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: text })
+  const duplicate = async () => {
+    const base = `${p.name}-copy`.slice(0, 30)
+    try {
+      await host.request('profiles.create', { name: base, clone_from: p.name, description: p.description || '' }, 30000)
+      host.notify?.({ kind: 'success', message: `Duplicated ${botLabel(p)} as ${base}.` })
+    } catch (err) {
+      host.notifyError?.(`Could not duplicate ${botLabel(p)}: ${err && err.message ? err.message : err}`)
+    }
+  }
+  const share = async () => {
+    const text = [`${botLabel(p)}${role ? ` · ${role}` : ''}`, p.description || '', `Model: ${p.model || 'default'}`, perm ? `Permissions: ${permsLine(perm)}` : ''].filter(Boolean).join('\n')
+    try {
+      await navigator.clipboard.writeText(text)
+      host.notify?.({ kind: 'success', message: `Copied ${botLabel(p)}'s profile card.` })
+    } catch {
+      host.notifyError?.('Could not reach the clipboard.')
+    }
+  }
+  const voiceChat = () => {
+    const b = document.querySelector('[data-slot="composer-surface"] button[aria-label*="oice" i], [data-slot="composer-surface"] button[aria-label*="ictat" i]')
+    if (b) b.click()
+    else host.notify?.({ kind: 'info', message: 'Open a chat with this bot first; voice starts from its composer.' })
+  }
+  const kv = []
+  const add = (k, v, mono) => {
+    if (v === null || v === undefined || v === '') return
+    kv.push(jsx('span', { style: { color: B.t4 }, children: k }, `k${k}`))
+    kv.push(jsx('span', { style: { color: B.t2, fontFamily: mono ? B.mono : undefined, fontSize: mono ? 11.5 : 12.5, minWidth: 0, wordBreak: 'break-word' }, children: v }, `v${k}`))
+  }
+  add('Approvals', perm ? (perm.mode === 'manual' ? 'ask · before every risky step' : perm.mode === 'smart' ? 'smart · asks for risky steps' : perm.mode === 'off' ? 'off · acts without asking' : perm.mode || '—') : 'reading…')
+  add('Local scripts', backend ? (backend === 'local' ? 'on · this Mac' : `sandboxed · ${backend}`) : null)
+  add('Computer use', disp === undefined ? null : disp ? (awake ? 'on · screen running' : 'on · starts when needed') : 'not set up')
+  add('Connections', perm && perm.servers ? (perm.servers.length ? perm.servers.join(' · ') : 'built-in tools only') : null)
+  add('Spend', `${fmtCost(spend)} today`, true)
+  return jsxs('aside', {
+    'aria-label': 'Bot profile',
+    'data-helm-bot-pane': '',
+    style: { height: '100%', display: 'flex', flexDirection: 'column', background: B.panel, color: B.t1, fontSize: 12.5 },
+    children: [
+      jsxs('div', {
+        style: { padding: '16px 16px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, borderBottom: `1px solid ${B.hair}`, flexShrink: 0 },
+        children: [
+          jsx(AnimatedRobot, { look, head: true, size: 56, expr: live ? 'focused' : activity.unread ? 'question' : look.face, state: live ? 'running' : 'idle', title: botLabel(p) }),
+          jsxs('div', { style: { fontSize: 14, fontWeight: 500 }, children: [botLabel(p), role ? jsx('span', { style: { color: B.t4, fontWeight: 400 }, children: ` · ${role}` }) : null] }),
+          jsx('div', { style: { fontSize: 11.5, color: B.t3, textAlign: 'center', lineHeight: 1.4 }, children: [backend === 'local' || !backend ? 'Runs on this Mac' : `Runs in ${backend}`, p.model ? `${p.model} pinned` : null, 'supervisor: you'].filter(Boolean).join(' · ') }),
+          jsxs('div', { style: { display: 'flex', gap: 6, marginTop: 4 }, children: [btn('Edit profile', () => host.navigate('/profiles')), btn('Duplicate', duplicate), btn('Share', share)] })
+        ]
+      }),
+      jsx('div', {
+        style: { display: 'flex', gap: 14, padding: '8px 16px 0', borderBottom: `1px solid ${B.hair}`, flexShrink: 0 },
+        children: [
+          ['ACTIVITY', null],
+          ['DISPATCH', () => openBoardTab('board')],
+          ['LIBRARY', () => host.navigate('/artifacts')]
+        ].map(([t, go]) => jsx('button', { type: 'button', onClick: go || undefined, 'aria-pressed': !go, style: { height: 28, padding: 0, border: 0, borderBottom: `2px solid ${go ? 'transparent' : V.accent}`, background: 'transparent', color: go ? B.t3 : B.t1, font: 'inherit', fontSize: 11.5, fontWeight: 600, letterSpacing: '0.08em', cursor: go ? 'pointer' : 'default' }, children: t }, t))
+      }),
+      jsxs('div', {
+        style: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14 },
+        children: [
+          jsxs('div', {
+            children: [
+              label(['Upcoming routines', jobs.length > 3 ? link(showAll ? 'Show fewer' : `Show all ${jobs.length}`, () => setShowAll(v => !v)) : jobs.length ? link('Automations', () => host.navigate('/cron')) : null]),
+              shownJobs.length
+                ? jsx('div', {
+                    style: { display: 'flex', flexDirection: 'column', gap: 7 },
+                    children: shownJobs.map(j =>
+                      jsxs('div', {
+                        style: { display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, alignItems: 'center' },
+                        children: [
+                          jsxs('div', { style: { lineHeight: 1.3, minWidth: 0 }, children: [jsx('div', { className: 'truncate', children: j.name || 'Routine' }), jsx('div', { className: 'truncate', style: { fontSize: 11, color: B.t4 }, children: j.schedule_display || (j.next_run_at ? `next ${clock(toMs(j.next_run_at))}` : '') })] }),
+                          jsx(Toggle, { on: j.enabled !== false, label: `${j.name || 'Routine'} on/off`, onChange: on => setRoutineEnabled(j, on) })
+                        ]
+                      }, j.id)
+                    )
+                  })
+                : jsx('div', { style: { color: B.t4, fontSize: 12 }, children: today.ready ? 'No routines for this bot.' : 'Reading routines…' })
+            ]
+          }),
+          jsxs('div', { children: [label('Permissions'), jsx('div', { style: { display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', gap: '5px 12px' }, children: kv })] }),
+          jsxs('div', {
+            children: [
+              label('Computer'),
+              jsxs('div', {
+                style: { display: 'flex', alignItems: 'center', gap: 10, color: B.t2 },
+                children: [
+                  jsx('svg', { width: 16, height: 16, viewBox: '0 0 24 24', fill: 'none', stroke: B.t3, strokeWidth: 1.8, 'aria-hidden': true, dangerouslySetInnerHTML: { __html: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>' } }),
+                  jsxs('span', { children: [`${botLabel(p)}'s computer`, jsx('span', { style: { color: awake ? B.green : B.t4 }, children: awake ? ' · awake' : disp === null ? ' · not set up' : ' · asleep' })] }),
+                  link('Open', () => openBotComputer(p))
+                ]
+              })
+            ]
+          }),
+          jsxs('div', {
+            children: [
+              label(['Exchanges', handoffs.length ? link('Agent inbox', () => openBoardTab('inbox')) : null]),
+              mine.length
+                ? jsx('div', {
+                    style: { display: 'flex', flexDirection: 'column', gap: 8, color: B.t2 },
+                    children: mine.map(h => {
+                      const other = h.from === p.name ? h.to : h.from
+                      const op = (crew.profiles || []).find(x => x.name === other)
+                      return jsxs('div', {
+                        style: { display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 1.3 },
+                        children: [
+                          jsxs('div', { children: [h.from === p.name ? 'Message to ' : 'Message from ', jsx('span', { style: { color: B.t1 }, children: op ? botLabel(op) : other || 'a bot' }), jsx('span', { style: { color: B.t4 }, children: ` · ${h.status} · ${shortAgo(h.at)}` })] }),
+                          jsx('div', { className: 'truncate', style: { fontSize: 11.5, color: B.t3 }, children: `“${h.message}”` }),
+                          jsx('button', { type: 'button', onClick: () => (h.session && host.openSession ? host.openSession(h.session, { profile: h.from || undefined }) : openBoardTab('inbox')), style: { alignSelf: 'flex-start', border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: 'Open exchange' })
+                        ]
+                      }, h.id)
+                    })
+                  })
+                : jsx('div', { style: { color: B.t4, fontSize: 12 }, children: 'No messages with other bots yet.' })
+            ]
+          })
+        ]
+      }),
+      jsxs('div', {
+        style: { borderTop: `1px solid ${B.hair}`, padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: B.t3, flexShrink: 0 },
+        children: [
+          jsx('span', { style: B_CAPS, children: 'Voice' }),
+          jsx('span', { className: 'truncate', children: [voiceLabel(d.voice) || d['tts.provider'] || 'default', '1×'].join(' · ') }),
+          jsx('button', { type: 'button', onClick: voiceChat, style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: 'Voice chat' })
+        ]
+      })
+    ]
+  })
+}
+
+// ───────────────────────────── composer in a bot chat: To: and routing
+// While the Helm tab is the open sidebar tab, the composer reads like the
+// Crew board: "To: <bot> ▾" picks who gets the message, "Route
+// automatically" lets helm's router pick by the brief.
+const $helmTabVisible = atom(false)
+
+function ComposerToPill({ looks }) {
+  const on = useValue($helmTabVisible)
+  const crew = useValue($crew)
+  const looksValue = useValue(looks)
+  const profile = useValue(host.state.focusedSessionProfile)
+  const prefsValue = useValue(helmPrefsRef ? helmPrefsRef.prefs : $helmTabVisible)
+  if (!on || inHudWindow()) return null
+  const p = (crew.profiles || []).find(x => x.name === profile)
+  const pal = PALETTE[normalizeLook(looksValue[profile], profile || 'default').color] || PALETTE.blue
+  const auto = !!(prefsValue && prefsValue.routeAuto)
+  const pick = async name => {
+    if (!name || name === profile) return
+    let draft = ''
+    try {
+      draft = (host.composer && (await host.composer.getDraft(null))) || ''
+    } catch {
+      draft = ''
+    }
+    startChat(name, draft, draft ? 'draft' : null)
+  }
+  const pill = { position: 'relative', height: 28, padding: '0 9px', borderRadius: 6, border: '1px solid #222B35', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', flex: '0 0 auto', cursor: 'pointer', background: 'transparent', font: 'inherit' }
+  return jsxs(Fragment, {
+    children: [
+      jsxs('label', {
+        'data-helm-to': '',
+        title: 'Who gets this message',
+        style: { ...pill, color: '#C3CCD5' },
+        children: [
+          jsx('span', { style: { width: 12, height: 12, borderRadius: 3, background: pal.dark || '#3D5A80', flexShrink: 0 } }),
+          `To: ${p ? botLabel(p) : profile || 'bot'} ▾`,
+          jsx('select', {
+            'aria-label': 'Send to',
+            value: profile || '',
+            onChange: e => pick(e.target.value),
+            style: { position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' },
+            children: (crew.profiles || []).map(x => jsx('option', { value: x.name, children: botLabel(x) }, x.name))
+          })
+        ]
+      }),
+      jsx('button', {
+        type: 'button',
+        'data-helm-route': '',
+        'aria-pressed': auto,
+        title: auto ? 'On: helm picks the bot for each message by what it asks for' : 'Off: messages go to the bot in To:',
+        onClick: () => helmPrefsRef && helmPrefsRef.setPrefs({ routeAuto: !auto }),
+        style: { ...pill, color: auto ? '#E6EBF0' : '#98A4B1', background: auto ? '#171E27' : 'transparent', borderColor: auto ? V.accent : '#222B35' },
+        children: 'Route automatically'
+      })
+    ]
+  })
+}
+
+function BotChatHint() {
+  const on = useValue($helmTabVisible)
+  const fresh = useFreshDraft()
+  if (!on || fresh || inHudWindow()) return null
+  return jsx('span', { 'data-helm-hint': '', style: { fontSize: 11.5, color: '#76838F', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: '0 1 auto' }, children: '@ mentions hand off · the reply lands here' })
+}
+
+// Route automatically: before a send in a bot chat, the router reads the
+// message; when another bot fits better, the message goes there instead.
+function routeMiddleware(draft) {
+  try {
+    const prefsValue = helmPrefsRef ? helmPrefsRef.prefs.get() : null
+    if (!prefsValue || !prefsValue.routeAuto || !$helmTabVisible.get()) return draft
+    const text = String((draft && draft.text) || '').trim()
+    if (!text || text.startsWith('/')) return draft
+    const crew = $crew.get()
+    const rows = (crew.profiles || []).map(p => boardRowFor(p, crew, {}, $today.get().jobs || [], $perms.get().byProfile))
+    const pick = routeBrief(text, rows, prefsValue.routing || {})
+    const current = atomGet(host.state.focusedSessionProfile)
+    if (!pick || !pick.bot || !pick.word || pick.bot === current) return draft
+    const target = (crew.profiles || []).find(p => p.name === pick.bot)
+    host.notify?.({ kind: 'info', message: `Routed to ${target ? botLabel(target) : pick.bot} · ${pick.tier} tier` })
+    startChat(pick.bot, text, 'send')
+    return null
+  } catch {
+    return draft
+  }
 }
 
 // ─────────────────────────────────────────────────────────── settings page
@@ -6164,7 +6686,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
                       style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 },
                       children: [
                         jsx(Seg, { label: 'Rail colour', value: p.rail, options: [{ id: 'mono', label: 'Mono rail' }, { id: 'colour', label: 'Colour rail' }], onChange: v => set({ rail: v }) }),
-                        jsx('button', { type: 'button', onClick: () => host.navigate(BOTS_ROUTE), style: { marginLeft: 'auto', border: 0, background: 'transparent', color: accentHex, font: 'inherit', fontSize: 12, cursor: 'pointer', padding: 0 }, children: 'Edit a bot’s look' })
+                        jsx('button', { type: 'button', onClick: () => openBoardTab(), style: { marginLeft: 'auto', border: 0, background: 'transparent', color: accentHex, font: 'inherit', fontSize: 12, cursor: 'pointer', padding: 0 }, children: 'Edit a bot’s look' })
                       ]
                     })
                   ]
@@ -6257,7 +6779,7 @@ function startRail(prefs) {
   const items = [
     { id: 'chevron', label: 'Show or hide the sidebar', run: toggleSidebar, cls: 'helm-rail-chevron', size: 14 },
     { id: 'plus', label: 'New chat', run: () => host.newChat(), match: p => p === '/' },
-    { id: 'bots', label: 'Bots', run: () => (host.revealPane ? host.revealPane(`${ID}:helm-tab`) : host.navigate(BOTS_ROUTE)), match: p => p.startsWith(BOTS_ROUTE) },
+    { id: 'bots', label: 'Bots', run: () => (host.revealPane ? host.revealPane(`${ID}:helm-tab`) : openBoardTab()), match: p => p.startsWith(BOTS_ROUTE) },
     { id: 'profiles', label: 'Instances and profiles', route: '/profiles' },
     { id: 'desk', label: 'Desk', route: DESK_ROUTE },
     { id: 'capabilities', label: 'Capabilities', route: '/capabilities' },
@@ -6586,6 +7108,11 @@ export default {
     syncNavPrefs()
     syncComposer()
 
+    boardArgs = { looks, setLook, avatars, os: ctx.os }
+    ctx.onDispose(() => {
+      if (boardTabClose) boardTabClose()
+      boardArgs = null
+    })
     // Status bar, titlebar, sidebar rows: the desk-wide layer.
     ctx.registerMany([
       { id: 'needs-you', area: 'statusBar.right', order: 116, render: () => jsx(NeedsYouChip, { prefs }) },
@@ -6628,6 +7155,16 @@ export default {
       { id: 'ask-pill', area: 'composer.actions', order: 10, render: () => jsx(ComposerAskPill, {}) },
       { id: 'composer-hint', area: 'composer.actions', order: 20, render: () => jsx(ComposerHint, {}) },
       { id: 'composer-meter', area: 'composer.actions', order: 21, render: () => jsx(ComposerMeter, {}) },
+      { id: 'composer-to', area: 'composer.actions', order: 5, render: () => jsx(ComposerToPill, { looks }) },
+      { id: 'bot-chat-hint', area: 'composer.actions', order: 22, render: () => jsx(BotChatHint, {}) },
+      { id: 'route-middleware', area: 'composer.middleware', data: { handler: routeMiddleware } },
+      {
+        id: 'bot-pane',
+        area: 'panes',
+        title: 'Bot',
+        data: { placement: 'right', collapsible: true, dock: { pane: `${ID}:session-pane`, pos: 'center' }, tabTitleText: () => 'Bot', width: '290px', minWidth: '240px' },
+        render: () => jsx(BotProfilePane, { looks })
+      },
       { id: 'session-chrome', area: 'composer.underside', order: 2, render: () => jsx(SessionChrome, { looks, prefs }) },
       { id: 'session-context', area: 'composer.top', order: 3, render: () => jsx(SessionContextRow, {}) },
       { id: 'sidechat-key', area: KEYBINDS_AREA, data: { id: 'helm.side-chat', label: 'Side chat (/btw)', category: 'view', defaults: ['mod+;'], run: openSideChat } },
@@ -6647,7 +7184,7 @@ export default {
       { id: 'look-nav', area: SIDEBAR_NAV_AREA, data: { path: LOOK_ROUTE, label: 'Customize look', codicon: 'symbol-color' } },
       { id: 'look-palette', area: PALETTE_AREA, data: { id: 'helm.look', label: 'Helm: Customize look', keywords: ['look', 'appearance', 'theme', 'skin', 'accent', 'font', 'helm'], run: () => host.navigate(LOOK_ROUTE) } },
       { id: 'newbot-palette', area: PALETTE_AREA, data: { id: 'helm.new-bot', label: 'Helm: New bot (robot)', keywords: ['new', 'bot', 'create', 'robot', 'teammate', 'agent', 'helm'], run: openNewBot } },
-      { id: 'bots-palette', area: PALETTE_AREA, data: { id: 'helm.bots', label: 'Helm: Bots board', keywords: ['bots', 'board', 'crew', 'robots', 'helm'], run: () => host.navigate(BOTS_ROUTE) } },
+      { id: 'bots-palette', area: PALETTE_AREA, data: { id: 'helm.bots', label: 'Helm: Bots board', keywords: ['bots', 'board', 'crew', 'robots', 'helm'], run: () => openBoardTab() } },
       {
         id: 'needs-palette',
         area: PALETTE_AREA,
@@ -6657,11 +7194,11 @@ export default {
           keywords: ['unread', 'needs', 'waiting', 'replies', 'helm'],
           run: () => {
             $boardFilter.set('attention')
-            host.navigate(BOTS_ROUTE)
+            openBoardTab()
           }
         }
       },
-      { id: 'bots-key', area: KEYBINDS_AREA, data: { id: 'helm.bots', label: 'Open the Bots board', category: 'view', defaults: ['mod+alt+r'], run: () => host.navigate(BOTS_ROUTE) } },
+      { id: 'bots-key', area: KEYBINDS_AREA, data: { id: 'helm.bots', label: 'Open the Bots board', category: 'view', defaults: ['mod+alt+r'], run: () => openBoardTab() } },
       { id: 'look-key', area: KEYBINDS_AREA, data: { id: 'helm.look', label: 'Customize look', category: 'view', defaults: ['mod+alt+u'], run: () => host.navigate(LOOK_ROUTE) } },
       ...THEMES.map(t => ({
         id: `palette-${t.name}`,
