@@ -559,9 +559,10 @@ const DEFAULT_PREFS = {
   font: 'system',
   width: 'default',
   rail: 'mono',
-  openDeskAtLaunch: true,
+  openDeskAtLaunch: false,
   showNeedsYouPane: true,
   showDeskStrip: true,
+  homeOnNewSession: true,
   showHudPanel: true,
   showRail: true,
   hudBoard: true,
@@ -3701,6 +3702,165 @@ function DeskPage({ looks, prefs, setPrefs }) {
   })
 }
 
+// ──────────────────────────────────────────────────────── new-session home
+// The Main board on a fresh New session: greeting and a one-line update,
+// Hermes's own composer raised under it, then Continue, Needs you and Today,
+// with the quick-action chips at the foot. Rendered in the composer's
+// underside slot (so it moves with the real composer) and only while the
+// chat is a fresh draft; Hermes's splash is hidden while it shows.
+const HOME_CSS = `
+[data-chat-surface]:has([data-helm-home]) [data-slot="aui_intro"] { display: none !important; }
+[data-chat-surface]:has([data-helm-home]) [data-slot="composer-dock"]:not([data-popped-out]) {
+  top: 118px !important; bottom: auto !important; width: min(740px, calc(100% - 3rem)) !important;
+}
+[data-chat-surface]:has([data-helm-home]) [data-slot="composer-dock"] > :last-child { display: block !important; padding: 0 !important; }
+[data-helm-home-greeting] { position: absolute; left: 5px; right: 5px; bottom: calc(100% + 22px); display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 4px; }
+`
+
+function useFreshDraft() {
+  const active = useValue(host.state.activeSessionId)
+  const stored = useValue(host.state.focusedStoredSessionId)
+  const [path, setPath] = useState(hashPath)
+  useEffect(() => {
+    const on = () => setPath(hashPath())
+    window.addEventListener('hashchange', on)
+    return () => window.removeEventListener('hashchange', on)
+  }, [])
+  return !active && !stored && path === '/' && isPrimaryWindow() && !inHudWindow()
+}
+
+function HomeChip({ icon, label, onClick }) {
+  return jsxs('button', {
+    type: 'button',
+    onClick,
+    style: { height: 34, padding: '0 12px', borderRadius: 8, border: '1px solid #222B35', background: '#121820', color: '#E6EBF0', font: 'inherit', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', whiteSpace: 'nowrap' },
+    children: [jsx('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: '#98A4B1', strokeWidth: 1.8, 'aria-hidden': true, dangerouslySetInnerHTML: { __html: icon } }), label]
+  })
+}
+
+function HomeSection({ title, action, children }) {
+  return jsxs('section', {
+    style: { display: 'flex', flexDirection: 'column' },
+    children: [
+      jsxs('div', { style: { display: 'flex', alignItems: 'center', padding: '0 2px 6px', ...B_CAPS }, children: [jsx('span', { children: title }), action ? jsx('span', { style: { marginLeft: 'auto', letterSpacing: 0, textTransform: 'none', fontWeight: 500 }, children: action }) : null] }),
+      jsx('div', { style: { borderTop: `1px solid ${B.hair}` }, children })
+    ]
+  })
+}
+
+function HomeUnderside({ looks, prefs }) {
+  const { homeOnNewSession, deskName } = useValue(prefs)
+  const fresh = useFreshDraft()
+  const crew = useValue($crew)
+  useValue($inbox)
+  const looksValue = useValue(looks)
+  const n = useNeedsYou()
+  const root = useRef(null)
+  const sections = useRef(null)
+  const [chipsTop, setChipsTop] = useState(null)
+  const [secMax, setSecMax] = useState(null)
+  useEffect(() => {
+    if (!fresh || homeOnNewSession === false) return
+    if (!$today.get().ready) refreshToday()
+    const place = () => {
+      const el = root.current
+      const bounds = el && el.closest('[data-slot="composer-bounds"]')
+      const dock = el && el.closest('[data-slot="composer-dock"]')
+      if (!bounds || !dock) return
+      const b = bounds.getBoundingClientRect()
+      const d = dock.getBoundingClientRect()
+      setChipsTop(Math.round(b.bottom - d.top - 58))
+      const sec = sections.current
+      if (sec) setSecMax(Math.max(120, Math.round(b.bottom - 58 - 18 - sec.getBoundingClientRect().top)))
+    }
+    place()
+    const h = setInterval(place, 1000)
+    window.addEventListener('resize', place)
+    return () => {
+      clearInterval(h)
+      window.removeEventListener('resize', place)
+    }
+  }, [fresh, homeOnNewSession])
+  if (!fresh || homeOnNewSession === false) return null
+  const recent = recentAcross(crew, 3)
+  const name = String(deskName || '').trim()
+  const setDraft = text => host.composer && typeof host.composer.setDraft === 'function' && host.composer.setDraft(null, text)
+  return jsxs('div', {
+    ref: root,
+    'data-helm-home': '',
+    style: { width: '100%', display: 'flex', flexDirection: 'column', gap: 22, paddingTop: 22, color: B.t1, fontSize: 13 },
+    children: [
+      jsx('style', { children: HOME_CSS }),
+      jsxs('div', {
+        'data-helm-home-greeting': '',
+        children: [
+          jsx('h1', { style: { margin: 0, fontSize: 19, fontWeight: 500, letterSpacing: '-0.01em', color: B.t1 }, children: `${greeting()}${name ? `, ${name}` : ''}.` }),
+          jsx('span', { style: { color: B.t4, fontSize: 12.5 }, children: statusSentence(crew) })
+        ]
+      }),
+      jsxs('div', {
+        ref: sections,
+        style: { display: 'flex', flexDirection: 'column', gap: 22, maxHeight: secMax || undefined, overflowY: 'auto', paddingRight: 2 },
+        children: [
+          jsx(HomeSection, {
+            title: 'Continue',
+            children: recent.length
+              ? recent.map(entry => {
+                  const r = entry.row
+                  const st = rowState(r)
+                  const live = r.is_active && !r.ended_at
+                  const cost = rowCost(r)
+                  return jsxs('button', {
+                    type: 'button',
+                    onClick: () => openSession(r, entry.profile.name),
+                    style: { width: '100%', display: 'grid', gridTemplateColumns: '14px 1fr auto auto', gap: 12, alignItems: 'center', padding: '9px 2px', borderBottom: `1px solid ${B.hair}`, borderTop: 0, borderLeft: 0, borderRight: 0, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer' },
+                    children: [
+                      jsx('span', { style: { width: 6, height: 6, borderRadius: 3, marginLeft: 4, background: live ? V.accent : r.unread ? B.amber : st.word === 'done' ? B.green : B.t4 } }),
+                      jsxs('span', {
+                        style: { display: 'flex', flexDirection: 'column', lineHeight: 1.3, minWidth: 0 },
+                        children: [
+                          jsx('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: sessionTitle(r) }),
+                          jsx('span', { style: { fontSize: 11.5, color: B.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: `${botLabel(entry.profile)} · ${live ? 'working' : r.unread ? 'replied, unread' : st.word}${r.message_count ? ` · ${r.message_count} msgs` : ''}` })
+                        ]
+                      }),
+                      jsx('span', { style: { fontSize: 11.5, color: B.t4, fontFamily: B.mono, whiteSpace: 'nowrap' }, children: [ago(r.last_active), cost >= 0.01 ? fmtCost(cost) : null].filter(Boolean).join(' · ') }),
+                      jsx('span', { style: { fontSize: 12, color: V.accent }, children: r.unread ? 'Review' : 'Open' })
+                    ]
+                  }, `${entry.profile.name}:${r.id}`)
+                })
+              : jsx('div', { style: { padding: '9px 2px', color: B.t4, fontSize: 12.5, borderBottom: `1px solid ${B.hair}` }, children: crew.ready ? 'No sessions yet.' : 'Loading sessions…' })
+          }),
+          jsx(HomeSection, {
+            title: n.total ? jsxs('span', { children: ['Needs you ', jsx('span', { style: { color: B.amber }, children: n.total })] }) : 'Needs you',
+            action: jsx('button', { type: 'button', onClick: () => host.revealPane && host.revealPane(`${ID}:helm-tab`), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: 'Open inbox' }),
+            children: n.total
+              ? [
+                  ...n.approvals.map(item => jsx(ApprovalRow, { item, looks: looksValue }, item.requestId)),
+                  ...n.questions.map(item => jsx(QuestionRow, { item, looks: looksValue }, `q:${item.sessionId}`))
+                ]
+              : jsx('div', { style: { padding: '9px 2px', color: B.t4, fontSize: 12.5, borderBottom: `1px solid ${B.hair}` }, children: 'Nothing is waiting on you.' })
+          }),
+          jsx(HomeSection, {
+            title: 'Today',
+            action: jsx('button', { type: 'button', onClick: () => host.navigate('/cron'), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: 'Automations' }),
+            children: jsx(TodayList, {})
+          })
+        ]
+      }),
+      jsxs('div', {
+        style: { position: chipsTop ? 'absolute' : 'static', top: chipsTop || undefined, left: 5, right: 5, display: 'flex', gap: 8, alignItems: 'center' },
+        children: [
+          jsx(HomeChip, { icon: '<path d="M4 20l16-8L4 4v6l10 2-10 2z"/>', label: 'Status report', onClick: () => setDraft('Give me a short status report: what you did, what is running, what needs me.') }),
+          jsx(HomeChip, { icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', label: 'Automations', onClick: () => host.navigate('/cron') }),
+          jsx(HomeChip, { icon: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>', label: 'Artifacts', onClick: () => host.navigate('/artifacts') }),
+          jsx(HomeChip, { icon: '<path d="M4 19V5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2zM8 7h6"/>', label: 'Hermes docs', onClick: () => window.open('https://hermes-agent.nousresearch.com/docs/user-guide/desktop', '_blank') }),
+          jsx('button', { type: 'button', 'aria-label': 'Bots board', title: 'Bots board', onClick: () => host.navigate(BOTS_ROUTE), style: { width: 34, height: 34, borderRadius: 8, border: '1px solid #222B35', background: '#121820', color: '#98A4B1', font: 'inherit', fontSize: 17, cursor: 'pointer' }, children: '+' })
+        ]
+      })
+    ]
+  })
+}
+
 // Above the composer on a fresh draft: jump back into recent work.
 // ──────────────────────────────────────────────────────────────── HUD
 // The HUD board in Hermes's own HUD window (View › HUD mode): who is on,
@@ -3905,7 +4065,7 @@ function DeskStrip({ looks, prefs }) {
   const crew = useValue($crew)
   const looksValue = useValue(looks)
   const recent = useMemo(() => recentAcross(crew, 3), [crew])
-  if (!showDeskStrip || active || stored || !recent.length || inHudWindow()) return null
+  if (!showDeskStrip || active || stored || !recent.length || inHudWindow() || prefs.get().homeOnNewSession !== false) return null
   const waiting = crewTotals(crew).needYou
   return jsxs('div', {
     style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, padding: '6px 8px 2px', fontSize: 11, color: V.t3 },
@@ -5367,6 +5527,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
                         jsx(Check, { k: 'showRowCost', label: 'Cost on each session row' }),
                         jsx(Check, { k: 'showRowBots', label: 'Robot on each session row' }),
                         jsx(Check, { k: 'showDeskStrip', label: 'Continue strip on new chats' }),
+                        jsx(Check, { k: 'homeOnNewSession', label: 'Home on New session', hint: 'greeting, Continue, Needs you, Today' }),
                         jsx(Check, { k: 'openDeskAtLaunch', label: 'Open the Desk at launch' })
                       ]
                     })
@@ -5665,6 +5826,11 @@ export default {
       Object.assign(stored, { showCostChip: false, designVersion: 3 })
       ctx.storage.set('prefs', stored)
     }
+    // The home now lives on New session (the Main board), so launch there.
+    if (stored.designVersion < 4) {
+      Object.assign(stored, { openDeskAtLaunch: false, homeOnNewSession: true, designVersion: 4 })
+      ctx.storage.set('prefs', stored)
+    }
     const prefs = atom({ ...DEFAULT_PREFS, ...stored })
     {
       const h = ctx.storage.get('handoffs', [])
@@ -5785,6 +5951,7 @@ export default {
       { id: 'desk-palette', area: PALETTE_AREA, data: { id: 'helm.desk', label: 'Helm: Desk', keywords: ['home', 'desk', 'dashboard', 'today', 'continue', 'helm'], run: () => host.navigate(DESK_ROUTE) } },
       { id: 'desk-key', area: KEYBINDS_AREA, data: { id: 'helm.desk', label: 'Open the Desk', category: 'view', defaults: ['mod+alt+0'], run: () => host.navigate(DESK_ROUTE) } },
       { id: 'desk-strip', area: 'composer.top', order: 5, render: () => jsx(DeskStrip, { looks, prefs }) },
+      { id: 'home', area: 'composer.underside', order: 1, render: () => jsx(HomeUnderside, { looks, prefs }) },
       { id: 'hud-panel', area: 'composer.top', order: 4, render: () => jsx(HudPanel, { looks, prefs }) },
       { id: 'hud-footer', area: 'composer.bottom', order: 90, render: () => jsx(HudFooter, { prefs }) },
       {

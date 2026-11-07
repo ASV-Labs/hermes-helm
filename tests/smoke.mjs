@@ -202,8 +202,9 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
   const tabHtml = renderToString(helmTab.render())
   for (const word of ['Needs you', 'gh release create', 'Approve', 'Bots', 'Working', 'Board view']) assert.ok(tabHtml.includes(word), `helm tab: ${word}`)
   dump('helm-tab', tabHtml)
-  const strip = renderToString(byArea('composer.top')[0].render())
-  assert.ok(strip.includes('Continue') && strip.includes('Install helm') && strip.includes('1 needs you'), `desk strip: ${strip.slice(0, 300)}`)
+  const home = renderToString(contributions.find(c => c.id === 'home').render())
+  for (const word of ['data-helm-home', 'Continue', 'Install helm', 'Needs you', 'Today', 'Open inbox', 'Status report', 'Hermes docs']) assert.ok(home.includes(word), `new-session home: ${word} in ${home.slice(0, 200)}`)
+  dump('home', home)
 }
 
 const rendered = []
