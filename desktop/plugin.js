@@ -1217,9 +1217,18 @@ async function refreshCrew() {
             // Read deep enough to cover every row the sidebar can show (it
             // pages ~200 per scope), but keep the per-bot lists short.
             const page = await host.listPersistedSessions(null, { profile: p.name, limit: 200 })
-            const all = ((page && page.sessions) || []).filter(r => r && !r.hidden && !r.is_internal_child)
+            const raw = ((page && page.sessions) || []).filter(r => r && !r.is_internal_child)
+            const all = raw.filter(r => !r.hidden)
             all.sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
-            sessions[p.name] = all.slice(0, 40)
+            // A bot's own forever-chat is a hidden session: when it is live,
+            // the bot is working, so it leads the list.
+            const hiddenLive = raw.filter(r => r.hidden && r.is_active && !r.ended_at)
+            sessions[p.name] = [...hiddenLive, ...all.slice(0, 40)]
+            for (const r of hiddenLive) {
+              const entry = { profile: p.name, row: r }
+              byId[r.id] = entry
+              if (r._lineage_root_id) byId[r._lineage_root_id] = entry
+            }
             for (const r of all) {
               const entry = { profile: p.name, row: r }
               byId[r.id] = entry
@@ -1264,7 +1273,7 @@ function activityFor(crew, profileName) {
     available: canRead && !failed,
     loading: canRead && !crew.ready,
     sessions: rows,
-    latest: rows[0] || null,
+    latest: rows.find(r => !r.hidden) || rows[0] || null,
     active: rows.some(r => r.is_active && !r.ended_at),
     unread: rows.filter(r => r.unread).length,
     spend: rows.reduce((sum, r) => sum + rowCost(r), 0)
@@ -1912,7 +1921,9 @@ function DispatchPanel({ rows }) {
   const today = useValue($today)
   const crew = useValue($crew)
   useEffect(() => {
-    if (!$today.get().ready) refreshToday()
+    if (!$today.get().ready || !$today.get().available) refreshToday()
+    const t = setInterval(() => refreshToday(), 60000)
+    return () => clearInterval(t)
   }, [])
   const byName = Object.fromEntries((crew.profiles || []).map(p => [p.name, p]))
   const label = name => (byName[name] ? botLabel(byName[name]) : name || 'a bot')
@@ -1921,10 +1932,18 @@ function DispatchPanel({ rows }) {
     if (j.running) items.push({ at: toMs(j.last_run_at) || Date.now(), title: j.name || 'Routine', who: j.profile, status: 'running', color: V.accent, kind: 'routine' })
     else if (isToday(j.last_run_at)) items.push({ at: toMs(j.last_run_at), title: j.name || 'Routine', who: j.profile, status: j.last_status === 'error' ? 'failed' : 'done', color: j.last_status === 'error' ? B.red : B.green, detail: j.last_status === 'error' && j.last_error ? j.last_error.split('\n')[0].slice(0, 40) : '', kind: 'routine' })
   }
+  const jobRuns = items.length
   for (const p of crew.profiles || []) {
     for (const r of (crew.sessions && crew.sessions[p.name]) || []) {
       const src = (r.source || '').toLowerCase()
-      if (src === 'cron' || r.scheduler_owned) continue
+      const scheduled = src === 'cron' || r.scheduler_owned
+      if (scheduled && jobRuns) continue
+      if (scheduled) {
+        if (!isToday(r.started_at || r.last_active)) continue
+        const live = r.is_active && !r.ended_at
+        items.push({ at: toMs(r.started_at || r.last_active), title: sessionTitle(r), who: p.name, status: live ? 'running' : 'done', color: live ? V.accent : B.green, detail: '', kind: 'routine', row: r })
+        continue
+      }
       if (!isToday(r.started_at || r.last_active)) continue
       const live = r.is_active && !r.ended_at
       items.push({ at: toMs(r.started_at || r.last_active), title: sessionTitle(r), who: p.name, status: live ? 'running' : 'done', color: live ? V.accent : B.green, detail: r.message_count ? `${r.message_count} msgs` : '', kind: 'chat', row: r })
