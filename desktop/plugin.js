@@ -251,8 +251,7 @@ ${HELM_CSS_SCOPE} [data-slot="composer-surface"] {
   background: #121820 !important;
 }
 /* Composer controls: the board's bordered 28px pills (+, model, effort, mic). */
-${HELM_CSS_SCOPE} [data-slot="composer-surface"] div.grid > div > button:not([type="submit"]),
-${HELM_CSS_SCOPE} [data-slot="composer-surface"] div.grid > div > span > button:not([type="submit"]) {
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[class*="composer-control-size"]:not([type="submit"]):not([class*="primary-size"]) {
   height: 28px !important;
   min-width: 28px;
   border: 1px solid #222B35 !important;
@@ -261,8 +260,7 @@ ${HELM_CSS_SCOPE} [data-slot="composer-surface"] div.grid > div > span > button:
   color: #C3CCD5;
   font-size: 12px;
 }
-${HELM_CSS_SCOPE} [data-slot="composer-surface"] div.grid > div > button:not([type="submit"]):hover,
-${HELM_CSS_SCOPE} [data-slot="composer-surface"] div.grid > div > span > button:not([type="submit"]):hover { background: #171E27; color: #E6EBF0; }
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[class*="composer-control-size"]:not([type="submit"]):not([class*="primary-size"]):hover { background: #171E27; color: #E6EBF0; }
 ${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[type="submit"] {
   width: 28px !important;
   height: 28px !important;
@@ -1871,7 +1869,9 @@ function sessionStatusFor(sessionId, crew, inbox, plan) {
   if (approval) return { lead: 'Approval', rest: approval.command ? approval.command.split('\n')[0].slice(0, 60) : approval.description, tone: 'amber' }
   const question = inbox.questions.find(q => ids.has(q.storedId) || ids.has(q.sessionId))
   if (question) return { lead: 'Question', rest: 'waiting for your answer', tone: 'amber' }
-  if (!r) return null
+  // Not in the recent read (older than the cron runs that fill it): nothing
+  // waits on it and nothing runs in it, so it's idle.
+  if (!r) return crew.ready ? { lead: 'Idle', rest: '', tone: 'plain' } : null
   const cost = rowCost(r)
   const money = cost >= 0.01 ? fmtCost(cost) : null
   if (r.handoff_error) return { lead: 'Failed', rest: String(r.handoff_error).slice(0, 48), tone: 'red' }

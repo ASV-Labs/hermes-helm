@@ -228,7 +228,7 @@ const rowBot = byArea('sessionRow.leading')[0].data.render({ sessionId: 'root-1'
 assert.equal(renderToString(rowBot), '', 'no robot heads in session rows by default (the design has none)')
 const rowStatus = renderToString(byArea('sessionRow.trailing')[0].data.render({ sessionId: 's1' }))
 assert.ok(rowStatus.includes('data-helm-row-status') && rowStatus.includes('Question'), `row status line: ${rowStatus}`)
-assert.equal(renderToString(byArea('sessionRow.trailing')[0].data.render({ sessionId: 'nope' })), '', 'unknown rows untouched')
+assert.ok(renderToString(byArea('sessionRow.trailing')[0].data.render({ sessionId: 'nope' })).includes('Idle'), 'rows older than the read say Idle')
 const ctxLine = renderToString(byArea('titleBar.center')[0].render())
 assert.ok(ctxLine.includes('vision') && ctxLine.includes('$0.42'), `context line: ${ctxLine.slice(0, 200)}`)
 const chips = Object.fromEntries(byArea('statusBar.right').map(c => [c.id, renderToString(c.render())]))
