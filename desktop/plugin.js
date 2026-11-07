@@ -1884,6 +1884,52 @@ function HelmRoomRow({ entry, looks, looksValue }) {
   })
 }
 
+function NewRoomForm({ profiles, looks, onDone }) {
+  const [name, setName] = useState('')
+  const [picked, setPicked] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const toggle = n => setPicked(prev => (prev.includes(n) ? prev.filter(x => x !== n) : prev.length >= 6 ? prev : [...prev, n]))
+  const create = async () => {
+    if (!name.trim() || picked.length < 2 || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const members = picked.map(profile => ({ member_id: profile, profile, handle: profile, target: { kind: 'local', profile } }))
+      const roomId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `room-${Date.now()}`
+      const res = await roomRequest('groups.create', { room_id: roomId, name: name.trim(), members }, 30000)
+      await refreshRooms()
+      onDone()
+      if (res && res.room) openRoom(res.room, looks)
+    } catch (err) {
+      setError(err && err.message ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return jsxs('div', {
+    style: { margin: '2px 8px 6px', padding: 8, borderRadius: 8, border: '1px solid #222B35', background: '#0F1419', display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 },
+    children: [
+      jsx('input', { value: name, onChange: e => setName(e.target.value), placeholder: 'Room name, e.g. Release crew', 'aria-label': 'Room name', style: { height: 26, borderRadius: 6, border: '1px solid #222B35', background: '#121820', color: '#E6EBF0', padding: '0 8px', font: 'inherit', fontSize: 12 } }),
+      jsx('div', {
+        style: { display: 'flex', flexWrap: 'wrap', gap: 4 },
+        children: profiles.map(p =>
+          jsx('button', { type: 'button', 'aria-pressed': picked.includes(p.name), onClick: () => toggle(p.name), style: { height: 22, padding: '0 8px', borderRadius: 11, border: `1px solid ${picked.includes(p.name) ? V.accent : '#222B35'}`, background: picked.includes(p.name) ? '#171E27' : 'transparent', color: picked.includes(p.name) ? '#E6EBF0' : '#98A4B1', font: 'inherit', fontSize: 11, cursor: 'pointer' }, children: botLabel(p) }, p.name)
+        )
+      }),
+      error ? jsx('div', { style: { color: '#E07080', fontSize: 11.5 }, children: error }) : null,
+      jsxs('div', {
+        style: { display: 'flex', gap: 8, alignItems: 'center' },
+        children: [
+          jsx('span', { style: { color: '#76838F', fontSize: 11 }, children: 'two to six bots' }),
+          jsx('button', { type: 'button', onClick: onDone, style: { marginLeft: 'auto', border: 0, background: 'transparent', color: '#98A4B1', font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: 'Cancel' }),
+          jsx('button', { type: 'button', disabled: busy || !name.trim() || picked.length < 2, onClick: create, style: { height: 24, padding: '0 10px', borderRadius: 6, border: 0, background: V.accent, color: ON_ACCENT, font: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: name.trim() && picked.length >= 2 ? 1 : 0.45 }, children: busy ? 'Creating…' : 'Create room' })
+        ]
+      })
+    ]
+  })
+}
+
 function RoomView({ roomId, looks }) {
   const looksValue = useValue(looks)
   const [room, setRoom] = useState(null)
@@ -4624,6 +4670,7 @@ function HelmTab({ looks, prefs, setPrefs }) {
   const focusedProfile = useValue(host.state.focusedSessionProfile)
   const boardOpen = useValue($boardMounted)
   const roomsValue = useValue($rooms)
+  const [newRoom, setNewRoom] = useState(false)
   const today = useValue($today)
   if (!crew.ready && !(crew.profiles || []).length) {
     return jsx('div', { style: { padding: '14px', fontSize: 12, color: V.t3 }, children: 'Loading your bots…' })
@@ -4694,7 +4741,7 @@ function HelmTab({ looks, prefs, setPrefs }) {
           jsx(HelmChip, { label: 'All', active: filter === 'all', onClick: () => setFilter('all') }),
           jsx(HelmChip, { label: 'Needs you', count: needCount, active: filter === 'needs-you', tone: '#E8A657', onClick: () => setFilter('needs-you') }),
           jsx(HelmChip, { label: 'Working', count: workCount, active: filter === 'working', onClick: () => setFilter('working') }),
-          roomsValue.rooms.length ? jsx(HelmChip, { label: 'Rooms', active: filter === 'rooms', onClick: () => setFilter('rooms') }) : null,
+          roomsValue.ready && !roomsValue.error ? jsx(HelmChip, { label: 'Rooms', count: roomsValue.rooms.length, active: filter === 'rooms', onClick: () => setFilter('rooms') }) : null,
           jsx('button', {
             type: 'button',
             'aria-label': 'New bot',
@@ -4705,11 +4752,19 @@ function HelmTab({ looks, prefs, setPrefs }) {
           })
         ]
       }),
-      roomsValue.rooms.length && (filter === 'all' || filter === 'rooms')
+      roomsValue.ready && !roomsValue.error && (filter === 'all' || filter === 'rooms')
         ? jsxs(Fragment, {
             children: [
-              jsx(HelmSectionLabel, { children: 'Rooms' }),
-              ...roomsValue.rooms.map(entry => jsx(HelmRoomRow, { entry, looks, looksValue }, entry.room.room_id))
+              jsxs('div', {
+                style: { display: 'flex', alignItems: 'center', paddingRight: 14 },
+                children: [
+                  jsx('div', { style: { flex: 1 }, children: jsx(HelmSectionLabel, { children: 'Rooms' }) }),
+                  jsx('button', { type: 'button', onClick: () => setNewRoom(v => !v), style: { marginTop: 8, border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: newRoom ? 'Close' : 'New room' })
+                ]
+              }),
+              newRoom ? jsx(NewRoomForm, { profiles: crew.profiles || [], looks, onDone: () => setNewRoom(false) }) : null,
+              ...roomsValue.rooms.map(entry => jsx(HelmRoomRow, { entry, looks, looksValue }, entry.room.room_id)),
+              !roomsValue.rooms.length && !newRoom ? jsx('div', { style: { padding: '0 16px 4px', fontSize: 11.5, color: '#76838F' }, children: 'A room is a group chat of two to six bots.' }) : null
             ]
           })
         : null,
@@ -5483,6 +5538,7 @@ function startRail(prefs) {
     const failed = ($today.get().jobs || []).some(j => j.last_status === 'error' && toMs(j.last_run_at) >= startOfToday() * 1000)
     setDot('automations', failed ? '#E07080' : null)
   }
+  let topSeen = 0
   const place = () => {
     let top = 40
     let bottom = 0
@@ -5499,6 +5555,10 @@ function startRail(prefs) {
     } catch {
       /* keep the defaults */
     }
+    // The titlebar band is the same height collapsed or not; keep the
+    // tallest reading so the rail never jumps when the sidebar folds.
+    topSeen = Math.max(topSeen, top)
+    top = topSeen
     nav.style.top = `${top}px`
     nav.style.bottom = `${bottom}px`
     drag.style.height = `${top}px`
@@ -5532,7 +5592,11 @@ function startRail(prefs) {
     $today.subscribe(paintDots)
   ]
   window.addEventListener('hashchange', paintActive)
-  window.addEventListener('resize', place)
+  const onResize = () => {
+    topSeen = 0
+    place()
+  }
+  window.addEventListener('resize', onResize)
   const timer = setInterval(() => {
     if (mounted) {
       place()
@@ -5542,7 +5606,7 @@ function startRail(prefs) {
   return () => {
     offs.forEach(off => typeof off === 'function' && off())
     window.removeEventListener('hashchange', paintActive)
-    window.removeEventListener('resize', place)
+    window.removeEventListener('resize', onResize)
     clearInterval(timer)
     unmount()
   }
