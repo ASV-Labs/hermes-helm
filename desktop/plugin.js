@@ -165,6 +165,13 @@ ${HELM_CSS_SCOPE} [data-slot="tabs-trigger"][data-state="active"] {
   box-shadow: inset 0 -2px 0 var(--ui-accent);
 }
 
+/* Bots board rows: hover like the highlighted row, Look shows on hover. */
+${HELM_CSS_SCOPE} .helm-board-row:hover { background: #121820 !important; }
+${HELM_CSS_SCOPE} .helm-board-row .helm-board-look { opacity: 0; }
+${HELM_CSS_SCOPE} .helm-board-row:hover .helm-board-look,
+${HELM_CSS_SCOPE} .helm-board-look:focus-visible { opacity: 1; }
+${HELM_CSS_SCOPE} .helm-nav-row:hover { background: #171E27; color: #E6EBF0; }
+
 /* Titlebar session tabs (the main zone's strip): the board's pills, 28px,
    12px caps at 0.02em, open tab on #171E27, no underline. */
 ${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"]) {
@@ -1698,6 +1705,357 @@ function NewBotView({ looks, setLook, avatars, onDone }) {
   })
 }
 
+// ───────────────────────────────────────────── Bots board (the Bot board)
+// One brief in at the top, every bot in a table under it (attention first),
+// and the day's jobs on the right. Data: profiles, persisted sessions, the
+// inbox and cron.manage, the same reads the rest of helm makes.
+
+const $boardMounted = atom(false)
+const B = { bg: '#0F1419', panel: '#121820', sel: '#171E27', hair: '#1C242D', ctl: '#222B35', t1: '#E6EBF0', t2: '#C3CCD5', t3: '#98A4B1', t4: '#76838F', amber: '#E8A657', green: '#6FBF8E', red: '#E07080', mono: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace" }
+const B_CAPS = { fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: B.t4 }
+const B_GRID = 'minmax(130px, 180px) 96px minmax(140px, 1fr) 130px 120px 60px'
+
+function isToday(ts) {
+  const ms = toMs(ts)
+  return ms && ms >= startOfToday() * 1000
+}
+
+function boardRowFor(p, crew, needs, jobs) {
+  const activity = activityFor(crew, p.name)
+  const need = needs[p.name] || { approvals: 0, questions: 0, firstApproval: null, firstQuestion: null }
+  const live = activity.sessions.find(r => r.is_active && !r.ended_at)
+  const latest = activity.latest
+  let status
+  let now
+  let ctx
+  let rank
+  if (need.approvals || need.questions) {
+    rank = 0
+    status = { text: 'Blocked', color: B.amber }
+    if (need.firstApproval) {
+      const cmd = String(need.firstApproval.command || need.firstApproval.description || '').split('\n')[0].slice(0, 90)
+      now = jsxs(Fragment, { children: ['Waiting on your approval: ', jsx('span', { style: { fontFamily: B.mono, fontSize: 12 }, children: cmd })] })
+    } else {
+      now = 'Waiting on your answer to a question'
+    }
+    ctx = need.approvals + need.questions > 1 ? `${need.approvals + need.questions} things waiting` : latest ? `in ${sessionTitle(latest)}` : ''
+  } else if (live) {
+    rank = 1
+    const mins = live.started_at ? Math.max(1, Math.round((Date.now() - toMs(live.started_at)) / 60000)) : null
+    status = { text: mins ? `Working · ${mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h`}` : 'Working', color: V.accent }
+    now = sessionTitle(live)
+    ctx = [live.tool_call_count ? `${live.tool_call_count} tool calls` : null, live.cwd ? basename(live.cwd) : null, live.model || null].filter(Boolean).join(' · ')
+  } else if (activity.unread) {
+    rank = 2
+    status = { text: 'Replied', color: B.t1 }
+    now = latest ? sessionTitle(latest) : 'New reply'
+    ctx = activity.unread === 1 ? '1 unread reply' : `${activity.unread} unread replies`
+  } else if (latest) {
+    rank = 3
+    status = { text: 'Idle', color: B.t3 }
+    now = `Last: ${sessionTitle(latest)} · ${ago(latest.last_active)}`
+    ctx = latest.message_count ? `${latest.message_count} messages` : 'wakes on a new chat or a routine'
+  } else {
+    rank = 4
+    status = { text: 'New', color: B.t3 }
+    now = 'No chats yet'
+    ctx = 'start one from the brief above'
+  }
+  const mine = jobs.filter(j => j.profile === p.name && j.enabled && j.next_run_at)
+  mine.sort((a, b) => toMs(a.next_run_at) - toMs(b.next_run_at))
+  const next = mine[0] ? `${mine[0].name || 'Routine'} · ${isToday(mine[0].next_run_at) ? clock(toMs(mine[0].next_run_at)) : new Date(toMs(mine[0].next_run_at)).toLocaleDateString([], { weekday: 'short' }) + ' ' + clock(toMs(mine[0].next_run_at))}` : null
+  const today = activity.sessions.filter(r => isToday(r.last_active)).reduce((s, r) => s + rowCost(r), 0)
+  const setup = [p.provider || null, `${p.skill_count ?? 0} skills`, p.has_env ? 'own .env' : null].filter(Boolean).join(' · ')
+  return { p, activity, status, now, ctx, rank, next, today, setup, unread: activity.unread > 0, key: rank === 0 ? 'needs-you' : rank === 1 ? 'working' : 'idle' }
+}
+
+function BoardChip({ label, active, tone, onClick }) {
+  return jsx('button', {
+    type: 'button',
+    'aria-pressed': active,
+    onClick,
+    style: { height: 22, padding: '0 8px', borderRadius: 11, border: `1px solid ${B.ctl}`, font: 'inherit', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap', background: active ? B.sel : 'transparent', color: tone || (active ? B.t1 : B.t3) }
+  , children: label })
+}
+
+function BoardDispatch({ rows }) {
+  const [text, setText] = useState('')
+  const [to, setTo] = useState('')
+  const focused = useValue(host.state.focusedSessionProfile)
+  const target = rows.find(r => r.p.name === to) || rows.find(r => r.p.name === focused) || rows[0]
+  const send = () => {
+    const brief = text.trim()
+    if (!brief || !target) return
+    startChat(target.p.name, brief, 'send')
+    setText('')
+  }
+  const pal = target ? PALETTE[normalizeLook(null, target.p.name).color] || PALETTE.blue : PALETTE.blue
+  return jsxs('section', {
+    style: { border: `1px solid ${B.ctl}`, borderRadius: 12, background: B.panel, padding: '10px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8, flex: '0 0 auto' },
+    children: [
+      jsx('label', { htmlFor: 'helm-brief', style: { position: 'absolute', left: -9999 }, children: 'Brief' }),
+      jsx('textarea', {
+        id: 'helm-brief',
+        rows: 2,
+        value: text,
+        placeholder: 'Write a brief. It starts a new chat with the bot you pick.',
+        onChange: e => setText(e.target.value),
+        onKeyDown: e => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault()
+            send()
+          }
+        },
+        style: { resize: 'none', border: 0, background: 'transparent', color: B.t1, font: 'inherit', fontSize: 14, lineHeight: 1.5, padding: 0, outline: 'none' }
+      }),
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, minWidth: 0 },
+        children: [
+          jsxs('label', {
+            style: { position: 'relative', height: 28, padding: '0 9px', borderRadius: 6, border: `1px solid ${B.ctl}`, color: B.t2, display: 'flex', alignItems: 'center', gap: 6, flex: '0 0 auto', cursor: 'pointer' },
+            children: [
+              jsx('span', { style: { width: 12, height: 12, borderRadius: 3, background: pal.dark } }),
+              `To: ${target ? botLabel(target.p) : '…'} ▾`,
+              jsx('select', {
+                'aria-label': 'Send the brief to',
+                value: target ? target.p.name : '',
+                onChange: e => setTo(e.target.value),
+                style: { position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' },
+                children: rows.map(r => jsx('option', { value: r.p.name, children: botLabel(r.p) }, r.p.name))
+              })
+            ]
+          }),
+          jsx('span', {
+            style: { color: B.t3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: '1 1 auto' },
+            children: target ? [target.p.model || 'its pinned model', target.status.text === 'Blocked' ? 'it is waiting on you first' : target.key === 'working' ? 'busy, so this opens a second chat' : 'free now'].join(' · ') : ''
+          }),
+          jsx('span', { style: { color: B.t4, whiteSpace: 'nowrap', flex: '0 1 auto', overflow: 'hidden', textOverflow: 'ellipsis' }, children: 'Enter sends · ⇧Enter new line' }),
+          jsx('button', {
+            type: 'button',
+            onClick: send,
+            disabled: !text.trim() || !target,
+            style: { height: 28, padding: '0 12px', borderRadius: 6, border: 0, background: V.accent, color: ON_ACCENT, font: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: text.trim() ? 1 : 0.45, flex: '0 0 auto' },
+            children: 'Send'
+          })
+        ]
+      })
+    ]
+  })
+}
+
+function BoardTable({ rows, looks, onLook }) {
+  const head = ['Bot', 'Status', 'Now', 'Setup', 'Next routine', 'Today']
+  return jsxs('div', {
+    role: 'table',
+    style: { display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto', overflowX: 'hidden' },
+    children: [
+      jsx('div', {
+        role: 'row',
+        style: { display: 'grid', gridTemplateColumns: B_GRID, gap: 12, padding: '0 10px 6px', borderBottom: `1px solid ${B.hair}`, ...B_CAPS },
+        children: head.map((h, i) => jsx('span', { role: 'columnheader', style: { textAlign: i === 5 ? 'right' : 'left', whiteSpace: 'nowrap' }, children: h }, h))
+      }),
+      jsx('div', { role: 'rowgroup', children: rows.map((r, i) => {
+        const look = normalizeLook(looks[r.p.name] || null, r.p.name)
+        const expr = r.rank === 0 ? 'question' : r.rank === 1 ? 'focused' : look.face
+        return jsxs('div', {
+          role: 'row',
+          tabIndex: 0,
+          className: 'helm-board-row',
+          onClick: () => openBot(r.p, r.activity),
+          onKeyDown: e => {
+            if (e.key === 'Enter') openBot(r.p, r.activity)
+          },
+          style: { display: 'grid', gridTemplateColumns: B_GRID, gap: 12, alignItems: 'center', padding: 10, borderBottom: `1px solid ${B.hair}`, background: i === 0 && r.rank === 0 ? B.panel : undefined, cursor: 'pointer' },
+          children: [
+            jsxs('span', {
+              style: { display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 },
+              children: [
+                jsx(AnimatedRobot, { look, head: true, size: 26, expr, state: petStateFor(r.key), title: botLabel(r.p) }),
+                jsxs('span', {
+                  style: { display: 'flex', flexDirection: 'column', lineHeight: 1.25, minWidth: 0 },
+                  children: [
+                    jsxs('span', { style: { fontSize: 13, color: B.t1, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }, children: [
+                      jsx('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: botLabel(r.p) }),
+                      r.unread ? jsx('span', { title: 'Unread reply', style: { width: 6, height: 6, borderRadius: 3, background: V.accent, flex: '0 0 6px' } }) : null,
+                      jsx('button', { type: 'button', className: 'helm-board-look', onClick: e => (e.stopPropagation(), onLook(r.p.name)), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11, cursor: 'pointer' }, children: 'Look' })
+                    ] }),
+                    jsx('span', { style: { fontSize: 11, color: B.t4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: [botRole(r.p), r.p.model].filter(Boolean).join(' · ') || r.p.name })
+                  ]
+                })
+              ]
+            }),
+            jsx('span', { style: { fontSize: 13, color: r.status.color, whiteSpace: 'nowrap' }, children: r.status.text }),
+            jsxs('span', {
+              style: { display: 'flex', flexDirection: 'column', lineHeight: 1.3, minWidth: 0 },
+              children: [
+                jsx('span', { style: { fontSize: 13, color: B.t1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: r.now }),
+                r.ctx ? jsx('span', { style: { fontSize: 11.5, color: B.t4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: r.ctx }) : null
+              ]
+            }),
+            jsx('span', { style: { fontSize: 11.5, color: B.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: r.setup }),
+            jsx('span', { style: { fontSize: 11.5, color: r.next ? B.t3 : B.t4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: r.next || 'none' }),
+            jsx('span', { style: { fontFamily: B.mono, fontSize: 11.5, color: B.t2, textAlign: 'right' }, children: fmtCost(r.today) || '$0.00' })
+          ]
+        }, r.p.name)
+      }) })
+    ]
+  })
+}
+
+function DispatchPanel({ rows }) {
+  const today = useValue($today)
+  const crew = useValue($crew)
+  useEffect(() => {
+    if (!$today.get().ready) refreshToday()
+  }, [])
+  const byName = Object.fromEntries((crew.profiles || []).map(p => [p.name, p]))
+  const label = name => (byName[name] ? botLabel(byName[name]) : name || 'a bot')
+  const items = []
+  for (const j of today.jobs || []) {
+    if (j.running) items.push({ at: toMs(j.last_run_at) || Date.now(), title: j.name || 'Routine', who: j.profile, status: 'running', color: V.accent, kind: 'routine' })
+    else if (isToday(j.last_run_at)) items.push({ at: toMs(j.last_run_at), title: j.name || 'Routine', who: j.profile, status: j.last_status === 'error' ? 'failed' : 'done', color: j.last_status === 'error' ? B.red : B.green, detail: j.last_status === 'error' && j.last_error ? j.last_error.split('\n')[0].slice(0, 40) : '', kind: 'routine' })
+  }
+  for (const p of crew.profiles || []) {
+    for (const r of (crew.sessions && crew.sessions[p.name]) || []) {
+      const src = (r.source || '').toLowerCase()
+      if (src === 'cron' || r.scheduler_owned) continue
+      if (!isToday(r.started_at || r.last_active)) continue
+      const live = r.is_active && !r.ended_at
+      items.push({ at: toMs(r.started_at || r.last_active), title: sessionTitle(r), who: p.name, status: live ? 'running' : 'done', color: live ? V.accent : B.green, detail: r.message_count ? `${r.message_count} msgs` : '', kind: 'chat', row: r })
+    }
+  }
+  items.sort((a, b) => b.at - a.at)
+  const upcoming = (today.jobs || []).filter(j => j.enabled && j.next_run_at && toMs(j.next_run_at) > Date.now()).sort((a, b) => toMs(a.next_run_at) - toMs(b.next_run_at)).slice(0, 4)
+  const time = ms => (ms ? new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '')
+  return jsxs('aside', {
+    'aria-label': 'Dispatch',
+    style: { width: 290, flex: '0 0 290px', borderLeft: `1px solid ${B.hair}`, background: B.panel, display: 'flex', flexDirection: 'column', minHeight: 0 },
+    children: [
+      jsx('div', {
+        style: { display: 'flex', gap: 14, padding: '10px 16px 0', borderBottom: `1px solid ${B.hair}` },
+        children: jsx('span', { style: { height: 28, display: 'flex', alignItems: 'center', borderBottom: `2px solid ${V.accent}`, color: B.t1, fontSize: 11.5, fontWeight: 600, letterSpacing: '0.08em' }, children: 'DISPATCH' })
+      }),
+      jsxs('div', {
+        style: { padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14, fontSize: 12, overflowY: 'auto', minHeight: 0, flex: '1 1 auto' },
+        children: [
+          jsxs('div', {
+            children: [
+              jsxs('div', { style: { ...B_CAPS, marginBottom: 8, display: 'flex' }, children: [`Today · ${items.length} ${items.length === 1 ? 'job' : 'jobs'}`] }),
+              items.length
+                ? jsx('div', {
+                    style: { display: 'flex', flexDirection: 'column' },
+                    children: items.slice(0, 12).map((it, i) =>
+                      jsxs('button', {
+                        type: 'button',
+                        onClick: () => (it.row ? openSession(it.row, it.who) : host.navigate('/cron')),
+                        style: { display: 'grid', gridTemplateColumns: '40px 1fr', gap: 8, padding: '6px 0', borderTop: `1px solid ${B.hair}`, borderBottom: i === Math.min(items.length, 12) - 1 ? `1px solid ${B.hair}` : undefined, lineHeight: 1.3, textAlign: 'left', border: 0, borderTopStyle: 'solid', borderTopWidth: 1, borderTopColor: B.hair, background: 'transparent', font: 'inherit', cursor: 'pointer', color: 'inherit', width: '100%' },
+                        children: [
+                          jsx('span', { style: { fontFamily: B.mono, fontSize: 11, color: B.t4 }, children: time(it.at) }),
+                          jsxs('span', {
+                            style: { display: 'flex', flexDirection: 'column', minWidth: 0 },
+                            children: [
+                              jsx('span', { style: { fontSize: 12, color: B.t1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: it.title }),
+                              jsxs('span', { style: { fontSize: 11, color: B.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: [`→ ${label(it.who)} · `, jsx('span', { style: { color: it.color }, children: it.status }), it.detail ? ` ${it.detail}` : '', ` · ${it.kind === 'routine' ? 'cron' : 'chat'}`] })
+                            ]
+                          })
+                        ]
+                      }, `${it.kind}:${it.title}:${it.at}:${i}`)
+                    )
+                  })
+                : jsx('div', { style: { color: B.t4, fontSize: 12 }, children: 'Nothing has run today yet.' })
+            ]
+          }),
+          upcoming.length
+            ? jsxs('div', {
+                children: [
+                  jsxs('div', { style: { ...B_CAPS, marginBottom: 8, display: 'flex', alignItems: 'center' }, children: ['Up next', jsx('button', { type: 'button', onClick: () => host.navigate('/cron'), style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11.5, fontWeight: 500, letterSpacing: 0, textTransform: 'none', cursor: 'pointer' }, children: 'Routines' })] }),
+                  jsx('div', {
+                    style: { display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '5px 12px', color: B.t2 },
+                    children: upcoming.flatMap(j => [
+                      jsx('span', { style: { color: B.t4, fontFamily: B.mono, fontSize: 11 }, children: isToday(j.next_run_at) ? time(toMs(j.next_run_at)) : new Date(toMs(j.next_run_at)).toLocaleDateString([], { weekday: 'short' }) }, `t${j.id}`),
+                      jsx('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: `${j.name || 'Routine'} · ${label(j.profile)}` }, `n${j.id}`)
+                    ])
+                  })
+                ]
+              })
+            : null
+        ]
+      }),
+      jsx('div', { style: { marginTop: 'auto', borderTop: `1px solid ${B.hair}`, padding: '8px 16px', fontSize: 11.5, color: B.t4, lineHeight: 1.4 }, children: 'Statuses are finite: queued · running · blocked · done · failed. A blocked job always says what it needs.' })
+    ]
+  })
+}
+
+function BoardView({ looks, onLook }) {
+  const crew = useValue($crew)
+  const today = useValue($today)
+  const looksValue = useValue(looks)
+  const n = useNeedsYou()
+  const filter = useValue($boardFilter)
+  useEffect(() => {
+    $boardMounted.set(true)
+    if (!$today.get().ready) refreshToday()
+    return () => $boardMounted.set(false)
+  }, [])
+  const needs = useMemo(() => {
+    const out = {}
+    const bump = (name, kind, item) => {
+      if (!name) return
+      out[name] = out[name] || { approvals: 0, questions: 0, firstApproval: null, firstQuestion: null }
+      out[name][kind] += 1
+      if (kind === 'approvals' && !out[name].firstApproval) out[name].firstApproval = item
+      if (kind === 'questions' && !out[name].firstQuestion) out[name].firstQuestion = item
+    }
+    n.approvals.forEach(a => bump(a.profile, 'approvals', a))
+    n.questions.forEach(q => bump(q.profile, 'questions', q))
+    return out
+  }, [n.approvals, n.questions])
+  const rows = useMemo(
+    () => (crew.profiles || []).map(p => boardRowFor(p, crew, needs, today.jobs || [])).sort((a, b) => a.rank - b.rank || toMs(b.activity.latest && b.activity.latest.last_active) - toMs(a.activity.latest && a.activity.latest.last_active)),
+    [crew, needs, today]
+  )
+  const counts = { all: rows.length, attention: rows.filter(r => r.rank === 0 || r.unread).length, working: rows.filter(r => r.rank === 1).length, idle: rows.filter(r => r.rank >= 3).length }
+  const shown = rows.filter(r => (filter === 'attention' ? r.rank === 0 || r.unread : filter === 'working' ? r.rank === 1 : filter === 'idle' ? r.rank >= 3 : true))
+  const spend = rows.reduce((s, r) => s + r.today, 0)
+  if (!crew.ready && !rows.length) return jsx('div', { style: { padding: 22, color: B.t3, fontSize: 13 }, children: 'Loading your bots…' })
+  return jsxs('div', {
+    style: { display: 'flex', minHeight: 0, flex: '1 1 auto', background: B.bg, color: B.t1, fontSize: 13 },
+    children: [
+      jsxs('div', {
+        style: { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', padding: '14px 22px 0', gap: 14, overflow: 'hidden' },
+        children: [
+          jsx(BoardDispatch, { rows }),
+          jsxs('div', {
+            style: { display: 'flex', flexDirection: 'column', minHeight: 0, flex: '1 1 auto' },
+            children: [
+              jsxs('div', {
+                style: { display: 'flex', alignItems: 'center', gap: 10, padding: '0 2px 8px' },
+                children: [
+                  jsxs('div', {
+                    style: { display: 'flex', gap: 4 },
+                    children: [
+                      jsx(BoardChip, { label: `All · ${counts.all}`, active: filter === 'all', onClick: () => $boardFilter.set('all') }),
+                      jsx(BoardChip, { label: `Needs you · ${counts.attention}`, active: filter === 'attention', tone: B.amber, onClick: () => $boardFilter.set('attention') }),
+                      jsx(BoardChip, { label: `Working · ${counts.working}`, active: filter === 'working', onClick: () => $boardFilter.set('working') }),
+                      jsx(BoardChip, { label: `Idle · ${counts.idle}`, active: filter === 'idle', onClick: () => $boardFilter.set('idle') })
+                    ]
+                  }),
+                  jsx('span', { style: { marginLeft: 'auto', fontSize: 11.5, color: B.t4, whiteSpace: 'nowrap' }, children: `Sorted: attention first · ${fmtCost(spend) || '$0.00'} today across the crew` })
+                ]
+              }),
+              shown.length
+                ? jsx(BoardTable, { rows: shown, looks: looksValue, onLook })
+                : jsx('div', { style: { padding: '14px 10px', color: B.t4, fontSize: 12.5, borderTop: `1px solid ${B.hair}` }, children: filter === 'attention' ? 'Nobody is waiting on you.' : filter === 'working' ? 'No bot is working right now.' : 'Nothing here.' }),
+              jsx('div', { style: { padding: '10px 2px', fontSize: 11.5, color: B.t4 }, children: 'A bot is a Hermes profile; routines are its cron jobs. Click a row to open that bot.' })
+            ]
+          })
+        ]
+      }),
+      jsx(DispatchPanel, { rows })
+    ]
+  })
+}
+
 function BotsPage({ looks, setLook, avatars, os }) {
   const crew = useValue($crew)
   const looksValue = useValue(looks)
@@ -1783,34 +2141,13 @@ function BotsPage({ looks, setLook, avatars, os }) {
   } else if (crew.error && !profiles.length) {
     body = jsx('div', { className: 'p-6 text-sm text-(--ui-text-secondary)', children: `Could not list profiles: ${crew.error}` })
   } else {
-    const rankOf = p => (ranks[p.name] === undefined ? 2 : ranks[p.name])
-    const shown = profiles
-      .filter(p => (filter === 'attention' ? rankOf(p) === 0 : filter === 'working' ? rankOf(p) === 1 : true))
-      .slice()
-      .sort((a, b) => rankOf(a) - rankOf(b) || botLabel(a).localeCompare(botLabel(b)))
-    body = shown.length
-      ? jsx('div', {
-          className: 'grid content-start gap-2 overflow-auto p-4',
-          style: { gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' },
-          children: shown.map(p =>
-            jsx(
-              BotCard,
-              {
-                profile: p,
-                look: normalizeLook(looksValue[p.name], p.name),
-                focusedWorking: Boolean(busy) && focusedProfile === p.name,
-                onEdit: () => setEditing(p.name),
-                onStatus,
-                os
-              },
-              p.name
-            )
-          )
-        })
-      : jsx('div', { className: 'p-6 text-sm text-(--ui-text-tertiary)', children: filter === 'attention' ? 'Nobody is waiting on you.' : filter === 'working' ? 'No bot is working right now.' : 'No bots yet — make one with New bot.' })
+    body = jsx(BoardView, { looks, onLook: name => setEditing(name) })
   }
 
-  return jsxs('div', { className: 'flex h-full w-full min-h-0 flex-col', children: [header, editingProfile || creating ? null : jsx(SpriteNotice, {}), body] })
+  if (!editingProfile && !creating && !(crew.error && !profiles.length)) {
+    return jsxs('div', { className: 'flex h-full w-full min-h-0 flex-col', style: { background: '#0F1419' }, children: [jsx(SpriteNotice, {}), body] })
+  }
+  return jsxs('div', { className: 'flex h-full w-full min-h-0 flex-col', children: [header, body] })
 }
 
 // Composer: who you are talking to, with the bot's face as its live status.
@@ -3416,7 +3753,7 @@ function HelmConnections() {
 
 // Footer: which bot you're on (swatch + name, a picker for the rest) and the
 // way to the full board.
-function HelmFooter({ rows, focusedProfile }) {
+function HelmFooter({ rows, focusedProfile, board }) {
   const [open, setOpen] = useState(false)
   const current = rows.find(r => r.p.name === focusedProfile) || rows[0]
   const swatch = r => {
@@ -3464,7 +3801,7 @@ function HelmFooter({ rows, focusedProfile }) {
             )
           })
         : null,
-      jsx('button', { type: 'button', onClick: () => host.navigate(BOTS_ROUTE), style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit', fontSize: 11.5 }, children: 'Board view' })
+      board ? null : jsx('button', { type: 'button', onClick: () => host.navigate(BOTS_ROUTE), style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit', fontSize: 11.5 }, children: 'Board view' })
     ]
   })
 }
@@ -3494,8 +3831,61 @@ function HelmTab({ looks, prefs, setPrefs }) {
   const workCount = rows.filter(r => r.line.key === 'working').length
   const shown = sorted.filter(r => filter === 'all' || r.line.key === filter)
   const focusedProfile = useValue(host.state.focusedSessionProfile)
+  const boardOpen = useValue($boardMounted)
+  const today = useValue($today)
   if (!crew.ready && !(crew.profiles || []).length) {
     return jsx('div', { style: { padding: '14px', fontSize: 12, color: V.t3 }, children: 'Loading your bots…' })
+  }
+  if (boardOpen) {
+    const routines = (today.jobs || []).filter(j => j.enabled).length
+    const navRow = (label, d, opts = {}) =>
+      jsxs('button', {
+        type: 'button',
+        className: opts.selected ? undefined : 'helm-nav-row',
+        onClick: opts.onClick,
+        style: { height: 30, display: 'flex', alignItems: 'center', gap: 9, padding: '0 8px', borderRadius: 6, border: 0, background: opts.selected ? '#171E27' : 'transparent', color: opts.selected ? '#E6EBF0' : '#C3CCD5', font: 'inherit', fontSize: 13, cursor: 'pointer', textAlign: 'left', width: '100%' },
+        children: [
+          jsx('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, 'aria-hidden': true, children: d.map((x, i) => (x.r ? jsx('rect', { ...x.r }, i) : x.c ? jsx('circle', { ...x.c }, i) : jsx('path', { d: x }, i))) }),
+          jsx('span', { children: label }),
+          opts.count ? jsx('span', { style: { marginLeft: 'auto', fontSize: 11, color: '#76838F' }, children: opts.count }) : null
+        ]
+      })
+    return jsxs('div', {
+      style: { height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', fontSize: 13, color: V.t1 },
+      children: [
+        jsxs('div', {
+          style: { padding: '10px 8px 0', display: 'flex', flexDirection: 'column', gap: 1 },
+          children: [
+            navRow('Board', [{ r: { x: 3, y: 4, width: 5, height: 16, rx: 1 } }, { r: { x: 10, y: 4, width: 5, height: 10, rx: 1 } }, { r: { x: 17, y: 4, width: 4, height: 13, rx: 1 } }], { selected: true }),
+            navRow('Roster', ['M4 6h16M4 12h16M4 18h10'], { onClick: () => { const r = rows.find(x => x.p.name === focusedProfile) || sorted[0]; if (r) openBot(r.p, r.activity) } }),
+            navRow('Routines', [{ c: { cx: 12, cy: 12, r: 9 } }, 'M12 7v5l3 2'], { count: routines || null, onClick: () => host.navigate('/cron') })
+          ]
+        }),
+        jsx(HelmSectionLabel, { children: 'Bots' }),
+        ...sorted.map(r =>
+          jsxs('button', {
+            type: 'button',
+            onClick: () => openBot(r.p, r.activity),
+            className: 'helm-nav-row',
+            style: { margin: '0 8px', padding: '6px 8px', borderRadius: 6, border: 0, display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 8, alignItems: 'center', textAlign: 'left', lineHeight: 1.3, background: 'transparent', color: V.t1, font: 'inherit', cursor: 'pointer', width: 'calc(100% - 16px)' },
+            children: [
+              jsx(AnimatedRobot, { look: r.look, head: true, size: 22, expr: r.line.key === 'working' ? 'focused' : r.line.key === 'needs-you' ? 'question' : r.look.face, state: petStateFor(r.line.key), title: botLabel(r.p) }),
+              jsxs('span', {
+                style: { display: 'flex', flexDirection: 'column', minWidth: 0 },
+                children: [
+                  jsx('span', { style: { fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: botLabel(r.p) }),
+                  jsx('span', { style: { fontSize: 11.5, color: r.line.color }, children: r.line.key === 'working' ? 'Working' : r.line.key === 'needs-you' ? (r.activity.unread && !(needs[r.p.name] && (needs[r.p.name].approvals || needs[r.p.name].questions)) ? 'Replied' : 'Blocked') : r.line.key === 'new' ? 'New' : 'Idle' })
+                ]
+              }),
+              r.activity.unread
+                ? jsx('span', { style: { width: 6, height: 6, borderRadius: 3, background: V.accent } })
+                : jsx('span', { style: { fontSize: 10.5, color: '#76838F', fontFamily: V.mono }, children: r.activity.latest ? shortAgo(r.activity.latest.last_active) : '' })
+            ]
+          }, r.p.name)
+        ),
+        jsx(HelmFooter, { rows, focusedProfile, board: true })
+      ]
+    })
   }
   return jsxs('div', {
     style: { height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', fontSize: 13, color: V.t1 },
