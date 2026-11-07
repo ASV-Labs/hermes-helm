@@ -3758,7 +3758,7 @@ function HomeUnderside({ looks, prefs }) {
     if (!$today.get().ready) refreshToday()
     const place = () => {
       const el = root.current
-      const bounds = el && el.closest('[data-slot="composer-bounds"]')
+      const bounds = el && (el.closest('[data-chat-surface]') || el.closest('[data-slot="composer-bounds"]'))
       const dock = el && el.closest('[data-slot="composer-dock"]')
       if (!bounds || !dock) return
       const b = bounds.getBoundingClientRect()
