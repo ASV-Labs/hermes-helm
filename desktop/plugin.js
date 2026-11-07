@@ -611,6 +611,7 @@ const DEFAULT_PREFS = {
   designNav: true,
   showContextLine: false,
   chatBoard: true,
+  chatPanel: true,
   routeAuto: false,
   activityDetail: 'normal',
   showNeedsYouChip: true,
@@ -4056,6 +4057,9 @@ const CHAT_CSS = `
   left: 17px !important; transform: none !important; translate: none !important; width: calc(min(860px, 100% - 44px) + 10px) !important;
 }
 [data-chat-surface]:has([data-helm-chat]) [data-slot="composer-dock"] > :last-child { display: block !important; padding: 0 !important; }
+[data-chat-surface]:has([data-helm-chat-panel]) [data-slot="aui_thread-content"] { max-width: min(904px, calc(100% - 291px)) !important; }
+[data-chat-surface]:has([data-helm-chat-panel]) [data-slot="composer-dock"]:not([data-popped-out]) { width: calc(min(860px, 100% - 44px - 291px) + 10px) !important; }
+[data-helm-chat-side] { pointer-events: auto; }
 [data-chat-surface]:has([data-helm-chat-busy]) { --thread-last-message-clearance: calc(var(--composer-measured-height) + 2rem + 34px); }
 :root[data-helm-detail="summary"] [data-chat-surface] :is([data-slot="aui_turn-activity"], [data-slot="aui_thinking-disclosure"], [data-slot="tool-block"]) { display: none !important; }
 [data-helm-chat-head] button:hover { color: #E6EBF0 !important; }
@@ -4063,6 +4067,9 @@ const CHAT_CSS = `
 `
 
 const $detail = atom('normal')
+function chatPanelOn() {
+  return !helmPrefsRef || helmPrefsRef.prefs.get().chatPanel !== false
+}
 function setDetail(v) {
   $detail.set(v)
   try {
@@ -4140,6 +4147,7 @@ function QuickChips({ height = 32 }) {
 }
 
 function ChatHeader({ looks, width }) {
+  useValue(helmPrefsRef ? helmPrefsRef.prefs : $detail)
   const crew = useValue($crew)
   const looksValue = useValue(looks)
   const storedId = useValue(host.state.focusedStoredSessionId)
@@ -4200,6 +4208,14 @@ function ChatHeader({ looks, width }) {
             children: ['Side chat', jsx('span', { style: { fontFamily: B.mono, color: '#76838F', fontSize: 10.5 }, children: '⌘;' })]
           })
         ]
+      })    ,
+      jsx('button', {
+        type: 'button',
+        title: chatPanelOn() ? 'Hide the side panel' : 'Show the side panel',
+        'aria-label': 'Toggle the side panel',
+        onClick: () => helmPrefsRef && helmPrefsRef.setPrefs({ chatPanel: !chatPanelOn() }),
+        style: { width: 24, height: 24, marginLeft: 4, borderRadius: 6, border: 0, background: chatPanelOn() ? '#171E27' : 'transparent', color: chatPanelOn() ? '#E6EBF0' : '#76838F', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+        children: jsx('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, 'aria-hidden': true, dangerouslySetInnerHTML: { __html: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>' } })
       })
     ]
   })
@@ -4237,8 +4253,24 @@ function ProgressRow({ plan, since }) {
   })
 }
 
+function ChatSidePanel({ looks }) {
+  const botView = useValue($helmTabVisible)
+  const tab = (t, active, go) => jsx('button', { type: 'button', onClick: go || undefined, 'aria-pressed': !!active, style: { height: 28, padding: 0, border: 0, borderBottom: `2px solid ${active ? V.accent : 'transparent'}`, background: 'transparent', color: active ? B.t1 : B.t3, font: 'inherit', fontSize: 11.5, fontWeight: 600, letterSpacing: '0.08em', cursor: go ? 'pointer' : 'default' }, children: t }, t)
+  if (botView) return jsx(BotProfilePane, { looks })
+  return jsxs('div', {
+    style: { height: '100%', display: 'flex', flexDirection: 'column', background: B.panel },
+    children: [
+      jsx('div', {
+        style: { display: 'flex', gap: 14, padding: '10px 14px 0', borderBottom: `1px solid ${B.hair}`, flexShrink: 0 },
+        children: [tab('TASK', true), tab('LINEAGE', false, () => host.navigate('/lineage')), tab('FILES', false, () => host.revealPane && host.revealPane('files')), tab('TERMINAL', false, () => host.revealPane && host.revealPane('terminal'))]
+      }),
+      jsx('div', { style: { flex: '1 1 auto', minHeight: 0 }, children: jsx(SessionPane, { looks }) })
+    ]
+  })
+}
+
 function SessionChrome({ looks, prefs }) {
-  const { chatBoard } = useValue(prefs)
+  const { chatBoard, chatPanel } = useValue(prefs)
   const on = useSessionChat() && chatBoard !== false
   const busy = useValue(host.state.busy)
   const plan = usePlan()
@@ -4266,7 +4298,8 @@ function SessionChrome({ looks, prefs }) {
       const o = op.getBoundingClientRect()
       const d = dock.getBoundingClientRect()
       const c = sf ? sf.getBoundingClientRect() : d
-      const next = { top: Math.round(s.top - o.top), left: Math.round(s.left - o.left), width: Math.round(Math.min(s.width, 904)), progTop: Math.round(d.top - o.top - 32), progLeft: Math.round(d.left - o.left + 5), progWidth: Math.round(d.width - 10) }
+      const side = chatPanelOn() && s.width >= 1000
+      const next = { side, height: Math.round(s.height), sideLeft: Math.round(s.left - o.left + s.width - 291), top: Math.round(s.top - o.top), left: Math.round(s.left - o.left), width: Math.round(Math.min(s.width - (side ? 291 : 0), 904)), progTop: Math.round(d.top - o.top - 32), progLeft: Math.round(d.left - o.left + 5), progWidth: Math.round(d.width - 10) }
       setBox(prev => (prev && Object.keys(next).every(k => prev[k] === next[k]) ? prev : next))
     }
     place()
@@ -4286,6 +4319,9 @@ function SessionChrome({ looks, prefs }) {
     children: [
       jsx('style', { children: CHAT_CSS }),
       box ? jsx('div', { style: { position: 'absolute', top: box.top, left: box.left, zIndex: 5 }, children: jsx(ChatHeader, { looks, width: box.width }) }) : null,
+      box && box.side && chatPanel !== false
+        ? jsx('div', { 'data-helm-chat-panel': '', 'data-helm-chat-side': '', style: { position: 'absolute', top: box.top, left: box.sideLeft, width: 291, height: box.height, zIndex: 6, borderLeft: `1px solid ${B.hair}`, boxSizing: 'border-box', overflow: 'hidden' }, children: jsx(ChatSidePanel, { looks }) })
+        : null,
       busy && box ? jsx('div', { style: { position: 'absolute', top: box.progTop, left: box.progLeft, width: box.progWidth }, children: jsx(ProgressRow, { plan, since }) }) : null,
       jsx(QuickChips, {})
     ]
@@ -5226,11 +5262,6 @@ function needsByBot(n) {
 function openBot(p, activity) {
   haptic('tap')
   $botFocus.set(p.name)
-  try {
-    if (host.revealPane) setTimeout(() => host.revealPane(`${ID}:session-pane`), 300)
-  } catch {
-    /* older host */
-  }
   const target = activity.sessions.find(r => r.unread) || activity.sessions.find(r => r.is_active && !r.ended_at) || activity.latest
   if (target) openSession(target, p.name)
   else host.newChat(p.name)
