@@ -39,16 +39,25 @@ ROWS = [
 ]
 SHEET_W, SHEET_H = COLS * CELL_W, len(ROWS) * CELL_H
 
-# Working canvas: ~4.5x the cell (860x932 ~ 192x208 * 4.48), so drawn effects and
-# the final downsample are anti-aliased, with room for the tool swing and jumps.
-# Layer space (640x800) sits inside it.
-CANVAS_W, CANVAS_H = 860, 932
-LAYER_W, LAYER_H = 640, 800
-OFFSET = (82, 181)  # layer (0,0) on the canvas: wheels rest 60 units above the cell floor
-BODY_PIVOT = (320, 691)  # bottom centre between the wheels, in layer space
-TOPPER_PIVOT = (320, 168)  # where a topper meets the head
-TOOL_PIVOT = (540, 405)  # the right fist
-SCREEN = (176, 214, 464, 368)  # the face screen, in layer space
+# Geometry is authored in "design units": the layers' native 640x800 space on an
+# 860x932 stage (~4.5x the cell). Frames render at K of that (~2.2x the cell):
+# still supersampled for clean edges, about a quarter of the pixel work.
+K = 0.5
+DESIGN_W, DESIGN_H = 860, 932
+CANVAS_W, CANVAS_H = round(DESIGN_W * K), round(DESIGN_H * K)
+LAYER_W, LAYER_H = round(640 * K), round(800 * K)
+
+
+def _k(*values):
+    out = tuple(v * K for v in values)
+    return out if len(out) > 1 else out[0]
+
+
+OFFSET = _k(82, 181)  # layer (0,0) on the stage: wheels rest 60 units above the cell floor
+BODY_PIVOT = _k(320, 691)  # bottom centre between the wheels
+TOPPER_PIVOT = _k(320, 168)  # where a topper meets the head
+TOOL_PIVOT = _k(540, 405)  # the right fist
+SCREEN = _k(176, 214, 464, 368)  # the face screen
 
 PARTS = {
     "topper": ["antenna", "cat", "sprout", "cap", "goggles", "dish", "bunny", "beanie", "crown", "headphones"],
@@ -96,7 +105,7 @@ def _layer(name: str | None) -> Image.Image | None:
     path = SPRITES / name
     if not path.is_file():
         return None
-    return Image.open(path).convert("RGBA")
+    return Image.open(path).convert("RGBA").resize((LAYER_W, LAYER_H), Image.LANCZOS)
 
 
 def _rotated(img: Image.Image, degrees: float, pivot: tuple[float, float]) -> Image.Image:
@@ -137,7 +146,7 @@ def _compose_body(look: dict, face: str, *, topper_rot=0.0, tool_rot=0.0, chest_
 def _place(body: Image.Image, *, dx=0.0, dy=0.0, rot=0.0, sx=1.0, sy=1.0) -> Image.Image:
     """Squash/stretch and lean the body about its base, then move it, on the working canvas."""
     px, py = BODY_PIVOT
-    cx, cy = px + OFFSET[0] + dx, py + OFFSET[1] + dy  # where the pivot lands on the canvas
+    cx, cy = px + OFFSET[0] + dx * K, py + OFFSET[1] + dy * K  # where the pivot lands on the canvas
     a = math.radians(rot)
     cos_a, sin_a = math.cos(a), math.sin(a)
     # Forward map: canvas = T(c) . R(rot) . S(sx, sy) . T(-p) . layer. PIL wants the inverse.
@@ -150,19 +159,21 @@ def _place(body: Image.Image, *, dx=0.0, dy=0.0, rot=0.0, sx=1.0, sy=1.0) -> Ima
 
 def _shadow(canvas: Image.Image, *, dx=0.0, lift=0.0) -> None:
     """Soft contact shadow under the wheels; it shrinks and fades as the robot lifts."""
-    k = max(0.45, 1 - lift / 140)
-    w, h = 300 * k, 34 * k
-    cx, cy = BODY_PIVOT[0] + OFFSET[0] + dx, BODY_PIVOT[1] + OFFSET[1] + 8
-    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
-    ImageDraw.Draw(layer).ellipse((cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2), fill=(0, 0, 0, int(70 * k)))
-    canvas.alpha_composite(layer.filter(ImageFilter.GaussianBlur(8)), (0, 0))
+    f = max(0.45, 1 - lift / 140)
+    w, h = 300 * f * K, 34 * f * K
+    cx, cy = BODY_PIVOT[0] + OFFSET[0] + dx * K, BODY_PIVOT[1] + OFFSET[1] + 8 * K
+    pad = 12
+    box = (int(cx - w / 2 - pad), int(cy - h / 2 - pad), int(cx + w / 2 + pad), int(cy + h / 2 + pad))
+    layer = Image.new("RGBA", (box[2] - box[0], box[3] - box[1]), (0, 0, 0, 0))
+    ImageDraw.Draw(layer).ellipse((pad, pad, pad + w, pad + h), fill=(0, 0, 0, int(70 * f)))
+    canvas.alpha_composite(layer.filter(ImageFilter.GaussianBlur(8 * K)), (box[0], box[1]))
 
 
 def _speed_lines(draw: ImageDraw.ImageDraw, phase: int, glow) -> None:
     for i, (y, length) in enumerate(((460, 130), (550, 170), (640, 120))):
         shift = ((phase * 23 + i * 37) % 60) - 30
         x1 = 70 + shift
-        draw.rounded_rectangle((x1, y, x1 + length, y + 14), radius=7, fill=(*glow, 150))
+        draw.rounded_rectangle(_k(x1, y, x1 + length, y + 14), radius=7 * K, fill=(*glow, 150))
 
 
 def _sparks(draw: ImageDraw.ImageDraw, phase: int, origin: tuple[float, float]) -> None:
@@ -171,24 +182,25 @@ def _sparks(draw: ImageDraw.ImageDraw, phase: int, origin: tuple[float, float]) 
         if (phase + i) % 2:
             continue
         ang = math.radians(-60 + i * 50 + phase * 17)
-        r = 58 + (phase % 3) * 20
+        r = (58 + (phase % 3) * 20) * K
         x, y = ox + math.cos(ang) * r, oy + math.sin(ang) * r
-        s = 30 - (phase % 3) * 6
+        s = (30 - (phase % 3) * 6) * K
         draw.polygon([(x, y - s), (x + s * 0.32, y - s * 0.32), (x + s, y), (x + s * 0.32, y + s * 0.32),
                       (x, y + s), (x - s * 0.32, y + s * 0.32), (x - s, y), (x - s * 0.32, y - s * 0.32)],
                      fill=(255, 214, 102, 235))
 
 
 def _smoke(canvas: Image.Image, phase: int) -> None:
-    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    top, left = int(40 * K), int(380 * K)
+    layer = Image.new("RGBA", (int(220 * K), int(300 * K)), (0, 0, 0, 0))
     d = ImageDraw.Draw(layer)
     for i in range(3):
         t = ((phase + i * 3) % 8) / 8
-        x = 455 + i * 26 + math.sin(t * 6 + i) * 18
-        y = 250 - t * 170
-        r = 18 + t * 30
+        x = (455 + i * 26 + math.sin(t * 6 + i) * 18) * K - left
+        y = (250 - t * 170) * K - top
+        r = (18 + t * 30) * K
         d.ellipse((x - r, y - r, x + r, y + r), fill=(150, 160, 170, int(150 * (1 - t))))
-    canvas.alpha_composite(layer.filter(ImageFilter.GaussianBlur(3)))
+    canvas.alpha_composite(layer.filter(ImageFilter.GaussianBlur(3 * K)), (left, top))
 
 
 def _scan_line(canvas: Image.Image, phase: int, frames: int, glow, place: dict) -> None:
@@ -197,9 +209,9 @@ def _scan_line(canvas: Image.Image, phase: int, frames: int, glow, place: dict) 
     y = top + (bottom - top) * ((phase + 0.5) / frames)
     band = Image.new("RGBA", (LAYER_W, LAYER_H), (0, 0, 0, 0))
     d = ImageDraw.Draw(band)
-    d.rectangle((left + 6, y - 14, right - 6, y + 14), fill=(*glow, 90))
-    d.rectangle((left + 10, y - 6, right - 10, y + 6), fill=(*glow, 235))
-    band = band.filter(ImageFilter.GaussianBlur(2.5))
+    d.rectangle((left + 6 * K, y - 14 * K, right - 6 * K, y + 14 * K), fill=(*glow, 90))
+    d.rectangle((left + 10 * K, y - 6 * K, right - 10 * K, y + 6 * K), fill=(*glow, 235))
+    band = band.filter(ImageFilter.GaussianBlur(2.5 * K))
     canvas.alpha_composite(_place(band, **place))
 
 
@@ -222,7 +234,7 @@ def _frame(look: dict, *, face=None, topper_rot=0.0, tool_rot=0.0, chest_glow=1.
 def _rows(look: dict) -> dict[str, list[Image.Image]]:
     glow = GLOW[look["color"]]
     has_tool = look["tool"] != "none"
-    tip = (TOOL_PIVOT[0] + OFFSET[0] + 70, TOOL_PIVOT[1] + OFFSET[1] - 150)
+    tip = (TOOL_PIVOT[0] + OFFSET[0] + 70 * K, TOOL_PIVOT[1] + OFFSET[1] - 150 * K)
     rows: dict[str, list[Image.Image]] = {}
 
     # idle: a slow breath, the topper sways, one blink.
@@ -284,7 +296,7 @@ def _rows(look: dict) -> dict[str, list[Image.Image]]:
         _frame(look, face="focused", dy=[0, -3, 0, -3, 0, -3][i], dx=[0, 1.5, 0, -1.5, 0, 1.5][i],
                tool_rot=[-16, 12, -16, 12, -16, 12][i] if has_tool else 0, topper_rot=[1, -1, 1, -1, 1, -1][i],
                chest_glow=[1.0, 1.15, 1.3, 1.15, 1.0, 1.15][i],
-               extras=lambda canvas, place, i=i: _sparks(ImageDraw.Draw(canvas), i, tip if has_tool else (640, 420)))
+               extras=lambda canvas, place, i=i: _sparks(ImageDraw.Draw(canvas), i, tip if has_tool else _k(640, 420)))
         for i in range(6)
     ]
 
@@ -305,10 +317,10 @@ def _wave_fist(canvas: Image.Image, place: dict, angle: float, glow) -> None:
     d = ImageDraw.Draw(layer)
     x, y = TOOL_PIVOT
     side = 1 if angle > 0 else -1
-    for r in (60, 84):
-        box = (x - r + 30, y - r - 40, x + r + 30, y + r - 40)
+    for r in (60 * K, 84 * K):
+        box = (x - r + 30 * K, y - r - 40 * K, x + r + 30 * K, y + r - 40 * K)
         start = -80 if side > 0 else -150
-        d.arc(box, start=start, end=start + 50, fill=(*glow, 200), width=9)
+        d.arc(box, start=start, end=start + 50, fill=(*glow, 200), width=max(2, round(9 * K)))
     canvas.alpha_composite(_place(layer, **place))
 
 
