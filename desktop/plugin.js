@@ -1829,7 +1829,7 @@ function sessionStatusFor(sessionId, crew, inbox, plan) {
   if (r.unread) return { lead: 'Replied', rest: [money].filter(Boolean).join(' · '), tone: 'plain' }
   if (r.ended_at) return { lead: 'Done', rest: [r.message_count ? `${r.message_count} msgs` : null, money].filter(Boolean).join(' · '), tone: 'plain' }
   const bits = [r.message_count ? `${r.message_count} msgs` : null, money].filter(Boolean)
-  return bits.length ? { lead: null, rest: bits.join(' · '), tone: 'plain' } : null
+  return { lead: 'Idle', rest: bits.join(' · '), tone: 'plain' }
 }
 
 function SessionRowStatus({ sessionId, prefs }) {
