@@ -165,6 +165,30 @@ ${HELM_CSS_SCOPE} [data-slot="tabs-trigger"][data-state="active"] {
   box-shadow: inset 0 -2px 0 var(--ui-accent);
 }
 
+/* Titlebar session tabs (the main zone's strip): the board's pills, 28px,
+   12px caps at 0.02em, open tab on #171E27, no underline. */
+${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"]) {
+  height: 28px;
+  align-self: center;
+  border-radius: 6px;
+  margin-inline: 1px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: #98A4B1;
+  box-shadow: none !important;
+  --tab-bg: transparent;
+  background: transparent;
+}
+${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"]) span { letter-spacing: 0.02em; }
+${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"]):hover { background: #141B23; }
+${HELM_CSS_SCOPE} [data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"])[data-active="true"] {
+  background: #171E27 !important;
+  --tab-bg: #171E27;
+  color: #E6EBF0;
+  box-shadow: none !important;
+}
+
 /* Transcript, to the Chat board: your message is a full-width framed block
    (#16232B on #1F3038), the bot's text has no bubble (13.5/1.6), inline code
    is a small mono pill, tool calls read as a compact log on a left rule. */
@@ -226,6 +250,19 @@ ${HELM_CSS_SCOPE} [data-slot="composer-surface"] {
   border-radius: 12px !important;
   background: #121820 !important;
 }
+/* Composer controls: the board's bordered 28px pills (+, model, effort, mic). */
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] div.grid > div > button:not([type="submit"]),
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] div.grid > div > span > button:not([type="submit"]) {
+  height: 28px !important;
+  min-width: 28px;
+  border: 1px solid #222B35 !important;
+  border-radius: 6px !important;
+  background: transparent;
+  color: #C3CCD5;
+  font-size: 12px;
+}
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] div.grid > div > button:not([type="submit"]):hover,
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] div.grid > div > span > button:not([type="submit"]):hover { background: #171E27; color: #E6EBF0; }
 ${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[type="submit"] {
   width: 28px !important;
   height: 28px !important;
@@ -1166,11 +1203,13 @@ async function refreshCrew() {
       await Promise.all(
         profiles.map(async p => {
           try {
-            const page = await host.listPersistedSessions(null, { profile: p.name, limit: 40 })
-            const rows = ((page && page.sessions) || []).filter(r => r && !r.hidden && !r.is_internal_child)
-            rows.sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
-            sessions[p.name] = rows
-            for (const r of rows) {
+            // Read deep enough to cover every row the sidebar can show (it
+            // pages ~200 per scope), but keep the per-bot lists short.
+            const page = await host.listPersistedSessions(null, { profile: p.name, limit: 200 })
+            const all = ((page && page.sessions) || []).filter(r => r && !r.hidden && !r.is_internal_child)
+            all.sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
+            sessions[p.name] = all.slice(0, 40)
+            for (const r of all) {
               const entry = { profile: p.name, row: r }
               byId[r.id] = entry
               if (r._lineage_root_id) byId[r._lineage_root_id] = entry
@@ -1181,29 +1220,6 @@ async function refreshCrew() {
           }
         })
       )
-    }
-    // The sidebar's own list (no profile = the window's current scope) can
-    // hold rows no per-bot read returned (a bot on its own gateway, older
-    // rows): index those too, so every visible row gets its status line.
-    if (typeof host.listPersistedSessions === 'function') {
-      try {
-        const page = await host.listPersistedSessions(null, { limit: 120 })
-        let focused = null
-        try {
-          focused = host.state && host.state.focusedSessionProfile && host.state.focusedSessionProfile.get ? host.state.focusedSessionProfile.get() : null
-        } catch {
-          focused = null
-        }
-        for (const r of (page && page.sessions) || []) {
-          if (!r || byId[r.id]) continue
-          const entry = { profile: r.profile || focused || 'default', row: r }
-          byId[r.id] = entry
-          if (r._lineage_root_id && !byId[r._lineage_root_id]) byId[r._lineage_root_id] = entry
-          for (const lid of r._lineage_ids || []) if (!byId[lid]) byId[lid] = entry
-        }
-      } catch {
-        /* the per-bot reads above still stand */
-      }
     }
     $crew.set({ ready: true, profiles, sessions, byId, error: null, at: Date.now() })
   } catch (err) {
