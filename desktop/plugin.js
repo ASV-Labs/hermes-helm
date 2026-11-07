@@ -53,7 +53,8 @@ const HELM_CSS_SCOPE = ':root[data-hermes-theme^="helm"]'
 
 // The redesign layer, shared by every helm theme. It only touches app
 // `data-slot` names (a renamed slot drops that one rule) and CSS custom
-// properties the app reads; no script ever queries app markup.
+// properties the app reads. The icon rail is the one exception: it reads the
+// titlebar and status bar positions to sit between them.
 // Tunables (radius, rail colour, reading width, type) are CSS variables a
 // Customize-look theme sets in front of this block.
 const HELM_CSS = `
@@ -562,6 +563,9 @@ const DEFAULT_PREFS = {
   showNeedsYouPane: true,
   showDeskStrip: true,
   showHudPanel: true,
+  showRail: true,
+  hudBoard: true,
+  routing: {},
   deskName: '',
   // Desk sections you folded, comma-separated ids ('continue,today').
   deskFolded: ''
@@ -1720,6 +1724,322 @@ function NewBotView({ looks, setLook, avatars, onDone }) {
   })
 }
 
+// ──────────────────────────────────────────────────────────────── rooms
+// Hermes rooms (`groups.*`, the multi-bot conversations Bot Mode creates):
+// listed on the Helm tab with who's in them and what they're doing, and
+// opened in a main-area tab helm draws from the room log.
+const $rooms = atom({ ready: false, rooms: [], error: null, at: 0 })
+let roomsInflight = false
+
+function roomRoute() {
+  const profile = atomGet(host.state.profile) || 'default'
+  const connectionId = atomGet(host.state.connectionId) || 'local'
+  return { connectionId, profile, targetProfile: profile, mode: connectionId === 'local' ? 'local' : 'remote' }
+}
+
+async function roomRequest(method, params = {}, timeoutMs) {
+  const route = roomRoute()
+  if (typeof host.requestProfile !== 'function') throw new Error('This Hermes has no profile routing')
+  return host.requestProfile(route, method, { ...params, profile: route.profile }, timeoutMs)
+}
+
+const roomText = ev => {
+  const p = (ev && ev.payload) || {}
+  return String(p.text || p.content || p.message || '').trim()
+}
+
+function roomMemberName(m) {
+  return (m && (m.display_name || m.handle || m.profile || m.member_id)) || 'a bot'
+}
+
+function roomSummary(room, state, events) {
+  const members = room.members || []
+  const byId = new Map(members.map(m => [m.member_id, m]))
+  const driver = (state && state.driver_status) || {}
+  const pending = driver.pending_actions || []
+  const approvals = pending.filter(a => a.kind === 'approval')
+  if (approvals.length) {
+    return { tone: 'amber', text: `${roomMemberName(byId.get(approvals[0].member_id))} is waiting on you`, key: 'needs-you', pending }
+  }
+  const working = (driver.member_activity || []).filter(a => a.status === 'running' || a.status === 'working' || a.status === 'queued')
+  if (working.length) {
+    return { tone: 'accent', text: `${working.map(a => roomMemberName(byId.get(a.member_id))).join(', ')} working`, key: 'working', pending }
+  }
+  const bits = []
+  const seen = new Set()
+  for (let i = events.length - 1; i >= 0 && bits.length < 2; i--) {
+    const ev = events[i]
+    const who = ev.payload && (ev.payload.member_id || (ev.actor && ev.actor.kind === 'member' && ev.actor.id))
+    if (!who || seen.has(who)) continue
+    if (ev.kind === 'turn.settled') {
+      seen.add(who)
+      bits.push(`${roomMemberName(byId.get(who))} ${ev.payload.passed === true ? 'passed' : 'replied'}`)
+    } else if (ev.kind === 'turn.failed') {
+      seen.add(who)
+      bits.push(`${roomMemberName(byId.get(who))} failed`)
+    }
+  }
+  if (bits.length) return { tone: 'plain', text: bits.join(' · '), key: 'idle', pending }
+  const lastUser = [...events].reverse().find(e => e.kind === 'message.user' || e.kind === 'message')
+  return { tone: 'plain', text: lastUser ? `You: ${roomText(lastUser).slice(0, 60)}` : `${members.length} members · quiet`, key: 'idle', pending }
+}
+
+async function refreshRooms() {
+  if (roomsInflight || typeof host.requestProfile !== 'function') return
+  roomsInflight = true
+  try {
+    const page = await roomRequest('groups.list', { limit: 20, offset: 0 }, 15000)
+    const list = ((page && page.rooms) || []).filter(r => r && !r.disbanded_at).slice(0, 8)
+    const rooms = await Promise.all(
+      list.map(async room => {
+        let state = null
+        let events = []
+        try {
+          state = await roomRequest('groups.state', { room_id: room.room_id }, 15000)
+        } catch {
+          state = null
+        }
+        try {
+          const since = Math.max(0, Number(room.latest_seq || 0) - 40)
+          const log = await roomRequest('groups.log', { room_id: room.room_id, since_seq: since, limit: 40 }, 15000)
+          events = (log && log.events) || []
+        } catch {
+          events = []
+        }
+        return { room, state, events, summary: roomSummary(room, state, events) }
+      })
+    )
+    $rooms.set({ ready: true, rooms, error: null, at: Date.now() })
+  } catch (err) {
+    $rooms.set({ ready: true, rooms: [], error: err && err.message ? err.message : String(err), at: Date.now() })
+  } finally {
+    roomsInflight = false
+  }
+}
+
+function startRooms(ctx) {
+  const tick = () => refreshRooms()
+  const first = setTimeout(tick, 1500)
+  const h = setInterval(tick, 20000)
+  ctx.onDispose(() => {
+    clearTimeout(first)
+    clearInterval(h)
+  })
+}
+
+const roomTabs = new Map()
+function openRoom(room, looks) {
+  haptic('tap')
+  const key = `${ID}:room:${room.room_id}`
+  if (roomTabs.has(key) && host.revealPane) {
+    host.revealPane(`plugin-workspace:${key}`)
+    return
+  }
+  if (typeof host.openWorkspace !== 'function') {
+    host.notifyError?.('This Hermes cannot open a room in a tab; open it from the Bots tab.')
+    return
+  }
+  const close = host.openWorkspace(key, {
+    title: room.name || 'Room',
+    minWidth: '24rem',
+    render: () => jsx(RoomView, { roomId: room.room_id, looks }),
+    onClose: () => roomTabs.delete(key)
+  })
+  roomTabs.set(key, close)
+}
+
+function RoomHeads({ members, looks, size = 18 }) {
+  const two = (members || []).slice(0, 2)
+  return jsx('span', {
+    style: { position: 'relative', width: size + 12, height: size + 4, display: 'inline-block', flex: `0 0 ${size + 12}px` },
+    children: two.map((m, i) =>
+      jsx('span', {
+        style: { position: 'absolute', left: i ? 10 : 0, top: i ? 4 : 0, lineHeight: 0 },
+        children: jsx(AnimatedRobot, { look: normalizeLook(looks[m.profile] || null, m.profile || 'default'), head: true, size, title: roomMemberName(m) })
+      }, m.member_id || i)
+    )
+  })
+}
+
+function HelmRoomRow({ entry, looks, looksValue }) {
+  const { room, summary } = entry
+  const color = summary.tone === 'amber' ? '#E8A657' : summary.tone === 'accent' ? V.accent : '#98A4B1'
+  return jsxs('button', {
+    type: 'button',
+    className: 'helm-nav-row',
+    onClick: () => openRoom(room, looks),
+    title: `${room.name} · ${(room.members || []).map(roomMemberName).join(', ')}`,
+    style: { margin: '0 8px', padding: '6px 8px', borderRadius: 6, border: 0, display: 'grid', gridTemplateColumns: '30px 1fr auto', gap: 8, alignItems: 'center', textAlign: 'left', lineHeight: 1.3, background: 'transparent', color: V.t1, font: 'inherit', cursor: 'pointer', width: 'calc(100% - 16px)' },
+    children: [
+      jsx(RoomHeads, { members: room.members, looks: looksValue || {} }),
+      jsxs('span', {
+        style: { display: 'flex', flexDirection: 'column', minWidth: 0 },
+        children: [
+          jsx('span', { style: { fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: room.name || 'Room' }),
+          jsx('span', { style: { fontSize: 11.5, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: summary.text })
+        ]
+      }),
+      jsx('span', { style: { fontSize: 10.5, color: '#76838F', fontFamily: V.mono }, children: shortAgo(room.updated_at) })
+    ]
+  })
+}
+
+function RoomView({ roomId, looks }) {
+  const looksValue = useValue(looks)
+  const [room, setRoom] = useState(null)
+  const [state, setState] = useState(null)
+  const [events, setEvents] = useState([])
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState(null)
+  const seqRef = useRef(0)
+  const scroller = useRef(null)
+  useEffect(() => {
+    let alive = true
+    const pull = async () => {
+      try {
+        const st = await roomRequest('groups.state', { room_id: roomId }, 15000)
+        if (!alive) return
+        setState(st)
+        if (st && st.room) setRoom(st.room)
+        const latest = st && st.room && typeof st.room.latest_seq === 'number' ? st.room.latest_seq : null
+        let since = seqRef.current
+        if (!since && latest !== null) since = Math.max(0, latest - 120)
+        if (latest === null || latest > since) {
+          const log = await roomRequest('groups.log', { room_id: roomId, since_seq: since, limit: 200 }, 15000)
+          if (!alive) return
+          const got = (log && log.events) || []
+          if (got.length) {
+            seqRef.current = got[got.length - 1].seq
+            setEvents(prev => [...prev, ...got].slice(-400))
+          } else if (latest !== null) seqRef.current = Math.max(since, latest)
+        }
+        setError(null)
+      } catch (err) {
+        if (alive) setError(err && err.message ? err.message : String(err))
+      }
+    }
+    pull()
+    const h = setInterval(pull, 2500)
+    return () => {
+      alive = false
+      clearInterval(h)
+    }
+  }, [roomId])
+  useEffect(() => {
+    const el = scroller.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [events.length])
+  const members = (room && room.members) || []
+  const byId = new Map(members.map(m => [m.member_id, m]))
+  const driver = (state && state.driver_status) || {}
+  const pending = (driver.pending_actions || []).filter(a => a.kind === 'approval')
+  const working = (driver.member_activity || []).filter(a => a.status === 'running' || a.status === 'working' || a.status === 'queued')
+  const messages = events.filter(e => e.kind === 'message.user' || e.kind === 'message' || e.kind === 'message.member')
+  const send = async () => {
+    const body = text.trim()
+    if (!body || busy) return
+    setBusy(true)
+    try {
+      const eventId = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `helm-${Date.now()}-${Math.random().toString(16).slice(2)}`
+      await roomRequest('groups.send', { room_id: roomId, event_id: eventId, payload: { text: body } }, 30000)
+      setText('')
+      refreshRooms()
+    } catch (err) {
+      setError(`Not sent: ${err && err.message ? err.message : err}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const act = async (a, choice) => {
+    setBusy(true)
+    try {
+      await roomRequest('groups.approve', { room_id: roomId, member_id: a.member_id, task_id: a.task_id, execution_generation: a.execution_generation, request_id: a.request_id, choice }, 30000)
+      refreshRooms()
+    } catch (err) {
+      setError(`${choice === 'deny' ? 'Deny' : 'Approve'} failed: ${err && err.message ? err.message : err}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return jsxs('div', {
+    style: { height: '100%', display: 'flex', flexDirection: 'column', background: B.bg, color: B.t1, fontSize: 13 },
+    children: [
+      jsxs('div', {
+        style: { height: 36, flex: '0 0 36px', display: 'flex', alignItems: 'center', gap: 8, padding: '0 22px', fontSize: 12, color: B.t3, borderBottom: `1px solid ${B.hair}` },
+        children: [
+          jsx(RoomHeads, { members, looks: looksValue, size: 16 }),
+          jsx('span', { style: { color: B.t1, fontWeight: 500 }, children: (room && room.name) || 'Room' }),
+          jsx('span', { style: { color: B.t4 }, children: '·' }),
+          jsx('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: members.map(roomMemberName).join(', ') }),
+          working.length ? jsx('span', { style: { marginLeft: 'auto', color: V.accent }, children: `${working.map(a => roomMemberName(byId.get(a.member_id))).join(', ')} working` }) : null
+        ]
+      }),
+      jsxs('div', {
+        ref: scroller,
+        role: 'log',
+        style: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', padding: '12px 22px', display: 'flex', flexDirection: 'column', gap: 12, lineHeight: 1.6, fontSize: 13.5 },
+        children: [
+          !messages.length ? jsx('div', { style: { color: B.t4, fontSize: 12.5 }, children: room ? 'Nothing said in this room yet.' : 'Opening the room…' }) : null,
+          ...messages.map(ev => {
+            const mine = ev.kind !== 'message.member'
+            const m = !mine ? byId.get((ev.actor && ev.actor.id) || (ev.payload && ev.payload.member_id)) : null
+            return jsx('div', {
+              style: mine ? { border: '1px solid #1F3038', background: '#16232B', borderRadius: 10, padding: '9px 13px', whiteSpace: 'pre-wrap' } : { display: 'grid', gridTemplateColumns: '22px 1fr', gap: 10 },
+              children: mine
+                ? roomText(ev)
+                : [
+                    jsx(AnimatedRobot, { look: normalizeLook(looksValue[m && m.profile] || null, (m && m.profile) || 'default'), head: true, size: 22, title: roomMemberName(m) }, 'h'),
+                    jsxs('div', { style: { minWidth: 0 }, children: [jsx('div', { style: { fontSize: 12, color: B.t3 }, children: roomMemberName(m) }), jsx('div', { style: { whiteSpace: 'pre-wrap' }, children: roomText(ev) })] }, 'b')
+                  ]
+            }, ev.event_id || ev.seq)
+          }),
+          ...pending.map(a =>
+            jsxs('div', {
+              style: { border: '1px solid #2A2F33', borderLeft: '2px solid #E8A657', borderRadius: 8, background: '#121820', padding: '10px 12px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 },
+              children: [
+                jsxs('span', { style: { flex: 1, minWidth: 0 }, children: [jsx('span', { style: { color: '#E8A657' }, children: 'Approval' }), ` · ${roomMemberName(byId.get(a.member_id))} is waiting on you`] }),
+                jsx('button', { type: 'button', disabled: busy, onClick: () => act(a, 'deny'), style: { height: 28, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, background: 'transparent', color: B.t2, font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: 'Deny' }),
+                jsx('button', { type: 'button', disabled: busy, onClick: () => act(a, 'once'), style: { height: 28, padding: '0 12px', borderRadius: 6, border: 0, background: V.accent, color: ON_ACCENT, font: 'inherit', fontSize: 12, fontWeight: 600, cursor: 'pointer' }, children: 'Approve' })
+              ]
+            }, `${a.task_id}:${a.execution_generation}`)
+          )
+        ]
+      }),
+      error ? jsx('div', { role: 'alert', style: { padding: '4px 22px', fontSize: 12, color: B.red }, children: error }) : null,
+      jsx('div', {
+        style: { padding: '0 22px 12px' },
+        children: jsxs('div', {
+          style: { border: `1px solid ${B.ctl}`, borderRadius: 12, background: B.panel, padding: '10px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8 },
+          children: [
+            jsx('textarea', {
+              rows: 2,
+              value: text,
+              'aria-label': 'Message the room',
+              placeholder: `Message ${(room && room.name) || 'the room'} · @handle to address one bot`,
+              onChange: e => setText(e.target.value),
+              onKeyDown: e => {
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  send()
+                }
+              },
+              style: { resize: 'none', border: 0, background: 'transparent', color: B.t1, font: 'inherit', fontSize: 14, lineHeight: 1.5, padding: 0, outline: 'none' }
+            }),
+            jsxs('div', {
+              style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: B.t4 },
+              children: [
+                jsx('span', { children: members.map(m => `@${m.handle || m.profile}`).join(' ') }),
+                jsx('button', { type: 'button', onClick: send, disabled: busy || !text.trim(), style: { marginLeft: 'auto', width: 28, height: 28, borderRadius: 6, border: 0, background: V.accent, color: ON_ACCENT, cursor: 'pointer', opacity: text.trim() ? 1 : 0.45, display: 'flex', alignItems: 'center', justifyContent: 'center' }, 'aria-label': 'Send', children: jsx('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true, children: jsx('path', { d: 'M12 19V5M5 12l7-7 7 7' }) }) })
+              ]
+            })
+          ]
+        })
+      })
+    ]
+  })
+}
+
 // ───────────────────────────────────────────── Bots board (the Bot board)
 // One brief in at the top, every bot in a table under it (attention first),
 // and the day's jobs on the right. Data: profiles, persisted sessions, the
@@ -1735,7 +2055,168 @@ function isToday(ts) {
   return ms && ms >= startOfToday() * 1000
 }
 
-function boardRowFor(p, crew, needs, jobs) {
+// ─────────────────────────────────────────────────────── router + handoffs
+// helm's dispatch router: four tiers (nano, fast, balanced, frontier), each
+// mapped to bots. Rules start from each bot's model and can be edited on the
+// board; a brief is read for what kind of work it is and goes to the first
+// free bot on that tier.
+const TIERS = ['nano', 'fast', 'balanced', 'frontier']
+const TIER_JOB = { nano: 'drafts, lookups', fast: 'read-only review', balanced: 'research, extraction', frontier: 'code, deploys' }
+const TIER_WORDS = [
+  ['fast', /\b(review|check|verify|audit|read-only|readonly|lint|look over|sanity)\b/i],
+  ['nano', /\b(draft|reply|tweet|post|caption|rename|look ?up|translate|format|quick|title)\b/i],
+  ['balanced', /\b(research|extract|compare|analy[sz]e|summari[sz]e|find|scrape|report|market|pricing|sweep|survey|collect)\b/i],
+  ['frontier', /\b(code|deploy|release|ship|build|refactor|fix|implement|migrat\w*|debug|merge|script|install|upgrade)\b/i]
+]
+let helmPrefsRef = null
+
+function tierOfModel(model) {
+  const m = String(model || '').toLowerCase()
+  if (/haiku|nano|mini|lite|\b[1-8]b\b|small/.test(m)) return 'nano'
+  if (/flash|fast|turbo|1[0-4]b/.test(m)) return 'fast'
+  if (/opus|grok-4|gpt-5|o3|o4|pro\b|frontier/.test(m)) return 'frontier'
+  return 'balanced'
+}
+
+function routingRules(profiles, routing) {
+  const out = {}
+  for (const t of TIERS) {
+    const set = routing && Array.isArray(routing[t]) ? routing[t] : null
+    out[t] = set ? profiles.filter(p => set.includes(p.name)) : profiles.filter(p => tierOfModel(p.model) === t)
+  }
+  return out
+}
+
+function readBrief(text) {
+  for (const [tier, re] of TIER_WORDS) {
+    const m = String(text || '').match(re)
+    if (m) return { tier, word: m[0] }
+  }
+  return { tier: 'balanced', word: null }
+}
+
+function routeBrief(text, rows, routing) {
+  const profiles = rows.map(r => r.p)
+  const rules = routingRules(profiles, routing)
+  const { tier, word } = readBrief(text)
+  let pool = rules[tier]
+  let fallback = false
+  if (!pool.length) {
+    pool = profiles
+    fallback = true
+  }
+  const rowOf = name => rows.find(r => r.p.name === name)
+  const free = pool.find(p => {
+    const r = rowOf(p.name)
+    return r && r.rank >= 2
+  })
+  const pick = free || pool[0]
+  const pickRow = pick ? rowOf(pick.name) : null
+  const why = [
+    word ? `“${word}” reads as ${TIER_JOB[tier]}, so ${tier} tier.` : `Nothing in the brief names a kind of work, so ${tier} tier.`,
+    fallback ? `No bot is on ${tier}, so any bot can take it.` : `${tier} goes to ${pool.map(botLabel).join(', ')}.`,
+    pick ? `${botLabel(pick)} is ${pickRow && pickRow.rank === 1 ? 'working, so it opens a second chat' : pickRow && pickRow.rank === 0 ? 'waiting on you first' : 'free'}.` : ''
+  ].filter(Boolean).join(' ')
+  return { tier, word, bot: pick ? pick.name : null, why }
+}
+
+// Handoffs: bot-to-bot messages (Hermes's message_agent tool) this desk has seen.
+const $handoffs = atom([])
+let handoffStore = null
+
+function onHandoffEvent(e) {
+  const p = payloadOf(e)
+  if (p.name !== 'message_agent') return
+  const type = String((e && (e.type || e.event)) || '')
+  const id = String(p.tool_id || p.tool_call_id || p.id || '')
+  let args = p.args || p.arguments || {}
+  if (typeof args === 'string') {
+    try {
+      args = JSON.parse(args)
+    } catch {
+      args = {}
+    }
+  }
+  const sessionId = eventSessionId(e, p)
+  const crew = $crew.get()
+  const hit = (crew.byId && crew.byId[sessionId]) || null
+  const from = (hit && hit.profile) || p.profile || (e && e.profile) || atomGet(host.state.focusedSessionProfile) || ''
+  const list = $handoffs.get().slice()
+  let entry = id ? list.find(h => h.id === id) : null
+  if (!entry && (args.target || args.message)) {
+    entry = { id: id || `h-${Date.now()}`, from, to: String(args.target || ''), message: String(args.message || '').slice(0, 300), at: Date.now(), status: 'sent' }
+    list.unshift(entry)
+  }
+  if (!entry) return
+  if (type.endsWith('complete') || p.result !== undefined) {
+    const r = typeof p.result === 'string' ? p.result : JSON.stringify(p.result || '')
+    entry.status = /error|failed|not found|refused/i.test(r.slice(0, 200)) ? 'failed' : /queued|delivered|will reply|next run/i.test(r.slice(0, 200)) ? 'delivered' : 'replied'
+  }
+  const next = list.slice(0, 30)
+  $handoffs.set(next)
+  if (handoffStore) handoffStore(next)
+}
+
+// The last finished reply per bot (message.complete), for the HUD's
+// "Latest from" and kept across reloads in plugin storage.
+const $lastReply = atom({})
+let replyStore = null
+
+function onReplyEvent(e) {
+  const p = payloadOf(e)
+  const text = String(p.text || '').trim()
+  if (!text || p.status === 'error') return
+  const sessionId = eventSessionId(e, p)
+  const crew = $crew.get()
+  const hit = (crew.byId && crew.byId[sessionId]) || null
+  const profile = (hit && hit.profile) || p.profile || (e && e.profile) || atomGet(host.state.focusedSessionProfile) || 'default'
+  const next = { ...$lastReply.get(), [profile]: { text: text.slice(0, 1200), at: Date.now(), sessionId } }
+  $lastReply.set(next)
+  if (replyStore) replyStore(next)
+}
+
+// Per-bot permissions for the board: each profile's approval mode and the
+// MCP servers it has switched on, read through the profile-scoped
+// `config.get` and `mcp.servers.status` (names and state only, no config).
+const $perms = atom({ ready: false, byProfile: {}, at: 0 })
+let permsInflight = false
+const APPROVAL_LABEL = { manual: 'asks first', smart: 'smart approvals', off: 'no approvals' }
+
+async function refreshPerms() {
+  if (permsInflight || typeof host.request !== 'function') return
+  permsInflight = true
+  try {
+    const byProfile = { ...$perms.get().byProfile }
+    for (const p of $crew.get().profiles || []) {
+      const out = { mode: null, servers: null }
+      try {
+        const r = await host.request('config.get', { key: 'approvals.mode', profile: p.name }, 15000)
+        out.mode = r && typeof r.value === 'string' ? r.value : null
+      } catch {
+        out.mode = null
+      }
+      try {
+        const r = await host.request('mcp.servers.status', { profile: p.name }, 15000)
+        out.servers = ((r && r.servers) || []).filter(x => x && !x.disabled).map(x => String(x.name || '')).filter(Boolean)
+      } catch {
+        out.servers = null
+      }
+      byProfile[p.name] = out
+    }
+    $perms.set({ ready: true, byProfile, at: Date.now() })
+  } finally {
+    permsInflight = false
+  }
+}
+
+function permsLine(perm) {
+  if (!perm) return 'reading…'
+  const tools = perm.servers === null ? null : perm.servers.length ? perm.servers.slice(0, 3).join(' · ') + (perm.servers.length > 3 ? ` +${perm.servers.length - 3}` : '') : 'built-in tools'
+  const mode = perm.mode ? APPROVAL_LABEL[perm.mode] || perm.mode : null
+  return [tools, mode].filter(Boolean).join(' · ') || 'not readable on this gateway'
+}
+
+function boardRowFor(p, crew, needs, jobs, perms) {
   const activity = activityFor(crew, p.name)
   const need = needs[p.name] || { approvals: 0, questions: 0, firstApproval: null, firstQuestion: null }
   const live = activity.sessions.find(r => r.is_active && !r.ended_at)
@@ -1780,7 +2261,7 @@ function boardRowFor(p, crew, needs, jobs) {
   mine.sort((a, b) => toMs(a.next_run_at) - toMs(b.next_run_at))
   const next = mine[0] ? `${mine[0].name || 'Routine'} · ${isToday(mine[0].next_run_at) ? clock(toMs(mine[0].next_run_at)) : new Date(toMs(mine[0].next_run_at)).toLocaleDateString([], { weekday: 'short' }) + ' ' + clock(toMs(mine[0].next_run_at))}` : null
   const today = activity.sessions.filter(r => isToday(r.last_active)).reduce((s, r) => s + rowCost(r), 0)
-  const setup = [p.provider || null, `${p.skill_count ?? 0} skills`, p.has_env ? 'own .env' : null].filter(Boolean).join(' · ')
+  const setup = permsLine(perms && perms[p.name])
   return { p, activity, status, now, ctx, rank, next, today, setup, unread: activity.unread > 0, key: rank === 0 ? 'needs-you' : rank === 1 ? 'working' : 'idle' }
 }
 
@@ -1796,15 +2277,31 @@ function BoardChip({ label, active, tone, onClick }) {
 function BoardDispatch({ rows }) {
   const [text, setText] = useState('')
   const [to, setTo] = useState('')
+  const [why, setWhy] = useState(false)
   const focused = useValue(host.state.focusedSessionProfile)
-  const target = rows.find(r => r.p.name === to) || rows.find(r => r.p.name === focused) || rows[0]
+  const prefsValue = useValue(helmPrefsRef ? helmPrefsRef.prefs : $boardMounted)
+  const perms = useValue($perms)
+  const routing = (prefsValue && typeof prefsValue === 'object' && prefsValue.routing) || {}
+  const suggestion = text.trim() && rows.length ? routeBrief(text, rows, routing) : null
+  const target = rows.find(r => r.p.name === to) || (suggestion && rows.find(r => r.p.name === suggestion.bot)) || rows.find(r => r.p.name === focused) || rows[0]
   const send = () => {
     const brief = text.trim()
     if (!brief || !target) return
     startChat(target.p.name, brief, 'send')
     setText('')
+    setTo('')
+    setWhy(false)
   }
   const pal = target ? PALETTE[normalizeLook(null, target.p.name).color] || PALETTE.blue : PALETTE.blue
+  const mode = target && perms.byProfile[target.p.name] ? perms.byProfile[target.p.name].mode : null
+  const guard = mode === 'manual' ? 'it asks before every risky step' : mode === 'smart' ? 'risky steps held for your approval' : mode === 'off' ? 'it acts without asking' : 'Enter sends · ⇧Enter new line'
+  const tierLine = !target
+    ? ''
+    : to
+      ? `you picked · ${tierOfModel(target.p.model)} tier · ${target.p.model || 'its pinned model'}`
+      : suggestion
+        ? `suggested · ${suggestion.tier} tier · ${TIER_JOB[suggestion.tier]}`
+        : `${target.p.model || 'its pinned model'} · ${target.key === 'working' ? 'busy, so this opens a second chat' : target.rank === 0 ? 'it is waiting on you first' : 'free now'}`
   return jsxs('section', {
     style: { border: `1px solid ${B.ctl}`, borderRadius: 12, background: B.panel, padding: '10px 12px 8px', display: 'flex', flexDirection: 'column', gap: 8, flex: '0 0 auto' },
     children: [
@@ -1813,7 +2310,7 @@ function BoardDispatch({ rows }) {
         id: 'helm-brief',
         rows: 2,
         value: text,
-        placeholder: 'Write a brief. It starts a new chat with the bot you pick.',
+        placeholder: 'Write a brief. helm routes it to the right bot, or pick one.',
         onChange: e => setText(e.target.value),
         onKeyDown: e => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -1833,18 +2330,16 @@ function BoardDispatch({ rows }) {
               `To: ${target ? botLabel(target.p) : '…'} ▾`,
               jsx('select', {
                 'aria-label': 'Send the brief to',
-                value: target ? target.p.name : '',
+                value: to,
                 onChange: e => setTo(e.target.value),
                 style: { position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' },
-                children: rows.map(r => jsx('option', { value: r.p.name, children: botLabel(r.p) }, r.p.name))
+                children: [jsx('option', { value: '', children: 'Route automatically' }, ''), ...rows.map(r => jsx('option', { value: r.p.name, children: botLabel(r.p) }, r.p.name))]
               })
             ]
           }),
-          jsx('span', {
-            style: { color: B.t3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: '1 1 auto' },
-            children: target ? [target.p.model || 'its pinned model', target.status.text === 'Blocked' ? 'it is waiting on you first' : target.key === 'working' ? 'busy, so this opens a second chat' : 'free now'].join(' · ') : ''
-          }),
-          jsx('span', { style: { color: B.t4, whiteSpace: 'nowrap', flex: '0 1 auto', overflow: 'hidden', textOverflow: 'ellipsis' }, children: 'Enter sends · ⇧Enter new line' }),
+          jsx('span', { style: { color: B.t3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: '1 1 auto' }, children: tierLine }),
+          suggestion && !to ? jsx('button', { type: 'button', onClick: () => setWhy(v => !v), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 12, cursor: 'pointer', flex: '0 0 auto' }, children: why ? 'hide' : 'why' }) : null,
+          jsx('span', { style: { color: B.t4, whiteSpace: 'nowrap', flex: '0 1 auto', overflow: 'hidden', textOverflow: 'ellipsis' }, children: guard }),
           jsx('button', {
             type: 'button',
             onClick: send,
@@ -1853,13 +2348,14 @@ function BoardDispatch({ rows }) {
             children: 'Send'
           })
         ]
-      })
+      }),
+      why && suggestion && !to ? jsx('div', { style: { fontSize: 11.5, color: B.t3, lineHeight: 1.4 }, children: suggestion.why }) : null
     ]
   })
 }
 
 function BoardTable({ rows, looks, onLook }) {
-  const head = ['Bot', 'Status', 'Now', 'Setup', 'Next routine', 'Today']
+  const head = ['Bot', 'Status', 'Now', 'Permissions', 'Next routine', 'Today']
   return jsxs('div', {
     role: 'table',
     style: { display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto', overflowX: 'hidden' },
@@ -1913,6 +2409,73 @@ function BoardTable({ rows, looks, onLook }) {
           ]
         }, r.p.name)
       }) })
+    ]
+  })
+}
+
+function HandoffsSection({ label }) {
+  const list = useValue($handoffs)
+  const shown = list.slice(0, 4)
+  return jsxs('div', {
+    children: [
+      jsx('div', { style: { ...B_CAPS, marginBottom: 8 }, children: 'Handoffs · Agent inbox' }),
+      shown.length
+        ? jsx('div', {
+            style: { display: 'flex', flexDirection: 'column', gap: 8, color: B.t2 },
+            children: shown.map(h =>
+              jsxs('div', {
+                style: { display: 'flex', flexDirection: 'column', gap: 2, lineHeight: 1.3 },
+                children: [
+                  jsxs('span', { children: [jsx('span', { style: { color: B.t1 }, children: `${label(h.from)} → ${h.to || 'a bot'}` }), jsx('span', { style: { color: B.t4 }, children: ` · ${h.status === 'failed' ? 'not delivered' : h.status} · ${shortAgo(h.at)}` })] }),
+                  jsx('span', { style: { fontSize: 11.5, color: B.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: `“${h.message}”` })
+                ]
+              }, h.id)
+            )
+          })
+        : jsx('div', { style: { color: B.t4, fontSize: 12 }, children: 'No bot-to-bot messages yet. They show here when one bot messages another.' })
+    ]
+  })
+}
+
+function RoutingSection({ crew }) {
+  const prefsValue = useValue(helmPrefsRef ? helmPrefsRef.prefs : $boardMounted)
+  const [editing, setEditing] = useState(false)
+  const profiles = crew.profiles || []
+  const routing = (prefsValue && typeof prefsValue === 'object' && prefsValue.routing) || {}
+  const rules = routingRules(profiles, routing)
+  const toggle = (tier, name) => {
+    if (!helmPrefsRef) return
+    const current = rules[tier].map(p => p.name)
+    const nextSet = current.includes(name) ? current.filter(n => n !== name) : [...current, name]
+    const next = {}
+    for (const t of TIERS) next[t] = t === tier ? nextSet : rules[t].map(p => p.name)
+    helmPrefsRef.setPrefs({ routing: next })
+  }
+  return jsxs('div', {
+    children: [
+      jsx('div', { style: { ...B_CAPS, marginBottom: 8 }, children: 'Routing rules' }),
+      jsx('div', {
+        style: { display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '5px 12px', color: B.t2, alignItems: 'center' },
+        children: TIERS.flatMap(t => [
+          jsx('span', { style: { color: B.t4 }, children: t }, `k${t}`),
+          editing
+            ? jsx('span', {
+                style: { display: 'flex', flexWrap: 'wrap', gap: 4 },
+                children: profiles.map(p => {
+                  const on = rules[t].some(x => x.name === p.name)
+                  return jsx('button', { type: 'button', 'aria-pressed': on, onClick: () => toggle(t, p.name), style: { height: 20, padding: '0 7px', borderRadius: 10, border: `1px solid ${on ? V.accent : B.ctl}`, background: on ? B.sel : 'transparent', color: on ? B.t1 : B.t3, font: 'inherit', fontSize: 11, cursor: 'pointer' }, children: botLabel(p) }, p.name)
+                })
+              }, `v${t}`)
+            : jsx('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: `${rules[t].length ? rules[t].map(botLabel).join(', ') : 'nobody'} · ${TIER_JOB[t]}` }, `v${t}`)
+        ])
+      }),
+      jsxs('div', {
+        style: { display: 'flex', gap: 12, marginTop: 6 },
+        children: [
+          jsx('button', { type: 'button', onClick: () => setEditing(v => !v), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: editing ? 'Done' : 'Edit rules' }),
+          editing && helmPrefsRef ? jsx('button', { type: 'button', onClick: () => helmPrefsRef.setPrefs({ routing: {} }), style: { border: 0, padding: 0, background: 'transparent', color: B.t3, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: 'Back to model-based' }) : null
+        ]
+      })
     ]
   })
 }
@@ -1990,6 +2553,8 @@ function DispatchPanel({ rows }) {
                 : jsx('div', { style: { color: B.t4, fontSize: 12 }, children: 'Nothing has run today yet.' })
             ]
           }),
+          jsx(HandoffsSection, { label }),
+          jsx(RoutingSection, { crew }),
           upcoming.length
             ? jsxs('div', {
                 children: [
@@ -2017,8 +2582,11 @@ function BoardView({ looks, onLook }) {
   const looksValue = useValue(looks)
   const n = useNeedsYou()
   const filter = useValue($boardFilter)
+  const perms = useValue($perms)
+  const roomsValue = useValue($rooms)
   useEffect(() => {
     $boardMounted.set(true)
+    if (!$perms.get().ready || Date.now() - $perms.get().at > 120000) refreshPerms()
     if (!$today.get().ready) refreshToday()
     return () => $boardMounted.set(false)
   }, [])
@@ -2036,8 +2604,8 @@ function BoardView({ looks, onLook }) {
     return out
   }, [n.approvals, n.questions])
   const rows = useMemo(
-    () => (crew.profiles || []).map(p => boardRowFor(p, crew, needs, today.jobs || [])).sort((a, b) => a.rank - b.rank || toMs(b.activity.latest && b.activity.latest.last_active) - toMs(a.activity.latest && a.activity.latest.last_active)),
-    [crew, needs, today]
+    () => (crew.profiles || []).map(p => boardRowFor(p, crew, needs, today.jobs || [], perms.byProfile)).sort((a, b) => a.rank - b.rank || toMs(b.activity.latest && b.activity.latest.last_active) - toMs(a.activity.latest && a.activity.latest.last_active)),
+    [crew, needs, today, perms]
   )
   const counts = { all: rows.length, attention: rows.filter(r => r.rank === 0 || r.unread).length, working: rows.filter(r => r.rank === 1).length, idle: rows.filter(r => r.rank >= 3).length }
   const shown = rows.filter(r => (filter === 'attention' ? r.rank === 0 || r.unread : filter === 'working' ? r.rank === 1 : filter === 'idle' ? r.rank >= 3 : true))
@@ -2071,7 +2639,7 @@ function BoardView({ looks, onLook }) {
               shown.length
                 ? jsx(BoardTable, { rows: shown, looks: looksValue, onLook })
                 : jsx('div', { style: { padding: '14px 10px', color: B.t4, fontSize: 12.5, borderTop: `1px solid ${B.hair}` }, children: filter === 'attention' ? 'Nobody is waiting on you.' : filter === 'working' ? 'No bot is working right now.' : 'Nothing here.' }),
-              jsx('div', { style: { padding: '10px 2px', fontSize: 11.5, color: B.t4 }, children: 'A bot is a Hermes profile; routines are its cron jobs. Click a row to open that bot.' })
+              jsx('div', { style: { padding: '10px 2px', fontSize: 11.5, color: B.t4 }, children: roomsValue.rooms.length ? `Rooms: ${roomsValue.rooms.map(e => `${e.room.name} (${(e.room.members || []).map(roomMemberName).join(', ')})`).join(' · ')}` : 'No rooms yet. Rooms are Hermes group chats; make one from the Bots tab.' })
             ]
           })
         ]
@@ -3072,19 +3640,65 @@ function inHudWindow() {
   }
 }
 
-function HudPanel({ looks, prefs }) {
-  const { showHudPanel } = useValue(prefs)
-  const crew = useValue($crew)
-  const looksValue = useValue(looks)
-  const n = useNeedsYou()
-  const profile = useValue(host.state.focusedSessionProfile)
-  const busy = useValue(host.state.busy)
+const HUD_BOARD_CSS = `
+:root[data-helm-hud-board] [data-hud-shell] [data-slot='composer-bounds'],
+:root[data-helm-hud-board] [data-hud-shell] [data-hud-glass] { display: none !important; }
+:root[data-helm-hud-board] [data-helm-hud] { height: calc(100vh - 118px); }
+:root[data-helm-hud-board] [data-slot='composer-surface'] { border-radius: 14px !important; }
+[data-helm-hud-drag] { -webkit-app-region: drag; }
+[data-helm-hud-drag] button { -webkit-app-region: no-drag; }
+`
+
+function useHudMode(prefs) {
+  const { showHudPanel, hudBoard } = useValue(prefs)
   const [hud, setHud] = useState(inHudWindow)
   useEffect(() => {
     const t = setTimeout(() => setHud(inHudWindow()), 400)
     return () => clearTimeout(t)
   }, [])
-  if (!hud || showHudPanel === false) return null
+  return { on: hud && showHudPanel !== false, board: hud && showHudPanel !== false && hudBoard !== false }
+}
+
+function lastReplyFromDom() {
+  try {
+    const all = document.querySelectorAll('[data-slot="aui_assistant-message-content"]')
+    const el = all[all.length - 1]
+    return el ? String(el.textContent || '').trim() : ''
+  } catch {
+    return ''
+  }
+}
+
+function HudPanel({ looks, prefs }) {
+  const mode = useHudMode(prefs)
+  const crew = useValue($crew)
+  const looksValue = useValue(looks)
+  const replies = useValue($lastReply)
+  const n = useNeedsYou()
+  const profile = useValue(host.state.focusedSessionProfile)
+  const busy = useValue(host.state.busy)
+  const runtimeId = useValue(host.state.focusedSessionId)
+  const [domReply, setDomReply] = useState('')
+  useEffect(() => {
+    if (!mode.board) return
+    const root = document.documentElement
+    root.setAttribute('data-helm-hud-board', '')
+    const hud = window.hermesDesktop && window.hermesDesktop.hud
+    try {
+      if (hud && typeof hud.setBounds === 'function' && (window.outerWidth !== 440 || window.outerHeight !== 720)) {
+        hud.setBounds({ x: window.screenX, y: window.screenY, width: 440, height: 720 })
+      }
+    } catch {
+      /* this HUD cannot be resized */
+    }
+    const t = setInterval(() => setDomReply(lastReplyFromDom()), 2000)
+    setDomReply(lastReplyFromDom())
+    return () => {
+      clearInterval(t)
+      root.removeAttribute('data-helm-hud-board')
+    }
+  }, [mode.board])
+  if (!mode.on) return null
   const working = []
   for (const p of crew.profiles || []) {
     const act = activityFor(crew, p.name)
@@ -3094,19 +3708,35 @@ function HudPanel({ looks, prefs }) {
   const me = (crew.profiles || []).find(p => p.name === profile)
   const myLive = working.find(w => w.p.name === profile)
   const mins = myLive && myLive.live.started_at ? Math.max(1, Math.round((Date.now() - toMs(myLive.live.started_at)) / 60000)) : null
-  const today = crewTotals(crew).today
+  const name = me ? botLabel(me) : profile || 'Hermes'
+  const latest = (replies[profile] && replies[profile].text) || domReply
   const head = (label, color) => jsx('div', { style: { padding: '0 2px 6px', ...B_CAPS, color: color || B.t4 }, children: label })
+  const hud = typeof window !== 'undefined' && window.hermesDesktop && window.hermesDesktop.hud
+  const stop = () => {
+    if (!runtimeId) return
+    host.request('session.interrupt', { session_id: runtimeId }).catch(err => host.notifyError?.(`Stop failed: ${err && err.message ? err.message : err}`))
+  }
   return jsxs('div', {
     'data-helm-hud': '',
-    style: { display: 'flex', flexDirection: 'column', gap: 14, padding: '10px 4px 8px', fontSize: 13, color: B.t1, maxHeight: '60vh', overflowY: 'auto' },
+    style: { display: 'flex', flexDirection: 'column', gap: 14, padding: mode.board ? '0 0 8px' : '10px 4px 8px', fontSize: 13, color: B.t1, maxHeight: mode.board ? undefined : '60vh', overflowY: 'auto', minHeight: 0 },
     children: [
+      jsx('style', { children: HUD_BOARD_CSS }),
       jsxs('div', {
-        style: { display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px' },
+        'data-helm-hud-drag': mode.board ? '' : undefined,
+        style: { height: 36, flex: '0 0 36px', display: 'flex', alignItems: 'center', gap: 8, padding: '0 4px', borderBottom: mode.board ? `1px solid ${B.hair}` : 0 },
         children: [
-          jsx('span', { style: { width: 8, height: 8, borderRadius: 4, background: busy || myLive ? V.accent : B.green } }),
-          jsx('span', { style: { fontWeight: 500 }, children: me ? botLabel(me) : profile || 'Hermes' }),
+          jsx('span', { style: { width: 8, height: 8, borderRadius: 4, background: busy || myLive ? V.accent : B.green, flex: '0 0 8px' } }),
+          jsx('span', { style: { fontWeight: 500 }, children: name }),
           jsx('span', { style: { fontSize: 12, color: B.t4 }, children: busy || myLive ? `· working${mins ? ` · ${mins} min` : ''}` : '· idle' }),
-          jsx('button', { type: 'button', title: 'Open the full app', onClick: () => host.navigate(BOTS_ROUTE), style: { marginLeft: 'auto', height: 24, padding: '0 6px', borderRadius: 6, border: 0, background: 'transparent', color: B.t3, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: 'Board ↗' })
+          jsx('span', { 'aria-hidden': true, style: { marginLeft: 'auto', fontFamily: B.mono, fontSize: 11, color: B.t4 }, children: '⋯' }),
+          jsx('button', {
+            type: 'button',
+            title: 'Open the full app',
+            'aria-label': 'Open the full app',
+            onClick: () => (hud && typeof hud.close === 'function' ? hud.close() : host.navigate(BOTS_ROUTE)),
+            style: { width: 24, height: 24, borderRadius: 6, border: 0, background: 'transparent', color: B.t3, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 },
+            children: jsx('svg', { width: 13, height: 13, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, 'aria-hidden': true, children: jsx('path', { d: 'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5' }) })
+          })
         ]
       }),
       n.total
@@ -3128,10 +3758,8 @@ function HudPanel({ looks, prefs }) {
             children: [
               head('Working'),
               ...working.map((w, i) =>
-                jsxs('button', {
-                  type: 'button',
-                  onClick: () => openSession(w.live, w.p.name),
-                  style: { display: 'grid', gridTemplateColumns: '20px 1fr auto', gap: 8, alignItems: 'center', padding: '7px 2px', lineHeight: 1.3, borderTop: `1px solid ${B.hair}`, borderBottom: i === working.length - 1 ? `1px solid ${B.hair}` : undefined, borderLeft: 0, borderRight: 0, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer', width: '100%' },
+                jsxs('div', {
+                  style: { display: 'grid', gridTemplateColumns: '20px 1fr auto', gap: 8, alignItems: 'center', padding: '7px 2px', lineHeight: 1.3, borderTop: `1px solid ${B.hair}`, borderBottom: i === working.length - 1 ? `1px solid ${B.hair}` : undefined },
                   children: [
                     jsx(AnimatedRobot, { look: normalizeLook(looksValue[w.p.name] || null, w.p.name), head: true, size: 18, expr: 'focused', state: 'running', title: botLabel(w.p) }),
                     jsxs('span', {
@@ -3141,23 +3769,59 @@ function HudPanel({ looks, prefs }) {
                         jsx('span', { style: { fontSize: 11.5, color: B.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: sessionTitle(w.live) })
                       ]
                     }),
-                    jsx('span', { style: { fontSize: 11.5, color: V.accent }, children: 'Open' })
+                    w.p.name === profile && busy && runtimeId
+                      ? jsx('button', { type: 'button', onClick: stop, style: { height: 24, padding: '0 8px', borderRadius: 6, border: `1px solid ${B.ctl}`, background: 'transparent', color: B.t2, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: 'Stop' })
+                      : jsx('button', { type: 'button', onClick: () => openSession(w.live, w.p.name), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: 'Open' })
                   ]
                 }, w.p.name)
               )
             ]
           })
         : null,
-      jsxs('div', {
-        style: { display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: B.t4, padding: '0 2px' },
-        children: [
-          jsxs('span', { style: { display: 'flex', alignItems: 'center', gap: 5 }, children: [jsx('span', { style: { width: 6, height: 6, borderRadius: 3, background: B.green } }), 'Backend ready'] }),
-          jsx('span', { style: { marginLeft: 'auto', fontFamily: B.mono }, children: `${fmtCost(today) || '$0.00'} today` }),
-          jsx('span', { children: `${(crew.profiles || []).length} bots` })
-        ]
-      })
+      latest
+        ? jsxs('section', {
+            style: { minHeight: 0, display: 'flex', flexDirection: 'column' },
+            children: [
+              head(`Latest from ${name}`),
+              jsx('div', {
+                style: { padding: '8px 2px', borderTop: `1px solid ${B.hair}`, fontSize: 12.5, lineHeight: 1.55, color: B.t2, whiteSpace: 'pre-wrap', overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: mode.board ? 14 : 4 },
+                children: latest
+              })
+            ]
+          })
+        : null,
+      mode.board ? null : jsx(HudFooterLine, { crew })
     ]
   })
+}
+
+function HudFooterLine({ crew }) {
+  const [mode, setMode] = useState(null)
+  useEffect(() => {
+    let alive = true
+    if (typeof host.request === 'function') {
+      host.request('config.get', { key: 'approvals.mode' }, 10000).then(r => alive && setMode(r && r.value)).catch(() => {})
+    }
+    return () => {
+      alive = false
+    }
+  }, [])
+  const today = crewTotals(crew).today
+  return jsxs('div', {
+    style: { display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: B.t4, padding: '0 2px' },
+    children: [
+      jsxs('span', { style: { display: 'flex', alignItems: 'center', gap: 5 }, children: [jsx('span', { style: { width: 6, height: 6, borderRadius: 3, background: B.green } }), 'Backend ready'] }),
+      jsx('span', { style: { marginLeft: 'auto', fontFamily: B.mono }, children: `${fmtCost(today) || '$0.00'} today` }),
+      jsx('span', { children: mode ? `Approvals: ${mode === 'manual' ? 'ask' : mode}` : `${(crew.profiles || []).length} bots` })
+    ]
+  })
+}
+
+function HudFooter({ prefs }) {
+  const mode = useHudMode(prefs)
+  const crew = useValue($crew)
+  if (!mode.board) return null
+  return jsx('div', { style: { padding: '4px 4px 2px' }, children: jsx(HudFooterLine, { crew }) })
 }
 
 function DeskStrip({ looks, prefs }) {
@@ -3306,7 +3970,9 @@ function startPromptEvents(ctx) {
     host.onEvent('approval.cancelled', onPromptGone),
     host.onEvent('clarify.settled', onPromptGone),
     host.onEvent('clarify.cancelled', onPromptGone),
-    host.onEvent('*', onToolEvent)
+    host.onEvent('*', onToolEvent),
+    host.onEvent('*', onHandoffEvent),
+    host.onEvent('message.complete', onReplyEvent)
   ]
   ctx.onDispose(() => offs.forEach(off => typeof off === 'function' && off()))
 }
@@ -3957,6 +4623,7 @@ function HelmTab({ looks, prefs, setPrefs }) {
   const shown = sorted.filter(r => filter === 'all' || r.line.key === filter)
   const focusedProfile = useValue(host.state.focusedSessionProfile)
   const boardOpen = useValue($boardMounted)
+  const roomsValue = useValue($rooms)
   const today = useValue($today)
   if (!crew.ready && !(crew.profiles || []).length) {
     return jsx('div', { style: { padding: '14px', fontSize: 12, color: V.t3 }, children: 'Loading your bots…' })
@@ -4027,6 +4694,7 @@ function HelmTab({ looks, prefs, setPrefs }) {
           jsx(HelmChip, { label: 'All', active: filter === 'all', onClick: () => setFilter('all') }),
           jsx(HelmChip, { label: 'Needs you', count: needCount, active: filter === 'needs-you', tone: '#E8A657', onClick: () => setFilter('needs-you') }),
           jsx(HelmChip, { label: 'Working', count: workCount, active: filter === 'working', onClick: () => setFilter('working') }),
+          roomsValue.rooms.length ? jsx(HelmChip, { label: 'Rooms', active: filter === 'rooms', onClick: () => setFilter('rooms') }) : null,
           jsx('button', {
             type: 'button',
             'aria-label': 'New bot',
@@ -4037,6 +4705,14 @@ function HelmTab({ looks, prefs, setPrefs }) {
           })
         ]
       }),
+      roomsValue.rooms.length && (filter === 'all' || filter === 'rooms')
+        ? jsxs(Fragment, {
+            children: [
+              jsx(HelmSectionLabel, { children: 'Rooms' }),
+              ...roomsValue.rooms.map(entry => jsx(HelmRoomRow, { entry, looks, looksValue }, entry.room.room_id))
+            ]
+          })
+        : null,
       n.total && (filter === 'all' || filter === 'needs-you')
         ? jsxs(Fragment, {
             children: [
@@ -4051,8 +4727,8 @@ function HelmTab({ looks, prefs, setPrefs }) {
             ]
           })
         : null,
-      jsx(HelmSectionLabel, { children: 'Bots' }),
-      shown.length
+      filter === 'rooms' ? null : jsx(HelmSectionLabel, { children: 'Bots' }),
+      filter === 'rooms' ? null : shown.length
         ? shown.map(r => jsx(HelmBotRow, { ...r, selected: r.p.name === focusedProfile }, r.p.name))
         : jsx('div', { style: { padding: '4px 16px', fontSize: 12, color: V.t3 }, children: filter === 'working' ? 'Nobody is working right now.' : 'Nothing is waiting on you.' }),
       jsx(HelmConnections, {}),
@@ -4602,6 +5278,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
                     jsxs('div', {
                       style: { display: 'flex', flexDirection: 'column', gap: 6 },
                       children: [
+                        jsx(Check, { k: 'showRail', label: 'Icon rail', hint: 'left of the sidebar' }),
                         jsx(Check, { k: 'designNav', label: 'Five-row nav', hint: 'the rest stays in ⌘K' }),
                         jsx(Check, { k: 'showRowStatus', label: 'Status under each session' }),
                         jsx(Check, { k: 'showRowCost', label: 'Cost on each session row' }),
@@ -4629,7 +5306,8 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
                         jsx(Check, { k: 'showTodayChip', label: '$ today across the crew' }),
                         jsx(Check, { k: 'showCostChip', label: 'Focused chat cost and context' }),
                         jsx(Check, { k: 'showContextLine', label: 'Bot, folder, model in the title bar' }),
-                        jsx(Check, { k: 'showHudPanel', label: 'Needs you and Working in the HUD', hint: 'View › HUD mode' })
+                        jsx(Check, { k: 'showHudPanel', label: 'Needs you and Working in the HUD', hint: 'View › HUD mode' }),
+                        jsx(Check, { k: 'hudBoard', label: 'HUD as the 440 × 720 board', hint: 'off keeps the search bar' })
                       ]
                     })
                   ]
@@ -4677,10 +5355,203 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
   })
 }
 
+// ─────────────────────────────────────────────────────────────── icon rail
+// The board's 50px rail, left of the whole pane tree. Hermes has no rail slot,
+// so helm draws it as a fixed element of its own and moves the tree 50px over
+// with one CSS rule. It lives outside the tree, so the sidebar toggle and the
+// layout editor never see it.
+const RAIL_ICONS = {
+  chevron: '<path d="M9 6l6 6-6 6"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  bots: '<rect x="5" y="7" width="14" height="11" rx="3"/><circle cx="9.5" cy="12.5" r="1.2" fill="currentColor"/><circle cx="14.5" cy="12.5" r="1.2" fill="currentColor"/><path d="M12 7V4M8 21h8"/>',
+  profiles: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.5a5 5 0 0 1 6 4.5"/>',
+  desk: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  capabilities: '<path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9 5.5-.8z"/>',
+  messaging: '<path d="M4 6h16v10H8l-4 4z"/>',
+  artifacts: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+  automations: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  command: '<rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/>',
+  customize: '<circle cx="12" cy="12" r="9"/><circle cx="8.5" cy="10" r="1.1" fill="currentColor"/><circle cx="12" cy="7.5" r="1.1" fill="currentColor"/><circle cx="15.5" cy="10" r="1.1" fill="currentColor"/><path d="M12 21a3 3 0 0 1 0-6h1.5a2 2 0 0 0 0-4"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>'
+}
+
+const RAIL_CSS = `
+:root[data-helm-rail] [data-tree-split]:not([data-tree-split] *),
+:root[data-helm-rail] [data-tree-group]:not([data-tree-split] *):not([data-tree-group] *) { margin-left: 50px; }
+#helm-rail { position: fixed; left: 0; width: 50px; box-sizing: border-box; z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; background: #0F1419; border-right: 1px solid #1C242D; -webkit-app-region: no-drag; }
+#helm-rail-drag { position: fixed; left: 0; top: 0; width: 50px; z-index: 40; -webkit-app-region: drag; }
+#helm-rail button { position: relative; width: 34px; height: 34px; border: 0; border-radius: 8px; background: transparent; color: #98A4B1; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+#helm-rail button:hover { background: #141B23; color: #E6EBF0; }
+#helm-rail button[aria-current="page"] { background: #171E27; color: #E6EBF0; }
+#helm-rail button.helm-rail-chevron { height: 30px; color: #76838F; margin-bottom: 4px; }
+#helm-rail button .helm-rail-dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 3px; display: none; }
+#helm-rail button[data-dot] .helm-rail-dot { display: block; }
+#helm-rail .helm-rail-spacer { margin-top: auto; }
+:root[data-hermes-theme="helm-paper"] #helm-rail { background: #F4F2EC; border-right-color: #E2E0D8; }
+`
+
+function hashPath() {
+  try {
+    const h = String(globalThis.location ? globalThis.location.hash : '').replace(/^#/, '')
+    return h.split('?')[0] || '/'
+  } catch {
+    return '/'
+  }
+}
+
+function toggleSidebar() {
+  try {
+    const b = document.querySelector('button[aria-label="Hide sidebar"], button[aria-label="Show sidebar"]')
+    if (b) b.click()
+  } catch {
+    /* no titlebar toggle */
+  }
+}
+
+function startRail(prefs) {
+  if (typeof document === 'undefined' || !isPrimaryWindow()) return () => {}
+  const style = document.createElement('style')
+  style.id = 'helm-rail-css'
+  style.textContent = RAIL_CSS
+  const nav = document.createElement('nav')
+  nav.id = 'helm-rail'
+  nav.setAttribute('aria-label', 'Pages')
+  const drag = document.createElement('div')
+  drag.id = 'helm-rail-drag'
+  drag.setAttribute('aria-hidden', 'true')
+  const items = [
+    { id: 'chevron', label: 'Show or hide the sidebar', run: toggleSidebar, cls: 'helm-rail-chevron', size: 14 },
+    { id: 'plus', label: 'New chat', run: () => host.newChat(), match: p => p === '/' },
+    { id: 'bots', label: 'Bots', run: () => (host.revealPane ? host.revealPane(`${ID}:helm-tab`) : host.navigate(BOTS_ROUTE)), match: p => p.startsWith(BOTS_ROUTE) },
+    { id: 'profiles', label: 'Instances and profiles', route: '/profiles' },
+    { id: 'desk', label: 'Desk', route: DESK_ROUTE },
+    { id: 'capabilities', label: 'Capabilities', route: '/capabilities' },
+    { id: 'messaging', label: 'Messaging', route: '/messaging' },
+    { id: 'artifacts', label: 'Artifacts', route: '/artifacts' },
+    { id: 'automations', label: 'Automations', route: '/cron' },
+    { id: 'command', label: 'Command center', route: '/command-center' },
+    { id: 'customize', label: 'Customize appearance', route: LOOK_ROUTE, spacer: true },
+    { id: 'settings', label: 'Settings', route: '/settings', match: p => p.startsWith('/settings') }
+  ]
+  const buttons = {}
+  for (const it of items) {
+    if (it.spacer) {
+      const s = document.createElement('div')
+      s.className = 'helm-rail-spacer'
+      nav.appendChild(s)
+    }
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.title = it.label
+    b.setAttribute('aria-label', it.label)
+    if (it.cls) b.className = it.cls
+    const size = it.size || 17
+    b.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${it.id === 'chevron' ? 2 : 1.8}" aria-hidden="true">${RAIL_ICONS[it.id]}</svg><span class="helm-rail-dot"></span>`
+    b.addEventListener('click', () => {
+      try {
+        haptic('tap')
+      } catch {
+        /* no haptics */
+      }
+      if (it.run) it.run()
+      else host.navigate(it.route)
+      setTimeout(paintActive, 60)
+    })
+    buttons[it.id] = b
+    nav.appendChild(b)
+  }
+  const paintActive = () => {
+    const p = hashPath()
+    for (const it of items) {
+      if (it.id === 'chevron') continue
+      const on = it.match ? it.match(p) : it.route ? p === it.route || p.startsWith(`${it.route}/`) : false
+      if (on) buttons[it.id].setAttribute('aria-current', 'page')
+      else buttons[it.id].removeAttribute('aria-current')
+    }
+  }
+  const setDot = (id, color) => {
+    const b = buttons[id]
+    if (!b) return
+    if (color) {
+      b.setAttribute('data-dot', '')
+      b.querySelector('.helm-rail-dot').style.background = color
+    } else b.removeAttribute('data-dot')
+  }
+  const paintDots = () => {
+    const n = needsYouOf($inbox.get(), $crew.get())
+    setDot('bots', n.total ? '#E8A657' : null)
+    const failed = ($today.get().jobs || []).some(j => j.last_status === 'error' && toMs(j.last_run_at) >= startOfToday() * 1000)
+    setDot('automations', failed ? '#E07080' : null)
+  }
+  const place = () => {
+    let top = 40
+    let bottom = 0
+    try {
+      for (const h of document.querySelectorAll('[data-tree-group][data-window-top] > [data-panel-header]')) {
+        const r = h.getBoundingClientRect()
+        if (r.left < 120 && r.bottom > 0) top = Math.round(r.bottom)
+      }
+      const bar = document.querySelector('[data-slot="statusbar"]')
+      if (bar) {
+        const r = bar.getBoundingClientRect()
+        if (r.height > 0) bottom = Math.max(0, Math.round(window.innerHeight - r.top))
+      }
+    } catch {
+      /* keep the defaults */
+    }
+    nav.style.top = `${top}px`
+    nav.style.bottom = `${bottom}px`
+    drag.style.height = `${top}px`
+  }
+  let mounted = false
+  const mount = () => {
+    if (mounted) return
+    mounted = true
+    document.head.appendChild(style)
+    document.body.appendChild(drag)
+    document.body.appendChild(nav)
+    document.documentElement.setAttribute('data-helm-rail', '')
+    place()
+    paintActive()
+    paintDots()
+  }
+  const unmount = () => {
+    if (!mounted) return
+    mounted = false
+    style.remove()
+    nav.remove()
+    drag.remove()
+    document.documentElement.removeAttribute('data-helm-rail')
+  }
+  const sync = () => (prefs.get().showRail !== false ? mount() : unmount())
+  sync()
+  const offs = [
+    prefs.subscribe(sync),
+    $crew.subscribe(paintDots),
+    $inbox.subscribe(paintDots),
+    $today.subscribe(paintDots)
+  ]
+  window.addEventListener('hashchange', paintActive)
+  window.addEventListener('resize', place)
+  const timer = setInterval(() => {
+    if (mounted) {
+      place()
+      paintActive()
+    }
+  }, 1000)
+  return () => {
+    offs.forEach(off => typeof off === 'function' && off())
+    window.removeEventListener('hashchange', paintActive)
+    window.removeEventListener('resize', place)
+    clearInterval(timer)
+    unmount()
+  }
+}
+
 // ───────────────────────────────────────────────────────────────── plugin
 
 // Pure helpers, exported for the test suite only.
-export const _internals = { AnimatedRobot, petKey, petStateFor, petSheets, PET_ROW, autoAvatars, pngEdge, AVATAR_EDGE, DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
+export const _internals = { routeBrief, readBrief, routingRules, tierOfModel, roomSummary, permsLine, onHandoffEvent, $handoffs, onReplyEvent, $lastReply, AnimatedRobot, petKey, petStateFor, petSheets, PET_ROW, autoAvatars, pngEdge, AVATAR_EDGE, DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
 
 export default {
   id: ID,
@@ -4703,6 +5574,14 @@ export default {
       ctx.storage.set('prefs', stored)
     }
     const prefs = atom({ ...DEFAULT_PREFS, ...stored })
+    {
+      const h = ctx.storage.get('handoffs', [])
+      if (Array.isArray(h)) $handoffs.set(h.slice(0, 30))
+      handoffStore = v => ctx.storage.set('handoffs', v)
+      const lr = ctx.storage.get('lastReply', {})
+      if (lr && typeof lr === 'object') $lastReply.set(lr)
+      replyStore = v => ctx.storage.set('lastReply', v)
+    }
     $animate.set(prefs.get().animateRobots !== false)
     prefs.subscribe(v => $animate.set(v.animateRobots !== false))
     const looks = atom(ctx.storage.get('looks', {}))
@@ -4767,6 +5646,7 @@ export default {
       syncNavPrefs()
       syncComposer()
     }
+    helmPrefsRef = { prefs, setPrefs }
     // A look change re-registers the custom theme and switches to it.
     const applyLook = patch => {
       setPrefs(patch)
@@ -4814,6 +5694,7 @@ export default {
       { id: 'desk-key', area: KEYBINDS_AREA, data: { id: 'helm.desk', label: 'Open the Desk', category: 'view', defaults: ['mod+alt+0'], run: () => host.navigate(DESK_ROUTE) } },
       { id: 'desk-strip', area: 'composer.top', order: 5, render: () => jsx(DeskStrip, { looks, prefs }) },
       { id: 'hud-panel', area: 'composer.top', order: 4, render: () => jsx(HudPanel, { looks, prefs }) },
+      { id: 'hud-footer', area: 'composer.bottom', order: 90, render: () => jsx(HudFooter, { prefs }) },
       {
         id: 'session-pane',
         area: 'panes',
@@ -4904,6 +5785,10 @@ export default {
     // pane that shows it, mounted only while something needs you.
     startInbox(ctx)
     startPromptEvents(ctx)
+    // The board's icon rail, outside the pane tree.
+    ctx.onDispose(startRail(prefs))
+    // Rooms for the Helm tab and the board.
+    if (isPrimaryWindow()) startRooms(ctx)
     // The Helm tab: a third tab in the sessions column, beside SESSIONS and BOTS,
     // docked the way Hermes docks its own Bots tab (centre of the sessions
     // zone, collapsing with it). It replaces 1.0's split-above-Sessions

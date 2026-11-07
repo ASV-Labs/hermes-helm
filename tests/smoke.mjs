@@ -223,6 +223,40 @@ assert.ok(boardHtml.includes('Refactor the auth flow'), 'latest session in Now')
 assert.ok(boardHtml.includes('Needs you') && boardHtml.includes('DISPATCH') && boardHtml.includes('Send'), 'chips, dispatch panel, brief')
 assert.ok(boardHtml.includes('Next routine') && boardHtml.includes('today across the crew'), 'table header + spend')
 
+
+// Router, rooms, permissions, handoffs, latest reply
+{
+  const I = mod._internals
+  assert.equal(I.readBrief('Review PR #42 on hermes-lineage for regressions').tier, 'fast', 'review reads as fast')
+  assert.equal(I.readBrief('Deploy the swap script to foundrykit').tier, 'frontier', 'deploy reads as frontier')
+  assert.equal(I.readBrief('Pull current pricing for three VPS hosts').tier, 'balanced', 'pricing reads as balanced')
+  assert.equal(I.readBrief('Draft a reply to the X thread').tier, 'nano', 'draft reads as nano')
+  assert.equal(I.tierOfModel('claude-opus-5-5'), 'frontier')
+  assert.equal(I.tierOfModel('claude-haiku-5-5'), 'nano')
+  const rows = [
+    { p: { name: 'vision', model: 'grok-4.7' }, rank: 1 },
+    { p: { name: 'builder', model: 'claude-opus-5-5' }, rank: 3 },
+    { p: { name: 'theo', model: 'claude-haiku-5-5' }, rank: 3 }
+  ]
+  const r1 = I.routeBrief('Deploy the release', rows, {})
+  assert.equal(r1.tier, 'frontier'); assert.equal(r1.bot, 'builder', `free frontier bot wins: ${r1.why}`)
+  const r2 = I.routeBrief('Review the diff', rows, { fast: ['theo'] })
+  assert.equal(r2.bot, 'theo', 'edited rules route fast to theo')
+  assert.ok(r2.why.includes('read-only review'), r2.why)
+  const room = { room_id: 'r1', name: 'Release crew', members: [{ member_id: 'm1', profile: 'builder', handle: 'builder' }, { member_id: 'm2', profile: 'vision', handle: 'vision' }] }
+  assert.equal(I.roomSummary(room, { driver_status: { pending_actions: [{ kind: 'approval', member_id: 'm1' }] } }, []).text, 'builder is waiting on you')
+  assert.ok(I.roomSummary(room, { driver_status: { member_activity: [{ member_id: 'm2', status: 'running' }] } }, []).text.includes('vision working'))
+  assert.equal(I.roomSummary(room, {}, [{ kind: 'turn.settled', payload: { member_id: 'm1', passed: true } }, { kind: 'turn.settled', payload: { member_id: 'm2' } }]).text, 'vision replied · builder passed')
+  assert.equal(I.permsLine({ mode: 'manual', servers: ['github', 'notion'] }), 'github · notion · asks first')
+  assert.equal(I.permsLine({ mode: 'off', servers: [] }), 'built-in tools · no approvals')
+  I.onHandoffEvent({ type: 'tool.start', session_id: 's1', payload: { name: 'message_agent', tool_id: 't1', args: { target: 'theo', message: 'Review the release notes' } } })
+  I.onHandoffEvent({ type: 'tool.complete', session_id: 's1', payload: { name: 'message_agent', tool_id: 't1', result: 'Delivered; theo will reply on its next run' } })
+  const h = I.$handoffs.get()[0]
+  assert.equal(h.to, 'theo'); assert.equal(h.status, 'delivered', JSON.stringify(h))
+  I.onReplyEvent({ type: 'message.complete', session_id: 's1', payload: { text: 'Packaged with a rollback copy.' } })
+  assert.ok(Object.values(I.$lastReply.get()).some(v => v.text.includes('rollback')), 'latest reply captured')
+}
+
 // Desk-wide layer
 const rowBot = byArea('sessionRow.leading')[0].data.render({ sessionId: 'root-1' })
 assert.equal(renderToString(rowBot), '', 'no robot heads in session rows by default (the design has none)')
