@@ -2550,6 +2550,7 @@ function HandoffsSection({ label }) {
   const list = useValue($handoffs)
   const shown = list.slice(0, 4)
   return jsxs('div', {
+    'data-helm-handoffs': '',
     children: [
       jsx('div', { style: { ...B_CAPS, marginBottom: 8 }, children: 'Handoffs · Agent inbox' }),
       shown.length
@@ -2654,7 +2655,19 @@ function DispatchPanel({ rows }) {
     children: [
       jsx('div', {
         style: { display: 'flex', gap: 14, padding: '10px 16px 0', borderBottom: `1px solid ${B.hair}` },
-        children: jsx('span', { style: { height: 28, display: 'flex', alignItems: 'center', borderBottom: `2px solid ${V.accent}`, color: B.t1, fontSize: 11.5, fontWeight: 600, letterSpacing: '0.08em' }, children: 'DISPATCH' })
+        children: [
+          ['ACTIVITY', () => { const r = rows && rows[0]; if (r && r.p) openBot(r.p, r.activity) }],
+          ['DISPATCH', null],
+          ['LIBRARY', () => host.navigate('/artifacts')]
+        ].map(([t, go]) =>
+          jsx('button', {
+            type: 'button',
+            onClick: go || undefined,
+            'aria-pressed': !go,
+            style: { height: 28, padding: 0, display: 'flex', alignItems: 'center', border: 0, borderBottom: `2px solid ${go ? 'transparent' : V.accent}`, background: 'transparent', color: go ? B.t3 : B.t1, font: 'inherit', fontSize: 11.5, fontWeight: 600, letterSpacing: '0.08em', cursor: go ? 'pointer' : 'default' },
+            children: t
+          }, t)
+        )
       }),
       jsxs('div', {
         style: { padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 14, fontSize: 12, overflowY: 'auto', minHeight: 0, flex: '1 1 auto' },
@@ -5400,6 +5413,31 @@ function HelmTab({ looks, prefs, setPrefs }) {
   const roomsValue = useValue($rooms)
   const [newRoom, setNewRoom] = useState(false)
   const today = useValue($today)
+  const handoffs = useValue($handoffs)
+  // The Helm tab is the Bots board: picking the tab opens the board in the
+  // main area (Board / Roster / Routines / Agent inbox down the side).
+  useEffect(() => {
+    if (!isPrimaryWindow() || inHudWindow()) return undefined
+    let was = false
+    let atom = null
+    try {
+      atom = typeof host.paneVisibility === 'function' ? host.paneVisibility(`${ID}:helm-tab`) : null
+    } catch {
+      atom = null
+    }
+    const open = () => {
+      if (!$boardMounted.get()) host.navigate(BOTS_ROUTE)
+    }
+    if (!atom || typeof atom.subscribe !== 'function') {
+      open()
+      return undefined
+    }
+    const off = atom.subscribe(v => {
+      if (v && !was) open()
+      was = !!v
+    })
+    return () => typeof off === 'function' && off()
+  }, [])
   if (!crew.ready && !(crew.profiles || []).length) {
     return jsx('div', { style: { padding: '14px', fontSize: 12, color: V.t3 }, children: 'Loading your bots…' })
   }
@@ -5425,7 +5463,15 @@ function HelmTab({ looks, prefs, setPrefs }) {
           children: [
             navRow('Board', [{ r: { x: 3, y: 4, width: 5, height: 16, rx: 1 } }, { r: { x: 10, y: 4, width: 5, height: 10, rx: 1 } }, { r: { x: 17, y: 4, width: 4, height: 13, rx: 1 } }], { selected: true }),
             navRow('Roster', ['M4 6h16M4 12h16M4 18h10'], { onClick: () => { const r = rows.find(x => x.p.name === focusedProfile) || sorted[0]; if (r) openBot(r.p, r.activity) } }),
-            navRow('Routines', [{ c: { cx: 12, cy: 12, r: 9 } }, 'M12 7v5l3 2'], { count: routines || null, onClick: () => host.navigate('/cron') })
+            navRow('Routines', [{ c: { cx: 12, cy: 12, r: 9 } }, 'M12 7v5l3 2'], { count: routines || null, onClick: () => host.navigate('/cron') }),
+            navRow('Agent inbox', ['M4 6h16v10H8l-4 4z'], {
+              count: (handoffs || []).length || null,
+              onClick: () => {
+                const el = document.querySelector('[data-helm-handoffs]')
+                if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' })
+                else host.navigate(BOTS_ROUTE)
+              }
+            })
           ]
         }),
         jsx(HelmSectionLabel, { children: 'Bots' }),
