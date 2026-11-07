@@ -6571,7 +6571,9 @@ function BotEditorModal() {
   return jsx('div', {
     'data-helm-bot-editor': '',
     onMouseDown: e => e.target === e.currentTarget && close(),
-    style: { position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(6, 9, 12, 0.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: B.t1, fontSize: 13, lineHeight: 1.45 },
+    onKeyDown: e => e.key === 'Escape' && close(),
+    tabIndex: -1,
+    style: { position: 'fixed', inset: 0, zIndex: 1000, pointerEvents: 'auto', WebkitAppRegion: 'no-drag', background: 'rgba(6, 9, 12, 0.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: B.t1, fontSize: 13, lineHeight: 1.45 },
     children: jsxs('div', {
       role: 'dialog',
       'aria-label': `Edit ${label}`,
