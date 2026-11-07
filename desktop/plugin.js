@@ -4562,6 +4562,17 @@ function useHudMode(prefs) {
   return { on: hud && showHudPanel !== false, board: hud && showHudPanel !== false && hudBoard !== false }
 }
 
+// The HUD's "Latest from": markdown read as plain text, inline code in mono.
+function plainReply(text) {
+  const clean = String(text || '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+  return clean.split(/(`[^`]+`)/g).map((part, i) => (part.startsWith('`') && part.endsWith('`') && part.length > 1 ? jsx('span', { style: { fontFamily: B.mono, fontSize: 12 }, children: part.slice(1, -1) }, i) : part))
+}
+
 function lastReplyFromDom() {
   try {
     const all = document.querySelectorAll('[data-slot="aui_assistant-message-content"]')
@@ -4632,6 +4643,13 @@ function HudPanel({ looks, prefs }) {
           jsx('span', { style: { fontWeight: 500 }, children: name }),
           jsx('span', { style: { fontSize: 12, color: B.t4 }, children: busy || myLive ? `· working${mins ? ` · ${mins} min` : ''}` : '· idle' }),
           jsx('span', { 'aria-hidden': true, style: { marginLeft: 'auto', fontFamily: B.mono, fontSize: 11, color: B.t4 }, children: '⋯' }),
+          jsx('span', {
+            role: 'img',
+            title: 'Pinned on top: the HUD floats over every window',
+            'aria-label': 'Pinned on top',
+            style: { width: 24, height: 24, borderRadius: 6, color: V.accent, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+            children: jsx('svg', { width: 13, height: 13, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, 'aria-hidden': true, dangerouslySetInnerHTML: { __html: '<path d="M9 4h6l-1 6 3 3H7l3-3z"/><path d="M12 13v7"/>' } })
+          }),
           jsx('button', {
             type: 'button',
             title: 'Open the full app',
@@ -4688,7 +4706,7 @@ function HudPanel({ looks, prefs }) {
               head(`Latest from ${name}`),
               jsx('div', {
                 style: { padding: '8px 2px', borderTop: `1px solid ${B.hair}`, fontSize: 12.5, lineHeight: 1.55, color: B.t2, whiteSpace: 'pre-wrap', overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: mode.board ? 14 : 4 },
-                children: latest
+                children: plainReply(latest)
               })
             ]
           })
@@ -6231,7 +6249,8 @@ function ComposerToPill({ looks }) {
   const looksValue = useValue(looks)
   const profile = useValue(host.state.focusedSessionProfile)
   const prefsValue = useValue(helmPrefsRef ? helmPrefsRef.prefs : $helmTabVisible)
-  if (!on || inHudWindow()) return null
+  const hud = inHudWindow()
+  if (!on && !hud) return null
   const p = (crew.profiles || []).find(x => x.name === profile)
   const pal = PALETTE[normalizeLook(looksValue[profile], profile || 'default').color] || PALETTE.blue
   const auto = !!(prefsValue && prefsValue.routeAuto)
@@ -6248,6 +6267,7 @@ function ComposerToPill({ looks }) {
   const pill = { position: 'relative', height: 28, padding: '0 9px', borderRadius: 6, border: '1px solid #222B35', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap', flex: '0 0 auto', cursor: 'pointer', background: 'transparent', font: 'inherit' }
   return jsxs(Fragment, {
     children: [
+      hud ? jsx(HudScreenToggle, {}) : null,
       jsxs('label', {
         'data-helm-to': '',
         title: 'Who gets this message',
@@ -6264,7 +6284,7 @@ function ComposerToPill({ looks }) {
           })
         ]
       }),
-      jsx('button', {
+      hud ? null : jsx('button', {
         type: 'button',
         'data-helm-route': '',
         'aria-pressed': auto,
@@ -6275,6 +6295,61 @@ function ComposerToPill({ looks }) {
       })
     ]
   })
+}
+
+// HUD composer: "See my screen" is Hermes's screenshot gesture (the native
+// capture that lands in this composer), switched on or off here.
+function HudScreenToggle() {
+  const [on, setOn] = useState(null)
+  const api = typeof window !== 'undefined' && window.hermesDesktop && window.hermesDesktop.screenshot
+  useEffect(() => {
+    if (!api || typeof api.getSettings !== 'function') return undefined
+    let alive = true
+    api.getSettings().then(st => alive && setOn(!!(st && st.enabled))).catch(() => {})
+    const off = typeof api.onStatus === 'function' ? api.onStatus(st => setOn(!!(st && st.enabled))) : null
+    return () => {
+      alive = false
+      if (typeof off === 'function') off()
+    }
+  }, [])
+  if (!api) return null
+  const flip = async () => {
+    try {
+      const res = await api.setEnabled(!on)
+      setOn(res && typeof res.enabled === 'boolean' ? res.enabled : !on)
+      if (!on) host.notify?.({ kind: 'info', message: 'See my screen is on: take a screenshot with the system gesture and it lands in this message.' })
+    } catch (err) {
+      host.notifyError?.(`Could not change screen capture: ${err && err.message ? err.message : err}`)
+    }
+  }
+  return jsx('button', {
+    type: 'button',
+    'aria-pressed': !!on,
+    title: on ? 'Screenshots you take land in this message' : 'Let screenshots land in this message',
+    onClick: flip,
+    style: { height: 24, padding: '0 8px', borderRadius: 6, border: `1px solid ${on ? V.accent : '#222B35'}`, background: on ? '#171E27' : 'transparent', color: '#C3CCD5', font: 'inherit', fontSize: 11.5, cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto' },
+    children: 'See my screen'
+  })
+}
+
+function prettyAccel(a) {
+  return String(a || '')
+    .replace(/CommandOrControl|CmdOrCtrl|Command|Cmd/gi, '⌘')
+    .replace(/Control|Ctrl/gi, '⌃')
+    .replace(/Shift/gi, '⇧')
+    .replace(/Alt|Option/gi, '⌥')
+    .replace(/\+/g, '')
+}
+
+function HudShortcutHint() {
+  const [accel, setAccel] = useState('')
+  useEffect(() => {
+    const q = typeof window !== 'undefined' && window.hermesDesktop && window.hermesDesktop.quickEntry
+    if (!q || typeof q.getSettings !== 'function') return
+    q.getSettings().then(st => setAccel((st && (st.shortcut || st.accelerator)) || '')).catch(() => {})
+  }, [])
+  if (!inHudWindow() || !accel) return null
+  return jsx('span', { 'data-helm-hint': '', title: 'Summon Hermes from anywhere', style: { fontFamily: B.mono, fontSize: 11, color: '#76838F', whiteSpace: 'nowrap', flex: '0 0 auto' }, children: prettyAccel(accel) })
 }
 
 function BotChatHint() {
@@ -7893,6 +7968,7 @@ export default {
       { id: 'composer-meter', area: 'composer.actions', order: 21, render: () => jsx(ComposerMeter, {}) },
       { id: 'composer-to', area: 'composer.actions', order: 5, render: () => jsx(ComposerToPill, { looks }) },
       { id: 'bot-chat-hint', area: 'composer.actions', order: 22, render: () => jsx(BotChatHint, {}) },
+      { id: 'hud-shortcut', area: 'composer.actions', order: 23, render: () => jsx(HudShortcutHint, {}) },
       { id: 'route-middleware', area: 'composer.middleware', data: { handler: routeMiddleware } },
       { id: 'session-chrome', area: 'composer.underside', order: 2, render: () => jsx(SessionChrome, { looks, prefs }) },
       { id: 'sidechat-key', area: KEYBINDS_AREA, data: { id: 'helm.side-chat', label: 'Side chat (/btw)', category: 'view', defaults: ['mod+;'], run: openSideChat } },
