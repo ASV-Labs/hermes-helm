@@ -2118,9 +2118,13 @@ let helmPrefsRef = null
 
 function tierOfModel(model) {
   const m = String(model || '').toLowerCase()
-  if (/haiku|nano|mini|lite|\b[1-8]b\b|small/.test(m)) return 'nano'
-  if (/flash|fast|turbo|1[0-4]b/.test(m)) return 'fast'
-  if (/opus|grok-4|gpt-5|o3|o4|pro\b|frontier/.test(m)) return 'frontier'
+  if (/haiku|nano|mini\b|-mini|lite/.test(m)) return 'nano'
+  if (/opus|grok-4|grok-5|gpt-5|\bo3\b|\bo4\b|-pro\b|frontier/.test(m)) return 'frontier'
+  if (/flash|turbo/.test(m)) return 'fast'
+  if (/sonnet/.test(m)) return 'balanced'
+  const sizes = (m.match(/(\d+(?:\.\d+)?)b\b/g) || []).map(x => parseFloat(x))
+  const size = sizes.length ? Math.max(...sizes) : null
+  if (size !== null) return size <= 8 ? 'nano' : size <= 14 ? 'fast' : size <= 72 ? 'balanced' : 'frontier'
   return 'balanced'
 }
 
@@ -2233,22 +2237,21 @@ async function refreshPerms() {
   permsInflight = true
   try {
     const byProfile = { ...$perms.get().byProfile }
-    for (const p of $crew.get().profiles || []) {
-      const out = { mode: null, servers: null }
-      try {
-        const r = await host.request('config.get', { key: 'approvals.mode', profile: p.name }, 15000)
-        out.mode = r && typeof r.value === 'string' ? r.value : null
-      } catch {
-        out.mode = null
-      }
-      try {
-        const r = await host.request('mcp.servers.status', { profile: p.name }, 15000)
-        out.servers = ((r && r.servers) || []).filter(x => x && !x.disabled).map(x => String(x.name || '')).filter(Boolean)
-      } catch {
-        out.servers = null
-      }
-      byProfile[p.name] = out
-    }
+    await Promise.all(
+      ($crew.get().profiles || []).map(async p => {
+        const out = { mode: null, servers: null }
+        const [mode, servers] = await Promise.allSettled([
+          host.request('config.get', { key: 'approvals.mode', profile: p.name }, 8000),
+          host.request('mcp.servers.status', { profile: p.name }, 8000)
+        ])
+        if (mode.status === 'fulfilled' && mode.value && typeof mode.value.value === 'string') out.mode = mode.value.value
+        if (servers.status === 'fulfilled' && servers.value) {
+          out.servers = (servers.value.servers || []).filter(x => x && !x.disabled).map(x => String(x.name || '')).filter(Boolean)
+        }
+        byProfile[p.name] = out
+        $perms.set({ ready: false, byProfile: { ...byProfile }, at: Date.now() })
+      })
+    )
     $perms.set({ ready: true, byProfile, at: Date.now() })
   } finally {
     permsInflight = false
@@ -2982,12 +2985,12 @@ async function refreshToday() {
     if (typeof host.request !== 'function') throw new Error('no gateway')
     const seen = new Map()
     let reached = false
-    const take = (res, profile) => {
+    const take = (res, profile, launch) => {
       if (!res || !Array.isArray(res.jobs)) return
       reached = true
       // A gateway that ignores `profile` answers with its launch store and no
       // `scoped`; label those rows unscoped so they aren't pinned to the wrong bot.
-      const owner = profile ? res.scoped || '' : ''
+      const owner = launch ? profile : profile ? res.scoped || '' : ''
       for (const job of res.jobs) {
         const row = cronRow(job || {}, owner)
         if (row.id && !seen.has(row.id)) seen.set(row.id, row)
@@ -2998,7 +3001,8 @@ async function refreshToday() {
     await Promise.all(profiles.map(async name => {
       try { take(await host.request('cron.manage', { action: 'list', include_disabled: true, profile: name }, 15000), name) } catch { /* that bot just has no list */ }
     }))
-    try { take(await host.request('cron.manage', { action: 'list', include_disabled: true }, 15000), '') } catch { /* no launch store */ }
+    // The launch store is the window's own profile's store.
+    try { take(await host.request('cron.manage', { action: 'list', include_disabled: true }, 15000), atomGet(host.state.profile) || '', true) } catch { /* no launch store */ }
     $today.set({ ready: true, available: reached, jobs: [...seen.values()].slice(0, 100), at: Date.now() })
   } catch {
     $today.set({ ready: true, available: false, jobs: [], at: Date.now() })

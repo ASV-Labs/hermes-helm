@@ -162,7 +162,7 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
     await mod._internals.refreshToday()
     const today = mod._internals.$today.get()
     assert.ok(today.available, 'cron.manage reached')
-    assert.deepEqual(today.jobs.map(j => [j.id, j.profile, j.last_status]).sort(), [['j-b', 'builder', 'error'], ['j-r', '', null]], JSON.stringify(today.jobs))
+    assert.deepEqual(today.jobs.map(j => [j.id, j.profile, j.last_status]).sort(), [['j-b', 'builder', 'error'], ['j-r', 'vision', null]], JSON.stringify(today.jobs))
     assert.equal(today.jobs.find(j => j.id === 'j-b').last_error.length, 300)
     const deskT = renderToString(byArea('routes').find(c => c.data.path === '/helm/desk').render())
     assert.ok(deskT.includes('Nightly build check') && deskT.includes('failed') && deskT.includes('Morning digest'), `today list: ${deskT.slice(0, 200)}`)
