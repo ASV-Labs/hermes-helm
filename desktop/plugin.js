@@ -6347,6 +6347,12 @@ const STATUS_FACES = [
   ['asleep', 'sleep', B.t4]
 ]
 
+const BOT_EDITOR_CSS = `
+[data-slot="dialog-content"]:has([data-helm-bot-editor]) { max-width: none !important; width: auto !important; max-height: none !important; padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important; }
+[data-slot="dialog-content"]:has([data-helm-bot-editor]) div:has(> [data-helm-bot-editor]),
+[data-slot="dialog-content"]:has([data-helm-bot-editor]) div:has(> div > [data-helm-bot-editor]) { padding: 0 !important; overflow: visible !important; max-height: none !important; display: block !important; border: 0 !important; background: transparent !important; border-radius: 14px !important; }
+`
+
 function BotEditorModal() {
   const req = useValue($editBot)
   const crew = useValue($crew)
@@ -6595,9 +6601,12 @@ function BotEditorModal() {
       fitContent: true,
       showCloseButton: false,
       blurBackdrop: false,
-      className: '!max-w-none !p-0 !border-0 !bg-transparent !shadow-none',
-      bodyClassName: '!p-0 !overflow-visible',
-      children: [jsx(DialogTitle, { className: 'sr-only', children: `Edit ${label}` }), dialogBox]
+      style: { maxWidth: 'none', width: 'auto', maxHeight: 'none', padding: 0, border: 0, background: 'transparent', boxShadow: 'none' },
+      children: [
+        jsx('style', { children: BOT_EDITOR_CSS }),
+        jsx(DialogTitle, { style: { position: 'absolute', left: -9999 }, children: `Edit ${label}` }),
+        dialogBox
+      ]
     })
   })
 }
