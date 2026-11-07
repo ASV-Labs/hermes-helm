@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.3 — 2026-11-06
+
+- **The Desk now matches the approved design (the Main board):**
+  - compact two-line rows: a status dot, title, detail line, a mono time-and-cost column, and a cyan *Open* / *Review* link
+  - tracked-caps section headers
+  - a lower, tighter composer with a cyan send button
+  - approvals and questions with their buttons on the right of the row (*Approve* in the accent)
+  - Today as one line per job
+  - quick-action chips along the bottom
+- The robot heads that used to sit in the Desk rows are gone. Robots stay in the bot picker, the Bots board, the session list and the composer.
+
 ## 1.0.2 — 2026-11-06
 
 - **Desk sections fold.** Click the *Continue*, *Needs you* or *Today* header to fold or unfold that section, and the Desk remembers your choice. A folded section shows its count, for example *Today 12 · 1 failed*.

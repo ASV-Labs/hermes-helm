@@ -42,7 +42,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '1.0.2'
+const VERSION = '1.0.3'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -1805,7 +1805,8 @@ const V = {
   radius: n => `calc(var(--radius-scalar, 1) * ${n}px)`
 }
 const TONE_COLOR = { amber: V.amber, accent: V.accent, muted: V.t3 }
-const CAPS = { fontSize: 11, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: V.t3 }
+const CAPS = { fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: V.t3, margin: 0 }
+const ON_ACCENT = '#06161A'
 
 // A Desk section. With `id` + `fold` it folds: the header toggles it, the
 // choice is remembered (prefs.deskFolded), and a folded section shows its count.
@@ -1826,20 +1827,20 @@ function DeskSection({ id, title, count, action, fold, children }) {
         title: folded ? 'Show' : 'Hide',
         style: { display: 'inline-flex', alignItems: 'center', gap: 6, background: 'none', border: 0, padding: 0, cursor: 'pointer', color: 'inherit' },
         children: [
-          jsx('span', { style: { ...CAPS, display: 'inline-block', width: 10, transition: 'transform 120ms', transform: folded ? 'rotate(-90deg)' : 'none' }, children: '▾' }),
+          jsx('span', { style: { ...CAPS, color: V.t4, display: 'inline-block', width: 9, transition: 'transform 120ms', transform: folded ? 'rotate(-90deg)' : 'none' }, children: '▾' }),
           jsx('h2', { style: CAPS, children: title }),
           folded && count ? jsx('span', { style: { fontSize: 11, color: V.t3, fontVariantNumeric: 'tabular-nums' }, children: count }) : null
         ]
       })
     : jsx('h2', { style: CAPS, children: title })
   return jsxs('section', {
-    style: { marginTop: folded ? 18 : 28 },
+    style: { marginTop: folded ? 14 : 22, display: 'flex', flexDirection: 'column' },
     children: [
       jsxs('div', {
-        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${V.hair}`, paddingBottom: 6, marginBottom: 2 },
+        style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 2px 6px' },
         children: [head, action || null]
       }),
-      folded ? null : children
+      folded ? null : jsx('div', { style: { borderTop: `1px solid ${V.hair}` }, children })
     ]
   })
 }
@@ -1866,14 +1867,14 @@ function SmallButton({ onClick, children, primary, disabled, title }) {
     disabled,
     title,
     style: {
-      height: 26,
-      padding: '0 10px',
+      height: 28,
+      padding: primary ? '0 12px' : '0 10px',
       fontSize: 12,
-      fontWeight: 500,
-      borderRadius: V.radius(7),
+      fontWeight: primary ? 600 : 500,
+      borderRadius: V.radius(6),
       border: primary ? '1px solid transparent' : `1px solid ${V.hair2}`,
-      background: primary ? V.t1 : 'transparent',
-      color: primary ? 'var(--ui-bg-chrome, #0b0f14)' : V.t1,
+      background: primary ? V.accent : 'transparent',
+      color: primary ? ON_ACCENT : V.t2,
       opacity: disabled ? 0.45 : 1,
       cursor: disabled ? 'default' : 'pointer',
       whiteSpace: 'nowrap'
@@ -1882,20 +1883,20 @@ function SmallButton({ onClick, children, primary, disabled, title }) {
   })
 }
 
-function DeskRow({ lead, title, sub, meta, actions, dot }) {
+function DeskRow({ lead, title, sub, meta, actions, dot, dense }) {
   return jsxs('div', {
-    style: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: `1px solid ${V.hair}` },
+    style: { display: 'flex', alignItems: 'center', gap: 12, padding: dense ? '7px 2px' : '9px 2px', borderBottom: `1px solid ${V.hair}`, lineHeight: 1.3 },
     children: [
-      dot !== undefined ? jsx('span', { style: { width: 6, height: 6, borderRadius: 3, flexShrink: 0, background: dot || 'transparent' } }) : null,
+      dot !== undefined ? jsx('span', { style: { width: 6, height: 6, borderRadius: 3, flexShrink: 0, marginLeft: 4, background: dot || 'transparent' } }) : null,
       lead,
       jsxs('div', {
         style: { minWidth: 0, flex: 1 },
         children: [
-          jsx('div', { className: 'truncate', style: { fontSize: 14, color: V.t1 }, children: title }),
-          sub ? jsx('div', { className: 'truncate', style: { fontSize: 12, color: V.t3, marginTop: 1 }, children: sub }) : null
+          jsx('div', { className: 'truncate', style: { fontSize: dense ? 12.5 : 13, color: V.t1 }, children: title }),
+          sub ? jsx('div', { className: 'truncate', style: { fontSize: 11.5, color: V.t2, marginTop: 1 }, children: sub }) : null
         ]
       }),
-      meta ? jsx('div', { style: { flexShrink: 0, fontSize: 12, color: V.t4, fontFamily: V.mono, fontVariantNumeric: 'tabular-nums' }, children: meta }) : null,
+      meta ? jsx('div', { style: { flexShrink: 0, fontSize: 11.5, color: V.t3, fontFamily: V.mono, fontVariantNumeric: 'tabular-nums' }, children: meta }) : null,
       actions ? jsx('div', { style: { display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }, children: actions }) : null
     ]
   })
@@ -1954,10 +1955,10 @@ function DeskPrompt({ crew, looks }) {
   }
   return jsxs('div', {
     style: {
-      borderRadius: V.radius(14),
+      borderRadius: V.radius(12),
       border: `1px solid ${focus ? V.accent : V.hair2}`,
       background: V.raised,
-      padding: '12px 14px',
+      padding: '12px 14px 10px',
       transition: 'border-color 120ms'
     },
     children: [
@@ -1967,7 +1968,7 @@ function DeskPrompt({ crew, looks }) {
       }),
       jsx('textarea', {
         value: text,
-        rows: 2,
+        rows: 1,
         placeholder: 'What should we tackle?',
         'aria-label': 'What should we tackle?',
         onFocus: () => setFocus(true),
@@ -1979,7 +1980,7 @@ function DeskPrompt({ crew, looks }) {
             go('send')
           }
         },
-        style: { width: '100%', resize: 'none', background: 'transparent', border: 0, outline: 'none', padding: '4px 0', fontSize: 15, lineHeight: 1.5, color: V.t1 }
+        style: { width: '100%', resize: 'none', background: 'transparent', border: 0, outline: 'none', padding: '6px 0 2px', fontSize: 15, lineHeight: 1.5, color: V.t1 }
       }),
       jsxs('div', {
         style: { display: 'flex', alignItems: 'center', gap: 8, marginTop: 8 },
@@ -1987,7 +1988,15 @@ function DeskPrompt({ crew, looks }) {
           jsx(BotPicker, { profiles, value: chosen, onPick: setBot, looks }),
           jsx('span', { style: { marginLeft: 'auto', fontSize: 11, color: V.t4, whiteSpace: 'nowrap' }, children: '↵ send · ⇧↵ new line' }),
           jsx(SmallButton, { title: 'Open a new chat with this text in the composer, unsent', onClick: () => go('draft'), children: 'Draft' }),
-          jsx(SmallButton, { primary: true, disabled: !text.trim(), onClick: () => go('send'), children: 'Send' })
+          jsx('button', {
+            type: 'button',
+            'aria-label': 'Send',
+            title: 'Send (↵)',
+            disabled: !text.trim(),
+            onClick: () => go('send'),
+            style: { width: 28, height: 28, flexShrink: 0, borderRadius: V.radius(6), border: 0, background: V.accent, color: ON_ACCENT, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: text.trim() ? 'pointer' : 'default', opacity: text.trim() ? 1 : 0.45 },
+            children: jsx('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true, children: jsx('path', { d: 'M12 19V5M5 12l7-7 7 7' }) })
+          })
         ]
       })
     ]
@@ -2000,7 +2009,6 @@ function NeedsYouRow({ entry, look }) {
   const send = () => (reply.trim() ? replyDraft(entry, reply.trim()) : openSession(r, entry.profile.name))
   return jsx(DeskRow, {
     dot: V.amber,
-    lead: jsx(RobotHead, { look, expr: 'question', size: 28, title: entry.profile.name }),
     title: sessionTitle(r),
     sub: jsxs('span', { children: [jsx('span', { style: { color: V.amber }, children: `${botLabel(entry.profile)} replied` }), ` · ${ago(r.last_active)}${r.preview && r.title ? ` · ${r.preview}` : ''}`] }),
     actions: [
@@ -2017,11 +2025,11 @@ function NeedsYouRow({ entry, look }) {
               setReply('')
             }
           },
-          style: { height: 26, width: 180, borderRadius: V.radius(7), border: `1px solid ${V.hair2}`, background: 'transparent', padding: '0 8px', fontSize: 12, color: V.t1, outline: 'none' }
+          style: { height: 28, width: 160, borderRadius: V.radius(6), border: `1px solid ${V.hair2}`, background: 'transparent', padding: '0 9px', fontSize: 12, color: V.t1, outline: 'none' }
         },
         'reply'
       ),
-      jsx(SmallButton, { onClick: send, children: reply.trim() ? 'Reply' : 'Open' }, 'open')
+      jsx(LinkButton, { onClick: send, children: reply.trim() ? 'Reply' : 'Open' }, 'open')
     ]
   })
 }
@@ -2072,9 +2080,16 @@ function TodayList() {
       jsx(
         DeskRow,
         {
-          lead: jsx('span', { style: { width: 64, flexShrink: 0, fontFamily: V.mono, fontSize: 12, color: V.t3 }, children: clock(at) }),
-          title: jsxs('span', { children: [job.name || 'Scheduled job', ' ', jsx('span', { style: { fontSize: 12, color: JOB_COLOR[word] }, children: word })] }),
-          sub: [job.profile, job.schedule_display, word === 'failed' && job.last_error ? `“${String(job.last_error).slice(0, 120)}”` : null].filter(Boolean).join(' · '),
+          dense: true,
+          lead: jsx('span', { style: { width: 64, flexShrink: 0, fontFamily: V.mono, fontSize: 11.5, color: V.t3 }, children: clock(at) }),
+          title: jsxs('span', {
+            children: [
+              job.name || 'Scheduled job',
+              ' ',
+              jsx('span', { style: { color: JOB_COLOR[word] }, children: word }),
+              jsx('span', { style: { color: V.t2 }, children: [' ', ...[job.profile, job.schedule_display, word === 'failed' && job.last_error ? `“${String(job.last_error).slice(0, 120)}”` : null].filter(Boolean).map(x => ` · ${x}`)] })
+            ]
+          }),
           actions: jsx(LinkButton, { onClick: () => host.navigate('/cron'), children: word === 'failed' ? 'Log' : 'Open' })
         },
         job.id
@@ -2141,10 +2156,10 @@ function DeskPage({ looks, prefs, setPrefs }) {
   return jsx('div', {
     style: { height: '100%', overflowY: 'auto' },
     children: jsxs('div', {
-      style: { margin: '0 auto', width: '100%', maxWidth: 760, padding: compact ? '20px 16px 40px' : '64px 28px 72px' },
+      style: { margin: '0 auto', width: '100%', maxWidth: 796, padding: compact ? '20px 16px 40px' : '56px 28px 64px' },
       children: [
         jsxs('div', {
-          style: { display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 14, rowGap: 4, marginBottom: 18 },
+          style: { display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: 12, rowGap: 4, marginBottom: 22 },
           children: [
             naming
               ? jsx('input', {
@@ -2164,10 +2179,10 @@ function DeskPage({ looks, prefs, setPrefs }) {
               : jsx('h1', {
                   title: 'Click to set the name the Desk greets',
                   onClick: () => setNaming(true),
-                  style: { fontSize: 24, fontWeight: 500, letterSpacing: '-0.01em', color: V.t1, cursor: 'text', margin: 0 },
+                  style: { fontSize: 19, fontWeight: 500, letterSpacing: '-0.01em', color: V.t1, cursor: 'text', margin: 0 },
                   children: `${greeting()}${name ? `, ${name}` : ''}.`
                 }),
-            jsx('p', { style: { fontSize: 14, color: V.t3, margin: 0 }, children: statusSentence(crew) })
+            jsx('p', { style: { fontSize: 12.5, color: V.t3, margin: 0 }, children: statusSentence(crew) })
           ]
         }),
         jsx(DeskPrompt, { crew, looks: looksValue }),
@@ -2187,8 +2202,7 @@ function DeskPage({ looks, prefs, setPrefs }) {
                 return jsx(
                   DeskRow,
                   {
-                    dot: st.word === 'done' ? '' : st.dot,
-                    lead: jsx(RobotHead, { look, expr: r.unread ? 'question' : r.is_active && !r.ended_at ? 'focused' : look.face, size: 28, title: entry.profile.name }),
+                    dot: st.word === 'done' ? V.green : st.dot || V.t4,
                     title: sessionTitle(r),
                     sub: jsxs('span', {
                       children: [
@@ -2200,7 +2214,7 @@ function DeskPage({ looks, prefs, setPrefs }) {
                       ]
                     }),
                     meta: [ago(r.last_active), rowCost(r) >= 0.01 ? fmtCost(rowCost(r)) : null].filter(Boolean).join(' · '),
-                    actions: jsx(SmallButton, { onClick: () => openSession(r, entry.profile.name), children: r.unread ? 'Review' : 'Open' })
+                    actions: jsx(LinkButton, { onClick: () => openSession(r, entry.profile.name), children: r.unread ? 'Review' : 'Open' })
                   },
                   `${entry.profile.name}:${r.id}`
                 )
@@ -2217,7 +2231,7 @@ function DeskPage({ looks, prefs, setPrefs }) {
           children: jsx(TodayList, {})
         }),
         jsxs('div', {
-          style: { marginTop: 32, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+          style: { marginTop: 28, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
           children: [
             ...[
               ['hubot', 'Bots board', BOTS_ROUTE],
@@ -2225,9 +2239,14 @@ function DeskPage({ looks, prefs, setPrefs }) {
               ['files', 'Artifacts', '/artifacts'],
               ['symbol-color', 'Customize look', LOOK_ROUTE]
             ].map(([icon, label, path]) =>
-              jsx(
-                SmallButton,
-                { onClick: () => host.navigate(path), children: jsxs('span', { style: { display: 'inline-flex', alignItems: 'center', gap: 6 }, children: [jsx(Codicon, { name: icon, size: 13 }), label] }) },
+              jsxs(
+                'button',
+                {
+                  type: 'button',
+                  onClick: () => host.navigate(path),
+                  style: { height: 34, padding: '0 12px', borderRadius: V.radius(8), border: `1px solid ${V.hair2}`, background: V.raised, color: V.t1, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' },
+                  children: [jsx('span', { style: { color: V.t2, display: 'inline-flex' }, children: jsx(Codicon, { name: icon, size: 14 }) }), label]
+                },
                 path
               )
             ),
@@ -2543,27 +2562,26 @@ function ApprovalRow({ item, looks, compact }) {
   }
   const cmd = item.command ? (item.command.length > 160 ? `${item.command.slice(0, 157)}…` : item.command) : ''
   return jsxs('div', {
-    style: { display: 'flex', flexDirection: 'column', gap: compact ? 4 : 6, padding: compact ? '8px 0' : '12px 0', borderBottom: `1px solid ${V.hair}` },
+    style: { display: 'flex', flexDirection: compact ? 'column' : 'row', alignItems: compact ? 'stretch' : 'center', gap: compact ? 4 : 12, padding: compact ? '8px 0' : '9px 2px', borderBottom: `1px solid ${V.hair}`, lineHeight: 1.3 },
     children: [
       jsxs('div', {
-        style: { display: 'flex', alignItems: 'flex-start', gap: compact ? 8 : 12 },
+        style: { display: 'flex', alignItems: 'flex-start', gap: compact ? 8 : 12, flex: 1, minWidth: 0 },
         children: [
-          compact ? null : jsx(RobotHead, { look, expr: 'question', size: 28, title: item.profile || 'bot' }),
           jsxs('div', {
             style: { minWidth: 0, flex: 1 },
             children: [
               jsxs('div', {
-                style: { fontSize: compact ? 12 : 14, color: V.t1, lineHeight: 1.4 },
+                style: { fontSize: compact ? 12 : 13, color: V.t1, lineHeight: 1.4 },
                 children: [jsx('span', { style: { color: V.amber }, children: item.toolName === 'terminal' || !item.toolName ? 'Shell command' : item.toolName }), ` · ${who} `, jsx('span', { style: { color: V.t3 }, children: item.description })]
               }),
               cmd ? jsx('code', { style: { display: 'block', marginTop: 4, fontFamily: V.mono, fontSize: compact ? 11 : 12, color: V.t2, wordBreak: 'break-all', whiteSpace: 'pre-wrap' }, children: cmd }) : null,
-              compact ? null : jsx('div', { className: 'truncate', style: { fontSize: 12, color: V.t4, marginTop: 4 }, children: `in “${item.title}”` })
+              compact ? null : jsx('div', { className: 'truncate', style: { fontSize: 11.5, color: V.t2, marginTop: 3 }, children: `in “${item.title}”` })
             ]
           })
         ]
       }),
       jsxs('div', {
-        style: { display: 'flex', alignItems: 'center', gap: 6, justifyContent: compact ? 'flex-start' : 'flex-end' },
+        style: { display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, justifyContent: compact ? 'flex-start' : 'flex-end' },
         children: [
           jsx(LinkButton, { tone: 'muted', onClick: () => openInboxItem(item), children: 'Open' }),
           jsx(SmallButton, { disabled: !!busy, onClick: () => act('deny'), children: busy === 'deny' ? 'Denying…' : 'Deny' }),
@@ -2585,26 +2603,25 @@ function QuestionRow({ item, looks, compact }) {
     if (text.trim()) answerQuestion(item, text.trim())
   }
   return jsxs('div', {
-    style: { display: 'flex', flexDirection: 'column', gap: 6, padding: compact ? '8px 0' : '12px 0', borderBottom: `1px solid ${V.hair}` },
+    style: { display: 'flex', flexDirection: compact ? 'column' : 'row', alignItems: compact ? 'stretch' : 'center', gap: compact ? 6 : 12, padding: compact ? '8px 0' : '9px 2px', borderBottom: `1px solid ${V.hair}`, lineHeight: 1.3 },
     children: [
       jsxs('div', {
-        style: { display: 'flex', alignItems: 'flex-start', gap: compact ? 8 : 12 },
+        style: { display: 'flex', alignItems: 'flex-start', gap: compact ? 8 : 12, flex: 1, minWidth: 0 },
         children: [
-          compact ? null : jsx(RobotHead, { look, expr: 'question', size: 28, title: item.profile || 'bot' }),
           jsxs('div', {
             style: { minWidth: 0, flex: 1 },
             children: [
-              jsxs('div', { style: { fontSize: compact ? 12 : 14, color: V.t1, lineHeight: 1.4 }, children: [jsx('span', { style: { color: V.amber }, children: 'Question' }), ` · ${who}${item.question ? ': ' : ' is waiting for your answer'}`, item.question || ''] }),
-              compact ? null : jsx('div', { className: 'truncate', style: { fontSize: 12, color: V.t4, marginTop: 4 }, children: `in “${item.title}”` })
+              jsxs('div', { style: { fontSize: compact ? 12 : 13, color: V.t1, lineHeight: 1.4 }, children: [jsx('span', { style: { color: V.amber }, children: 'Question' }), ` · ${who}${item.question ? ': ' : ' is waiting for your answer'}`, item.question || ''] }),
+              compact ? null : jsx('div', { className: 'truncate', style: { fontSize: 11.5, color: V.t2, marginTop: 3 }, children: `in “${item.title}”` }),
+              canAnswer && item.choices && item.choices.length
+                ? jsx('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }, children: item.choices.slice(0, 6).map(c => jsx(SmallButton, { onClick: () => send(c), children: c }, c)) })
+                : null
             ]
           })
         ]
       }),
-      canAnswer && item.choices && item.choices.length
-        ? jsx('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 }, children: item.choices.slice(0, 6).map(c => jsx(SmallButton, { onClick: () => send(c), children: c }, c)) })
-        : null,
       jsxs('div', {
-        style: { display: 'flex', alignItems: 'center', gap: 6, justifyContent: compact ? 'flex-start' : 'flex-end' },
+        style: { display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, justifyContent: compact ? 'flex-start' : 'flex-end' },
         children: [
           canAnswer
             ? jsx('input', {
@@ -2618,7 +2635,7 @@ function QuestionRow({ item, looks, compact }) {
                     setAnswer('')
                   }
                 },
-                style: { height: 26, flex: compact ? 1 : undefined, width: compact ? undefined : 220, minWidth: 0, borderRadius: V.radius(7), border: `1px solid ${V.hair2}`, background: 'transparent', padding: '0 8px', fontSize: 12, color: V.t1, outline: 'none' }
+                style: { height: 28, flex: compact ? 1 : undefined, width: compact ? undefined : 180, minWidth: 0, borderRadius: V.radius(6), border: `1px solid ${V.hair2}`, background: 'transparent', padding: '0 9px', fontSize: 12, color: V.t1, outline: 'none' }
               })
             : null,
           canAnswer ? jsx(SmallButton, { primary: true, disabled: !answer.trim(), onClick: () => (send(answer), setAnswer('')), children: 'Send' }) : null,
