@@ -2118,7 +2118,7 @@ let helmPrefsRef = null
 
 function tierOfModel(model) {
   const m = String(model || '').toLowerCase()
-  if (/haiku|nano|mini\b|-mini|lite/.test(m)) return 'nano'
+  if (/haiku|nano|mini\b|-mini|-lite\b|\blite\b/.test(m)) return 'nano'
   if (/opus|grok-4|grok-5|gpt-5|\bo3\b|\bo4\b|-pro\b|frontier/.test(m)) return 'frontier'
   if (/flash|turbo/.test(m)) return 'fast'
   if (/sonnet/.test(m)) return 'balanced'
@@ -2232,19 +2232,37 @@ const $perms = atom({ ready: false, byProfile: {}, at: 0 })
 let permsInflight = false
 const APPROVAL_LABEL = { manual: 'asks first', smart: 'smart approvals', off: 'no approvals' }
 
+function withTimeout(promise, ms) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms))])
+}
+
+async function readScoped(profileName, method, params) {
+  // The window's gateway answers for any profile when it scopes by `profile`;
+  // otherwise ask that profile's own gateway.
+  try {
+    return await withTimeout(host.request(method, { ...params, profile: profileName }), 8000)
+  } catch (first) {
+    if (typeof host.requestProfile !== 'function') throw first
+    return withTimeout(host.requestProfile(profileName, method, params), 8000)
+  }
+}
+
 async function refreshPerms() {
   if (permsInflight || typeof host.request !== 'function') return
+  const profiles = $crew.get().profiles || []
+  if (!profiles.length) return
   permsInflight = true
   try {
     const byProfile = { ...$perms.get().byProfile }
     await Promise.all(
-      ($crew.get().profiles || []).map(async p => {
-        const out = { mode: null, servers: null }
+      profiles.map(async p => {
+        const out = { mode: null, servers: null, error: null }
         const [mode, servers] = await Promise.allSettled([
-          host.request('config.get', { key: 'approvals.mode', profile: p.name }, 8000),
-          host.request('mcp.servers.status', { profile: p.name }, 8000)
+          readScoped(p.name, 'config.get', { key: 'approvals.mode' }),
+          readScoped(p.name, 'mcp.servers.status', {})
         ])
         if (mode.status === 'fulfilled' && mode.value && typeof mode.value.value === 'string') out.mode = mode.value.value
+        else if (mode.status === 'rejected') out.error = String((mode.reason && mode.reason.message) || mode.reason)
         if (servers.status === 'fulfilled' && servers.value) {
           out.servers = (servers.value.servers || []).filter(x => x && !x.disabled).map(x => String(x.name || '')).filter(Boolean)
         }
@@ -2262,7 +2280,7 @@ function permsLine(perm) {
   if (!perm) return 'reading…'
   const tools = perm.servers === null ? null : perm.servers.length ? perm.servers.slice(0, 3).join(' · ') + (perm.servers.length > 3 ? ` +${perm.servers.length - 3}` : '') : 'built-in tools'
   const mode = perm.mode ? APPROVAL_LABEL[perm.mode] || perm.mode : null
-  return [tools, mode].filter(Boolean).join(' · ') || 'not readable on this gateway'
+  return [tools, mode].filter(Boolean).join(' · ') || (perm.error ? `unreadable: ${perm.error.slice(0, 40)}` : 'unreadable')
 }
 
 function boardRowFor(p, crew, needs, jobs, perms) {
@@ -2636,8 +2654,14 @@ function BoardView({ looks, onLook }) {
   useEffect(() => {
     $boardMounted.set(true)
     if (!$perms.get().ready || Date.now() - $perms.get().at > 120000) refreshPerms()
+    const permTimer = setInterval(() => {
+      if (!$perms.get().ready) refreshPerms()
+    }, 15000)
     if (!$today.get().ready) refreshToday()
-    return () => $boardMounted.set(false)
+    return () => {
+      clearInterval(permTimer)
+      $boardMounted.set(false)
+    }
   }, [])
   const needs = useMemo(() => {
     const out = {}
@@ -2688,7 +2712,7 @@ function BoardView({ looks, onLook }) {
               shown.length
                 ? jsx(BoardTable, { rows: shown, looks: looksValue, onLook })
                 : jsx('div', { style: { padding: '14px 10px', color: B.t4, fontSize: 12.5, borderTop: `1px solid ${B.hair}` }, children: filter === 'attention' ? 'Nobody is waiting on you.' : filter === 'working' ? 'No bot is working right now.' : 'Nothing here.' }),
-              jsx('div', { style: { padding: '10px 2px', fontSize: 11.5, color: B.t4 }, children: roomsValue.rooms.length ? `Rooms: ${roomsValue.rooms.map(e => `${e.room.name} (${(e.room.members || []).map(roomMemberName).join(', ')})`).join(' · ')}` : 'No rooms yet. Rooms are Hermes group chats; make one from the Bots tab.' })
+              jsx('div', { style: { padding: '10px 2px', fontSize: 11.5, color: B.t4 }, children: roomsValue.rooms.length ? `Rooms: ${roomsValue.rooms.map(e => `${e.room.name} (${(e.room.members || []).map(roomMemberName).join(', ')})`).join(' · ')}` : 'No rooms yet. A room is a group chat of two to six bots; make one with New room on the Helm tab.' })
             ]
           })
         ]
