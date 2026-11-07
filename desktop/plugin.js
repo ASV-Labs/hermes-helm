@@ -4732,6 +4732,7 @@ function HudFooterLine({ crew }) {
     style: { display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: B.t4, padding: '0 2px' },
     children: [
       jsxs('span', { style: { display: 'flex', alignItems: 'center', gap: 5 }, children: [jsx('span', { style: { width: 6, height: 6, borderRadius: 3, background: B.green } }), 'Backend ready'] }),
+      jsx(HudShortcutHint, {}),
       jsx('span', { style: { marginLeft: 'auto', fontFamily: B.mono }, children: `${fmtCost(today) || '$0.00'} today` }),
       jsx('span', { children: mode ? `Approvals: ${mode === 'manual' ? 'ask' : mode}` : `${(crew.profiles || []).length} bots` })
     ]
@@ -6349,7 +6350,7 @@ function HudShortcutHint() {
     q.getSettings().then(st => setAccel((st && (st.shortcut || st.accelerator)) || '')).catch(() => {})
   }, [])
   if (!inHudWindow() || !accel) return null
-  return jsx('span', { 'data-helm-hint': '', title: 'Summon Hermes from anywhere', style: { fontFamily: B.mono, fontSize: 11, color: '#76838F', whiteSpace: 'nowrap', flex: '0 0 auto' }, children: prettyAccel(accel) })
+  return jsx('span', { title: 'Summon Hermes from anywhere', style: { fontFamily: B.mono, fontSize: 11, color: '#76838F', whiteSpace: 'nowrap', flex: '0 0 auto' }, children: prettyAccel(accel) })
 }
 
 function BotChatHint() {
@@ -7968,7 +7969,6 @@ export default {
       { id: 'composer-meter', area: 'composer.actions', order: 21, render: () => jsx(ComposerMeter, {}) },
       { id: 'composer-to', area: 'composer.actions', order: 5, render: () => jsx(ComposerToPill, { looks }) },
       { id: 'bot-chat-hint', area: 'composer.actions', order: 22, render: () => jsx(BotChatHint, {}) },
-      { id: 'hud-shortcut', area: 'composer.actions', order: 23, render: () => jsx(HudShortcutHint, {}) },
       { id: 'route-middleware', area: 'composer.middleware', data: { handler: routeMiddleware } },
       { id: 'session-chrome', area: 'composer.underside', order: 2, render: () => jsx(SessionChrome, { looks, prefs }) },
       { id: 'sidechat-key', area: KEYBINDS_AREA, data: { id: 'helm.side-chat', label: 'Side chat (/btw)', category: 'view', defaults: ['mod+;'], run: openSideChat } },
