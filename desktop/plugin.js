@@ -39,7 +39,7 @@ import {
   KEYBINDS_AREA
 } from '@hermes/plugin-sdk'
 import { jsx, jsxs } from 'react/jsx-runtime'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 const ID = 'helm'
 const VERSION = '1.1.0'
@@ -3046,6 +3046,207 @@ function PlanList({ items }) {
 }
 
 // ───────────────────────────────────────────────────────── the Session pane
+// ─── the Helm sidebar tab ────────────────────────────────────────────────────
+// A tab in the sessions column, beside SESSIONS and BOTS, built to the design's
+// Bots board: pinned robots with status dots, filter chips, what needs you,
+// and every bot with its robot and a live status line.
+const HELM_RAISED = '#171E27'
+
+function shortAgo(ts) {
+  if (!ts) return ''
+  const ms = ts > 1e12 ? ts : ts * 1000
+  const s = Math.max(0, (Date.now() - ms) / 1000)
+  if (s < 60) return 'now'
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  if (s < 86400) return `${Math.floor(s / 3600)}h`
+  return `${Math.floor(s / 86400)}d`
+}
+
+function botRole(p) {
+  const d = String(p.description || p.bot_description || '')
+  const dash = d.split(/\s+[—–-]\s+/)
+  if (dash.length > 1 && dash[1].length <= 28) return dash[1]
+  return ''
+}
+
+/** One line under a bot's name: what it is doing, in the design's words and colours. */
+function botLine(p, activity, needs) {
+  if (needs.approvals > 0) return { text: needs.approvals === 1 ? 'Waiting on you · an approval' : `Waiting on you · ${needs.approvals} approvals`, color: V.amber, key: 'needs-you' }
+  if (needs.questions > 0) return { text: 'Waiting on you · a question', color: V.amber, key: 'needs-you' }
+  if (activity.unread > 0) return { text: activity.unread === 1 ? 'Replied · 1 unread' : `Replied · ${activity.unread} unread`, color: V.amber, key: 'needs-you' }
+  if (activity.active) {
+    const live = activity.sessions.find(r => r.is_active && !r.ended_at)
+    return { text: `Working · ${live ? sessionTitle(live) : 'on it'}`, color: V.accent, key: 'working' }
+  }
+  if (activity.latest) return { text: `Idle · ${sessionTitle(activity.latest)}`, color: V.t2, key: 'idle' }
+  return { text: 'No sessions yet', color: V.t3, key: 'new' }
+}
+
+function needsByBot(n) {
+  const out = {}
+  const bump = (name, kind) => {
+    if (!name) return
+    out[name] = out[name] || { approvals: 0, questions: 0 }
+    out[name][kind] += 1
+  }
+  n.approvals.forEach(a => bump(a.profile, 'approvals'))
+  n.questions.forEach(q => bump(q.profile, 'questions'))
+  return out
+}
+
+function openBot(p, activity) {
+  haptic('tap')
+  const target = activity.sessions.find(r => r.unread) || activity.sessions.find(r => r.is_active && !r.ended_at) || activity.latest
+  if (target) openSession(target, p.name)
+  else host.newChat(p.name)
+}
+
+const DOT_FOR = key => (key === 'working' ? V.accent : key === 'needs-you' ? V.amber : null)
+
+function HelmTile({ p, look, line, activity, selected }) {
+  const dot = DOT_FOR(line.key)
+  return jsxs('button', {
+    type: 'button',
+    title: `${botLabel(p)} · ${line.text}`,
+    onClick: () => openBot(p, activity),
+    style: {
+      position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: '8px 4px', borderRadius: 8,
+      border: 0, background: selected ? HELM_RAISED : 'transparent', color: V.t1, cursor: 'pointer', minWidth: 0, font: 'inherit'
+    },
+    children: [
+      jsx(AnimatedRobot, { look, head: true, size: 36, expr: line.key === 'working' ? 'focused' : line.key === 'needs-you' ? 'question' : look.face, state: petStateFor(line.key), title: botLabel(p) }),
+      jsx('span', { style: { fontSize: 11.5, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: botLabel(p) }),
+      dot ? jsx('span', { style: { position: 'absolute', top: 7, right: 9, width: 7, height: 7, borderRadius: 4, background: dot, boxShadow: `0 0 0 2px ${selected ? HELM_RAISED : 'var(--ui-bg-sidebar, #121820)'}` } }) : null
+    ]
+  })
+}
+
+function HelmChip({ label, count, active, tone, onClick }) {
+  return jsx('button', {
+    type: 'button',
+    'aria-pressed': active,
+    onClick,
+    style: {
+      height: 22, padding: '0 8px', borderRadius: 11, border: `1px solid ${V.hair2}`, font: 'inherit', fontSize: 11, cursor: 'pointer',
+      background: active ? HELM_RAISED : 'transparent', color: active ? V.t1 : tone || V.t2, whiteSpace: 'nowrap'
+    },
+    children: count ? `${label} · ${count}` : label
+  })
+}
+
+function HelmBotRow({ p, look, line, activity, selected }) {
+  const role = botRole(p)
+  const when = activity.latest ? shortAgo(activity.latest.last_active) : ''
+  return jsxs('button', {
+    type: 'button',
+    onClick: () => openBot(p, activity),
+    style: {
+      margin: '0 8px', padding: '6px 8px', borderRadius: 6, border: 0, display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 8, alignItems: 'center',
+      textAlign: 'left', lineHeight: 1.3, background: selected ? HELM_RAISED : 'transparent', color: V.t1, font: 'inherit', cursor: 'pointer', width: 'calc(100% - 16px)'
+    },
+    children: [
+      jsx(AnimatedRobot, { look, head: true, size: 22, expr: line.key === 'working' ? 'focused' : line.key === 'needs-you' ? 'question' : look.face, state: petStateFor(line.key), title: botLabel(p) }),
+      jsxs('span', {
+        style: { display: 'flex', flexDirection: 'column', minWidth: 0 },
+        children: [
+          jsxs('span', { style: { fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: [botLabel(p), role ? jsx('span', { style: { color: V.t3 }, children: ` · ${role}` }) : null] }),
+          jsx('span', { style: { fontSize: 11.5, color: line.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: line.text })
+        ]
+      }),
+      jsx('span', { style: { fontSize: 10.5, color: V.t3, fontFamily: V.mono }, children: when })
+    ]
+  })
+}
+
+function HelmSectionLabel({ children, tone, count }) {
+  return jsxs('div', {
+    style: { padding: '12px 14px 4px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tone || V.t3 },
+    children: [jsx('span', { children }), count ? jsx('span', { style: { color: V.t3, letterSpacing: 0, fontWeight: 500 }, children: count }) : null]
+  })
+}
+
+function HelmTab({ looks, prefs, setPrefs }) {
+  const crew = useValue($crew)
+  const looksValue = useValue(looks)
+  const prefsValue = useValue(prefs)
+  const n = useNeedsYou()
+  const [filter, setFilter] = useState('all')
+  const needs = useMemo(() => needsByBot(n), [n.approvals, n.questions])
+  const rows = useMemo(
+    () =>
+      (crew.profiles || []).map(p => {
+        const activity = activityFor(crew, p.name)
+        const line = botLine(p, activity, needs[p.name] || { approvals: 0, questions: 0 })
+        const look = normalizeLook(looksValue[p.name] || null, p.name)
+        const rank = line.key === 'needs-you' ? 0 : line.key === 'working' ? 1 : line.key === 'idle' ? 2 : 3
+        return { p, activity, line, look, rank, last: activity.latest ? activity.latest.last_active : 0 }
+      }),
+    [crew, looksValue, needs]
+  )
+  const sorted = useMemo(() => rows.slice().sort((a, b) => a.rank - b.rank || b.last - a.last), [rows])
+  const pinnedNames = Array.isArray(prefsValue.helmPinned) && prefsValue.helmPinned.length ? prefsValue.helmPinned : sorted.slice(0, 3).map(r => r.p.name)
+  const pinned = pinnedNames.map(name => rows.find(r => r.p.name === name)).filter(Boolean).slice(0, 3)
+  const needCount = rows.filter(r => r.line.key === 'needs-you').length
+  const workCount = rows.filter(r => r.line.key === 'working').length
+  const shown = sorted.filter(r => filter === 'all' || r.line.key === filter)
+  const focusedProfile = useValue(host.state.focusedSessionProfile)
+  if (!crew.ready && !(crew.profiles || []).length) {
+    return jsx('div', { style: { padding: '14px', fontSize: 12, color: V.t3 }, children: 'Loading your bots…' })
+  }
+  return jsxs('div', {
+    style: { height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', paddingBottom: 10, fontSize: 13, color: V.t1 },
+    children: [
+      pinned.length
+        ? jsx('div', {
+            style: { padding: '10px 10px 0', display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6 },
+            children: pinned.map(r => jsx(HelmTile, { ...r, selected: r.p.name === focusedProfile }, r.p.name))
+          })
+        : null,
+      jsxs('div', {
+        style: { padding: '8px 10px 0', display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' },
+        children: [
+          jsx(HelmChip, { label: 'All', active: filter === 'all', onClick: () => setFilter('all') }),
+          jsx(HelmChip, { label: 'Needs you', count: needCount, active: filter === 'needs-you', tone: needCount ? V.amber : undefined, onClick: () => setFilter('needs-you') }),
+          jsx(HelmChip, { label: 'Working', count: workCount, active: filter === 'working', onClick: () => setFilter('working') }),
+          jsx('button', {
+            type: 'button',
+            'aria-label': 'New bot',
+            title: 'New bot',
+            onClick: openNewBot,
+            style: { marginLeft: 'auto', width: 24, height: 24, border: 0, borderRadius: 6, background: 'transparent', color: V.t3, cursor: 'pointer', font: 'inherit', fontSize: 16 },
+            children: '+'
+          })
+        ]
+      }),
+      n.total && (filter === 'all' || filter === 'needs-you')
+        ? jsxs(Fragment, {
+            children: [
+              jsx(HelmSectionLabel, { tone: V.amber, count: n.total, children: 'Needs you' }),
+              jsxs('div', {
+                style: { padding: '0 8px' },
+                children: [
+                  ...n.approvals.map(item => jsx(ApprovalRow, { item, looks: looksValue, compact: true }, item.requestId)),
+                  ...n.questions.map(item => jsx(QuestionRow, { item, looks: looksValue, compact: true }, `q:${item.sessionId}`))
+                ]
+              })
+            ]
+          })
+        : null,
+      jsx(HelmSectionLabel, { children: 'Bots' }),
+      shown.length
+        ? shown.map(r => jsx(HelmBotRow, { ...r, selected: r.p.name === focusedProfile }, r.p.name))
+        : jsx('div', { style: { padding: '4px 16px', fontSize: 12, color: V.t3 }, children: filter === 'working' ? 'Nobody is working right now.' : 'Nothing is waiting on you.' }),
+      jsxs('div', {
+        style: { marginTop: 'auto', padding: '12px 14px 0', display: 'flex', gap: 14, fontSize: 12 },
+        children: [
+          jsx('button', { type: 'button', onClick: () => host.navigate(BOTS_ROUTE), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit' }, children: 'Bots board' }),
+          jsx('button', { type: 'button', onClick: openNewBot, style: { border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit' }, children: 'New bot' })
+        ]
+      })
+    ]
+  })
+}
+
 // A right-sidebar tab beside Files: the focused chat at a glance (who, where,
 // what it has cost), the rest of the crew, and the next scheduled job.
 
@@ -3761,33 +3962,26 @@ export default {
     // pane that shows it, mounted only while something needs you.
     startInbox(ctx)
     startPromptEvents(ctx)
-    let offNeedsPane = null
-    const syncNeedsPane = () => {
-      const inbox = $inbox.get()
-      const total = needsYouOf(inbox, $crew.get()).total
-      const want = prefs.get().showNeedsYouPane && isPrimaryWindow() && total > 0
-      if (want && !offNeedsPane) {
-        offNeedsPane = ctx.register({
-          id: 'needs-you-pane',
-          area: 'panes',
-          title: 'Needs you',
-          data: { placement: 'left', collapsible: true, dock: { pane: 'sessions', pos: 'top' }, height: '190px', tabTitleText: () => 'Needs you' },
-          render: () => jsx(NeedsYouPane, { looks })
-        })
-      } else if (!want && offNeedsPane) {
-        offNeedsPane()
-        offNeedsPane = null
-      }
+    // The Helm tab: a third tab in the sessions column, beside SESSIONS and BOTS,
+    // docked the way Hermes docks its own Bots tab (centre of the sessions
+    // zone, collapsing with it). It replaces 1.0's split-above-Sessions
+    // Needs-you pane, which broke the titlebar's sidebar toggle.
+    if (isPrimaryWindow()) {
+      ctx.register({
+        id: 'helm-tab',
+        area: 'panes',
+        title: 'Helm',
+        data: {
+          placement: 'left',
+          width: '260px',
+          collapsible: true,
+          hideOnly: true,
+          tabTitleText: () => 'Helm',
+          dock: { pane: 'sessions', pos: 'center', enforce: true }
+        },
+        render: () => jsx(HelmTab, { looks, prefs, setPrefs })
+      })
     }
-    const offInboxSub = $inbox.subscribe(syncNeedsPane)
-    const offCrewNeeds = $crew.subscribe(syncNeedsPane)
-    const offPrefsNeeds = prefs.subscribe(syncNeedsPane)
-    ctx.onDispose(() => {
-      offInboxSub()
-      offCrewNeeds()
-      offPrefsNeeds()
-      if (offNeedsPane) offNeedsPane()
-    })
     const offCrew = $crew.subscribe(crew => {
       syncBotCommands(crew)
       if (crew.ready && crew.profiles.length) {
