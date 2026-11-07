@@ -7882,7 +7882,7 @@ export default {
       { id: 'sidechat-key', area: KEYBINDS_AREA, data: { id: 'helm.side-chat', label: 'Side chat (/btw)', category: 'view', defaults: ['mod+;'], run: openSideChat } },
       { id: 'approvals-chip', area: 'statusBar.right', order: 121, render: () => jsx(ApprovalsChip, {}) },
       { id: 'hooks-chip', area: 'statusBar.right', order: 125, render: () => jsx(HooksChip, {}) },
-      { id: 'bot-editor', area: 'statusBar.right', order: 300, render: () => jsx(BotEditorModal, {}) },
+      { id: 'bot-editor', area: 'titleBar.center', order: 90, render: () => jsx(BotEditorModal, {}) },
       { id: 'hud-panel', area: 'composer.top', order: 4, render: () => jsx(HudPanel, { looks, prefs }) },
       { id: 'hud-footer', area: 'composer.bottom', order: 90, render: () => jsx(HudFooter, { prefs }) },
       {
