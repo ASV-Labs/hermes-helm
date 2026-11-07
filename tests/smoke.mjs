@@ -118,7 +118,7 @@ for (const t of themes) {
   for (const k of ['background', 'foreground', 'primary']) assert.ok(/^#[0-9A-Fa-f]{6}$/.test(d.colors[k]), `${d.name} colors.${k}`)
   assert.ok(d.customCSS.includes('data-hermes-theme^="helm"'), 'customCSS scoped to helm')
 }
-assert.equal(byArea('statusBar.right').length, 6, 'needs-you, today, working, cost, approvals, hooks chips')
+assert.equal(byArea('statusBar.right').length, 7, 'needs-you, today, working, cost, approvals, hooks chips + bot editor host')
 assert.equal(byArea('titleBar.center').length, 1, 'titlebar context line')
 assert.equal(byArea('sessionRow.leading').length, 1, 'session row robot')
 assert.equal(byArea('sessionRow.trailing').length, 1, 'session row cost')

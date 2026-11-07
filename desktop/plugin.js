@@ -2941,7 +2941,7 @@ function BotsPage({ looks, setLook, avatars, os, inTab }) {
   } else if (crew.error && !profiles.length) {
     body = jsx('div', { className: 'p-6 text-sm text-(--ui-text-secondary)', children: `Could not list profiles: ${crew.error}` })
   } else {
-    body = jsx(BoardView, { looks, inTab, onLook: name => setEditing(name) })
+    body = jsx(BoardView, { looks, inTab, onLook: name => openBotEditor(name, 'look') })
   }
 
   if (!editingProfile && !creating && !(crew.error && !profiles.length)) {
@@ -4041,12 +4041,13 @@ const ASK_LABEL = { manual: 'Ask before acting', smart: 'Smart approvals', off: 
 
 function ComposerAskPill() {
   const mode = useValue($approvalMode)
+  const botView = useValue($helmTabVisible)
   useEffect(() => {
     readApprovalMode()
     const h = setInterval(readApprovalMode, 60000)
     return () => clearInterval(h)
   }, [])
-  if (inHudWindow()) return null
+  if (inHudWindow() || botView) return null
   const set = async value => {
     try {
       await host.request('config.set', { key: 'approvals.mode', value })
@@ -6132,7 +6133,7 @@ function BotProfilePane({ looks }) {
           jsx(AnimatedRobot, { look, head: true, size: 56, expr: live ? 'focused' : activity.unread ? 'question' : look.face, state: live ? 'running' : 'idle', title: botLabel(p) }),
           jsxs('div', { style: { fontSize: 14, fontWeight: 500 }, children: [botLabel(p), role ? jsx('span', { style: { color: B.t4, fontWeight: 400 }, children: ` · ${role}` }) : null] }),
           jsx('div', { style: { fontSize: 11.5, color: B.t3, textAlign: 'center', lineHeight: 1.4 }, children: [backend === 'local' || !backend ? 'Runs on this Mac' : `Runs in ${backend}`, p.model ? `${p.model} pinned` : null, 'supervisor: you'].filter(Boolean).join(' · ') }),
-          jsxs('div', { style: { display: 'flex', gap: 6, marginTop: 4 }, children: [btn('Edit profile', () => host.navigate('/profiles')), btn('Duplicate', duplicate), btn('Share', share)] })
+          jsxs('div', { style: { display: 'flex', gap: 6, marginTop: 4 }, children: [btn('Edit profile', () => openBotEditor(p.name, 'profile')), btn('Duplicate', duplicate), btn('Share', share)] })
         ]
       }),
       jsx('div', {
@@ -6300,6 +6301,296 @@ function routeMiddleware(draft) {
   } catch {
     return draft
   }
+}
+
+// ─────────────────────────────────────────── bot editor (Builder board)
+// A modal over the app: PROFILE / LOOK / SKILLS / MODEL / SOUL.MD for one
+// bot. LOOK is helm's robot builder; the other tabs read profiles.describe
+// and save with profiles.configure, the same calls Hermes's editor makes.
+const $editBot = atom(null)
+function openBotEditor(name, tab) {
+  $editBot.set({ name, tab: tab || 'look', at: Date.now() })
+}
+
+function hexToRgb(h) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(h || '').trim())
+  if (!m) return null
+  const n = parseInt(m[1], 16)
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+}
+function nearestSwatch(hex) {
+  const c = hexToRgb(hex)
+  if (!c) return null
+  let best = null
+  let bestD = Infinity
+  for (const k of PART_OPTIONS.color) {
+    const p = hexToRgb((PALETTE[k] || {}).glow)
+    if (!p) continue
+    const d = (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2 + (p[2] - c[2]) ** 2
+    if (d < bestD) {
+      bestD = d
+      best = k
+    }
+  }
+  return best
+}
+
+const STATUS_FACES = [
+  ['idle', null, B.t3],
+  ['working', 'focused', '#62C6D3'],
+  ['needs you', 'question', B.amber],
+  ['done', 'happy', B.green],
+  ['failed', 'error', B.red],
+  ['asleep', 'sleep', B.t4]
+]
+
+function BotEditorModal() {
+  const req = useValue($editBot)
+  const crew = useValue($crew)
+  const [tab, setTab] = useState('look')
+  const [draft, setDraft] = useState(null)
+  const [hex, setHex] = useState('')
+  const [info, setInfo] = useState(null)
+  const [desc, setDesc] = useState('')
+  const [soul, setSoul] = useState('')
+  const [skills, setSkills] = useState([])
+  const [model, setModel] = useState({ provider: '', default: '' })
+  const [confirmModel, setConfirmModel] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const name = req && req.name
+  const p = name ? (crew.profiles || []).find(x => x.name === name) : null
+  useEffect(() => {
+    if (!req || !boardArgs) return
+    setTab(req.tab || 'look')
+    const look = normalizeLook(boardArgs.looks.get()[req.name], req.name)
+    setDraft(look)
+    setHex((PALETTE[look.color] || PALETTE.blue).glow)
+    setInfo(null)
+    setConfirmModel(null)
+    host
+      .request('profiles.describe', { name: req.name }, 15000)
+      .then(res => {
+        setInfo(res || {})
+        setDesc(String((res && res.description) || ''))
+        setSoul(String((res && res.soul) || ''))
+        setSkills(Array.isArray(res && res.skills) ? res.skills : [])
+        setModel({ provider: String((res && res.model && res.model.provider) || ''), default: String((res && res.model && res.model.default) || '') })
+      })
+      .catch(err => setInfo({ error: err && err.message ? err.message : String(err) }))
+  }, [req && req.at])
+  if (!req || !draft || inHudWindow()) return null
+  const close = () => $editBot.set(null)
+  const label = p ? botLabel(p) : name
+  const role = p ? botRole(p) : ''
+  const set = patch => setDraft(d => ({ ...d, ...patch }))
+  const save = async (params, what) => {
+    setBusy(true)
+    try {
+      const res = await host.request('profiles.configure', { name, ...params }, 30000)
+      if (res && res.confirm_required) {
+        setConfirmModel(res.confirm_message || 'This model is expensive. Save anyway?')
+        return
+      }
+      host.notify?.({ kind: 'success', message: `Saved ${label}’s ${what}.` })
+      refreshCrew()
+    } catch (err) {
+      host.notifyError?.(`Could not save ${what}: ${err && err.message ? err.message : err}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const saveLook = async () => {
+    if (!boardArgs) return
+    boardArgs.setLook(name, draft)
+    close()
+    try {
+      await pushAvatar(name, draft, boardArgs.avatars)
+      host.notify?.({ kind: 'success', message: `${label}’s robot is saved and is now its Hermes avatar.` })
+    } catch (err) {
+      host.notifyError?.(`Saved the look; the Hermes avatar did not update: ${err && err.message ? err.message : err}`)
+    }
+  }
+  const uploadImage = file => {
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const img = await loadImage(String(reader.result))
+        const canvas = document.createElement('canvas')
+        canvas.width = AVATAR_EDGE
+        canvas.height = AVATAR_EDGE
+        const g = canvas.getContext('2d')
+        const side = Math.min(img.width, img.height)
+        g.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, AVATAR_EDGE, AVATAR_EDGE)
+        await host.request('profiles.set_asset', { name, asset: 'avatar', data: canvas.toDataURL('image/png') })
+        if (boardArgs) boardArgs.avatars.set({ ...boardArgs.avatars.get(), [name]: 'user' })
+        host.notify?.({ kind: 'success', message: `${label} now uses your image as its avatar.` })
+        close()
+      } catch (err) {
+        host.notifyError?.(`Could not use that image: ${err && err.message ? err.message : err}`)
+      }
+    }
+    reader.readAsDataURL(file)
+  }
+  const tile = (selected, onClick, content, caption, key) =>
+    jsxs('button', {
+      type: 'button',
+      'aria-pressed': selected,
+      title: caption,
+      onClick,
+      style: { width: 64, height: 64, borderRadius: 8, border: `1px solid ${selected ? V.accent : B.ctl}`, background: B.bg, padding: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, cursor: 'pointer', font: 'inherit' },
+      children: [content, jsx('span', { style: { fontSize: 11, color: B.t3, maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: caption })]
+    }, key)
+  const section = (title, hint, children) =>
+    jsxs('section', {
+      style: { display: 'flex', flexDirection: 'column', gap: 8 },
+      children: [jsxs('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8 }, children: [jsx('h2', { style: { margin: 0, fontSize: 12.5, fontWeight: 600, color: B.t1 }, children: title }), hint ? jsx('span', { style: { fontSize: 11.5, color: B.t4 }, children: hint }) : null] }), jsx('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }, children })]
+    })
+  const noneTile = (key, value, caption) => tile(draft[key] === value, () => set({ [key]: value }), jsx('span', { style: { fontSize: 12, color: B.t4 }, children: 'none' }), caption, value)
+  const partTiles = (key, render) => PART_OPTIONS[key].map(v => (v === 'none' ? noneTile(key, v, 'none') : tile(draft[key] === v, () => set({ [key]: v }), render(v), (PART_LABEL[key][v] || v).toLowerCase(), v)))
+  const btn = (text, onClick, primary, disabled) => jsx('button', { type: 'button', onClick, disabled, style: { height: 30, padding: primary ? '0 14px' : '0 12px', borderRadius: 6, border: primary ? 0 : `1px solid ${B.ctl}`, background: primary ? V.accent : 'transparent', color: primary ? '#06161A' : B.t2, font: 'inherit', fontSize: 12, fontWeight: primary ? 600 : 400, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.6 : 1 }, children: text })
+  const field = { width: '100%', boxSizing: 'border-box', borderRadius: 6, border: `1px solid ${B.ctl}`, background: B.bg, color: B.t1, padding: '8px 10px', font: 'inherit', fontSize: 12.5 }
+  const tabs = [['profile', 'PROFILE'], ['look', 'LOOK'], ['skills', 'SKILLS'], ['model', 'MODEL'], ['soul', 'SOUL.MD']]
+  let bodyEl
+  let footer
+  if (tab === 'look') {
+    bodyEl = jsxs('div', {
+      style: { flex: '1 1 auto', minHeight: 0, display: 'flex' },
+      children: [
+        jsxs('div', {
+          style: { flex: '0 0 380px', borderRight: `1px solid ${B.hair}`, display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '22px 20px 16px', gap: 14, boxSizing: 'border-box' },
+          children: [
+            jsx('div', { style: { width: 300, height: 320, borderRadius: 14, background: B.bg, border: `1px solid ${B.hair}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }, children: jsx(AnimatedRobot, { look: draft, size: 250, title: label }) }),
+            jsxs('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }, children: [jsx('div', { style: { fontSize: 15, fontWeight: 500 }, children: label }), jsx('div', { style: { fontSize: 12, color: B.t3 }, children: [role, 'blinks while thinking, eyes scan while working'].filter(Boolean).join(' · ') })] }),
+            jsxs('div', {
+              style: { width: '100%', display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 },
+              children: [
+                jsx('div', { style: B_CAPS, children: 'The face is the status' }),
+                jsx('div', { style: { display: 'flex', justifyContent: 'space-between' }, children: STATUS_FACES.map(([cap, expr, color]) => jsxs('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }, children: [jsx(RobotHead, { look: draft, expr: expr || draft.face, size: 40, title: cap }), jsx('span', { style: { fontSize: 11, color }, children: cap })] }, cap)) })
+              ]
+            }),
+            jsxs('div', {
+              style: { marginTop: 'auto', width: '100%', display: 'flex', gap: 8 },
+              children: [
+                jsx('button', { type: 'button', onClick: () => setDraft(randomLook()), style: { flex: 1, height: 28, borderRadius: 6, border: `1px solid ${B.ctl}`, background: 'transparent', color: B.t2, font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: 'Randomize' }),
+                jsxs('label', { style: { flex: 1, height: 28, borderRadius: 6, border: `1px solid ${B.ctl}`, color: B.t2, fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', position: 'relative' }, children: ['Upload image instead', jsx('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', onChange: e => uploadImage(e.target.files && e.target.files[0]), style: { position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' } })] })
+              ]
+            })
+          ]
+        }),
+        jsxs('div', {
+          style: { flex: '1 1 auto', minWidth: 0, padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 18, overflowY: 'auto' },
+          children: [
+            section('Antenna / ears', 'the part people recognise at 20 px', partTiles('topper', v => jsx(RobotHead, { look: { ...draft, topper: v }, expr: 'idle', size: 34 }))),
+            section('Face at rest', 'status overrides it while the bot works', partTiles('face', v => jsx(RobotHead, { look: { ...draft, face: v }, expr: v, size: 34 }))),
+            section('Chest module', 'what the bot is for', partTiles('chest', v => jsx(RobotCrop, { look: { ...draft, chest: v }, width: 40, crop: CHEST_CROP }))),
+            section('Tool', 'shown on the board and the builder, not in rows', partTiles('tool', v => jsx(RobotCrop, { look: { ...draft, tool: v }, width: 44, crop: TOOL_CROP }))),
+            section('Back accessory', '', partTiles('back', v => jsx(RobotCrop, { look: { ...draft, back: v }, width: 44 }))),
+            section('Colour', 'tints the ear modules, feet and panel frame; the glow follows it', [
+              ...PART_OPTIONS.color.map(c => jsx('button', { type: 'button', 'aria-label': c, 'aria-pressed': draft.color === c, onClick: () => (set({ color: c }), setHex((PALETTE[c] || PALETTE.blue).glow)), style: { width: 28, height: 28, borderRadius: 14, border: `2px solid ${draft.color === c ? B.t1 : 'transparent'}`, background: (PALETTE[c] || PALETTE.blue).glow, cursor: 'pointer', padding: 0 } }, c)),
+              jsx('label', { htmlFor: 'bot-hex', style: { position: 'absolute', left: -9999 }, children: 'Custom colour' }),
+              jsx('input', {
+                id: 'bot-hex',
+                value: hex,
+                onChange: e => setHex(e.target.value),
+                onBlur: () => {
+                  const n = nearestSwatch(hex)
+                  if (n) set({ color: n })
+                  else setHex((PALETTE[draft.color] || PALETTE.blue).glow)
+                },
+                onKeyDown: e => e.key === 'Enter' && e.currentTarget.blur(),
+                style: { marginLeft: 6, width: 90, height: 26, boxSizing: 'border-box', borderRadius: 6, border: `1px solid ${B.ctl}`, background: B.bg, color: B.t1, padding: '0 8px', fontFamily: B.mono, fontSize: 11.5 }
+              }),
+              hexToRgb(hex) && nearestSwatch(hex) !== draft.color ? jsx('span', { style: { fontSize: 11, color: B.t4 }, children: `closest: ${nearestSwatch(hex)}` }) : null
+            ])
+          ]
+        })
+      ]
+    })
+    footer = [
+      jsx('span', { style: { flex: '1 1 auto' }, children: 'Saved to plugin storage, never written into the profile; it also becomes the bot’s Hermes avatar. Six parts × seven colours.' }),
+      btn('Cancel', close),
+      btn('Save look', saveLook, true)
+    ]
+  } else {
+    const loading = !info
+    const err = info && info.error
+    let inner
+    if (loading) inner = jsx('div', { style: { color: B.t4 }, children: 'Reading the profile…' })
+    else if (err) inner = jsx('div', { style: { color: B.red }, children: `Could not read the profile: ${err}` })
+    else if (tab === 'profile')
+      inner = jsxs('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: 12, maxWidth: 640 },
+        children: [
+          jsxs('div', { style: { display: 'grid', gridTemplateColumns: '120px 1fr', gap: '6px 12px', fontSize: 12.5 }, children: [jsx('span', { style: { color: B.t4 }, children: 'Name' }), jsx('span', { children: label }), jsx('span', { style: { color: B.t4 }, children: 'Profile' }), jsx('span', { style: { fontFamily: B.mono, fontSize: 11.5 }, children: name }), jsx('span', { style: { color: B.t4 }, children: 'Model' }), jsx('span', { children: model.default || (p && p.model) || 'default' })] }),
+          jsx('label', { style: { fontSize: 12, color: B.t3 }, children: 'Description (role — what it does)' }),
+          jsx('textarea', { value: desc, onChange: e => setDesc(e.target.value), rows: 4, style: { ...field, resize: 'vertical' } })
+        ]
+      })
+    else if (tab === 'skills')
+      inner = jsxs('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 640 },
+        children: skills.length
+          ? skills.map((sk, i) =>
+              jsxs('label', {
+                style: { display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5, cursor: 'pointer' },
+                children: [jsx('input', { type: 'checkbox', checked: !!sk.enabled, onChange: e => setSkills(list => list.map((x, j) => (j === i ? { ...x, enabled: e.target.checked } : x))), style: { margin: 0, accentColor: V.accent } }), jsx('span', { style: { fontFamily: B.mono, fontSize: 12 }, children: sk.name })]
+              }, sk.name)
+            )
+          : [jsx('div', { style: { color: B.t4 }, children: 'This bot has no installed skills.' }, 'none'), jsx('button', { type: 'button', onClick: () => (close(), host.navigate('/capabilities')), style: { alignSelf: 'flex-start', border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: 'Browse skills in Capabilities' }, 'go')]
+      })
+    else if (tab === 'model')
+      inner = jsxs('div', {
+        style: { display: 'grid', gridTemplateColumns: '120px minmax(0, 360px)', gap: '10px 12px', alignItems: 'center', fontSize: 12.5 },
+        children: [
+          jsx('span', { style: { color: B.t4 }, children: 'Provider' }),
+          jsx('input', { value: model.provider, onChange: e => setModel(m => ({ ...m, provider: e.target.value })), style: field }),
+          jsx('span', { style: { color: B.t4 }, children: 'Model' }),
+          jsx('input', { value: model.default, onChange: e => setModel(m => ({ ...m, default: e.target.value })), style: { ...field, fontFamily: B.mono, fontSize: 12 } }),
+          jsx('span', {}),
+          jsx('span', { style: { fontSize: 11.5, color: B.t4 }, children: `Tier on the board: ${tierOfModel(model.default)}` }),
+          confirmModel ? jsx('span', {}) : null,
+          confirmModel ? jsxs('span', { style: { fontSize: 12, color: B.amber, display: 'flex', gap: 10, alignItems: 'center' }, children: [confirmModel, btn('Save anyway', () => (setConfirmModel(null), save({ model: model.default, provider: model.provider, confirm_expensive_model: true }, 'model')))] }) : null
+        ]
+      })
+    else
+      inner = jsx('textarea', { value: soul, onChange: e => setSoul(e.target.value), spellCheck: false, style: { ...field, flex: '1 1 auto', minHeight: 360, fontFamily: B.mono, fontSize: 12, lineHeight: 1.5, resize: 'none' } })
+    bodyEl = jsx('div', { style: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', padding: '20px 22px', display: 'flex', flexDirection: 'column' }, children: inner })
+    const saveFor = {
+      profile: () => save({ description: desc }, 'description'),
+      skills: () => save({ disabled_skills: skills.filter(s => !s.enabled).map(s => s.name) }, 'skills'),
+      model: () => save({ model: model.default, provider: model.provider }, 'model'),
+      soul: () => save({ soul }, 'SOUL.md')
+    }
+    footer = [
+      jsx('span', { style: { flex: '1 1 auto' }, children: tab === 'soul' ? 'SOUL.md is the bot’s standing instructions, written into its profile folder.' : 'Saved into the Hermes profile, the same as Hermes’s own editor.' }),
+      btn('Close', close),
+      btn(tab === 'soul' ? 'Save SOUL.md' : `Save ${tab}`, saveFor[tab], true, busy || loading || !!err)
+    ]
+  }
+  return jsx('div', {
+    'data-helm-bot-editor': '',
+    onMouseDown: e => e.target === e.currentTarget && close(),
+    style: { position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(6, 9, 12, 0.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: B.t1, fontSize: 13, lineHeight: 1.45 },
+    children: jsxs('div', {
+      role: 'dialog',
+      'aria-label': `Edit ${label}`,
+      style: { width: 'min(1060px, calc(100vw - 48px))', height: 'min(700px, calc(100vh - 48px))', border: `1px solid ${B.ctl}`, borderRadius: 14, background: B.panel, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' },
+      children: [
+        jsxs('div', {
+          style: { flex: '0 0 48px', display: 'flex', alignItems: 'center', gap: 12, padding: '0 18px', borderBottom: `1px solid ${B.hair}` },
+          children: [
+            jsx('span', { style: { fontSize: 14, fontWeight: 500 }, children: 'Edit profile' }),
+            jsx('div', { role: 'tablist', style: { display: 'flex', gap: 14, marginLeft: 10, height: '100%' }, children: tabs.map(([id, t]) => jsx('button', { type: 'button', role: 'tab', 'aria-selected': tab === id, onClick: () => setTab(id), style: { height: '100%', padding: 0, border: 0, borderBottom: `2px solid ${tab === id ? V.accent : 'transparent'}`, background: 'transparent', color: tab === id ? B.t1 : B.t3, font: 'inherit', fontSize: 11.5, fontWeight: 600, letterSpacing: '0.08em', cursor: 'pointer' }, children: t }, id)) }),
+            jsxs('span', { style: { marginLeft: 'auto', fontSize: 11.5, color: B.t4 }, children: [`${label} · profile `, jsx('span', { style: { fontFamily: B.mono }, children: name })] }),
+            jsx('button', { type: 'button', 'aria-label': 'Close', onClick: close, style: { width: 28, height: 28, borderRadius: 6, border: 0, background: 'transparent', color: B.t3, fontSize: 16, cursor: 'pointer' }, children: '×' })
+          ]
+        }),
+        bodyEl,
+        jsx('div', { style: { flex: '0 0 52px', display: 'flex', alignItems: 'center', gap: 10, padding: '0 18px', borderTop: `1px solid ${B.hair}`, fontSize: 11.5, color: B.t4 }, children: footer })
+      ]
+    })
+  })
 }
 
 // ─────────────────────────────────────────────────────────── settings page
@@ -6948,7 +7239,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
                             jsx(Check, { k: 'animateRobots', label: 'Animated robots' }),
                             jsx(Check, { k: 'autoAvatars', label: 'Robots as Hermes avatars' }),
                             jsx(Check, { k: 'robotPets', label: 'Robots as Hermes pets' }),
-                            jsx('div', { style: { display: 'flex', alignItems: 'center', gap: 6 }, children: [jsx(Seg, { label: 'Rail colour', value: p.rail, options: [{ id: 'mono', label: 'Mono rail' }, { id: 'colour', label: 'Colour rail' }], onChange: v => set({ rail: v }) }), link('Edit a bot’s look', () => openBoardTab())] })
+                            jsx('div', { style: { display: 'flex', alignItems: 'center', gap: 6 }, children: [jsx(Seg, { label: 'Rail colour', value: p.rail, options: [{ id: 'mono', label: 'Mono rail' }, { id: 'colour', label: 'Colour rail' }], onChange: v => set({ rail: v }) }), link('Edit a bot’s look', () => { const first = ($crew.get().profiles || [])[0]; if (first) openBotEditor($botFocus.get() || first.name, 'look') })] })
                           ]
                         })
                       ]
@@ -7015,6 +7306,7 @@ const RAIL_CSS = `
 #helm-rail button[data-dot] .helm-rail-dot { display: block; }
 #helm-rail .helm-rail-spacer { margin-top: auto; }
 #helm-rail .helm-rail-label { display: none; }
+:root[data-helm-customize-open] [data-tree-group]:has([data-tree-tab="sessions"]) { display: none !important; }
 #helm-rail.helm-rail-labels button:not(.helm-rail-chevron) { height: 40px; flex-direction: column; gap: 2px; }
 #helm-rail.helm-rail-labels .helm-rail-label { display: block; font-size: 8.5px; line-height: 1; letter-spacing: 0.02em; }
 :root[data-hermes-theme="helm-paper"] #helm-rail { background: #F4F2EC; border-right-color: #E2E0D8; }
@@ -7037,6 +7329,13 @@ function sidebarHidden() {
   }
 }
 
+function showSidebarSoon() {
+  customizeHidSidebar = false
+  setTimeout(() => {
+    if (sidebarHidden()) toggleSidebar()
+  }, 250)
+}
+
 function openLayoutEditor() {
   try {
     const b = document.querySelector('button[aria-label="Layout editor"]')
@@ -7054,13 +7353,13 @@ function applyHelmLayout(id) {
     if (id === 'focus') {
       if (!sidebarHidden()) toggleSidebar()
     } else if (id === 'review') {
-      if (sidebarHidden()) toggleSidebar()
+      showSidebarSoon()
       if (host.revealPane) {
         host.revealPane('review')
         host.revealPane('terminal')
       }
     } else if (id === 'crew') {
-      if (sidebarHidden()) toggleSidebar()
+      showSidebarSoon()
       if (host.revealPane) host.revealPane(`${ID}:helm-tab`)
       openBoardTab('board')
     }
@@ -7093,19 +7392,24 @@ function openCustomizeTab() {
       customizeClose = null
       if (customizeOff) customizeOff()
       customizeOff = null
-      if (customizeHidSidebar && sidebarHidden()) toggleSidebar()
-      customizeHidSidebar = false
+      try { document.documentElement.removeAttribute('data-helm-customize-open') } catch { /* no document */ }
+      if (customizeHidSidebar) showSidebarSoon()
     }
   })
   const vis = typeof host.paneVisibility === 'function' ? host.paneVisibility(`plugin-workspace:${CUSTOMIZE_KEY}`) : null
   if (vis && typeof vis.subscribe === 'function') {
     customizeOff = vis.subscribe(v => {
+      try {
+        if (v) document.documentElement.setAttribute('data-helm-customize-open', '')
+        else document.documentElement.removeAttribute('data-helm-customize-open')
+      } catch {
+        /* no document */
+      }
       if (v && !sidebarHidden()) {
         customizeHidSidebar = true
         toggleSidebar()
       } else if (!v && customizeHidSidebar) {
-        customizeHidSidebar = false
-        if (sidebarHidden()) toggleSidebar()
+        showSidebarSoon()
       }
     })
   }
@@ -7576,6 +7880,7 @@ export default {
       { id: 'sidechat-key', area: KEYBINDS_AREA, data: { id: 'helm.side-chat', label: 'Side chat (/btw)', category: 'view', defaults: ['mod+;'], run: openSideChat } },
       { id: 'approvals-chip', area: 'statusBar.right', order: 121, render: () => jsx(ApprovalsChip, {}) },
       { id: 'hooks-chip', area: 'statusBar.right', order: 125, render: () => jsx(HooksChip, {}) },
+      { id: 'bot-editor', area: 'statusBar.right', order: 300, render: () => jsx(BotEditorModal, {}) },
       { id: 'hud-panel', area: 'composer.top', order: 4, render: () => jsx(HudPanel, { looks, prefs }) },
       { id: 'hud-footer', area: 'composer.bottom', order: 90, render: () => jsx(HudFooter, { prefs }) },
       {
