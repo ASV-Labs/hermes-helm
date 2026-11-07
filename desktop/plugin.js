@@ -3753,6 +3753,7 @@ function HomeUnderside({ looks, prefs }) {
   const sections = useRef(null)
   const [chipsTop, setChipsTop] = useState(null)
   const [secMax, setSecMax] = useState(null)
+  const [naming, setNaming] = useState(false)
   useEffect(() => {
     if (!fresh || homeOnNewSession === false) return
     if (!$today.get().ready) refreshToday()
@@ -3788,7 +3789,22 @@ function HomeUnderside({ looks, prefs }) {
       jsxs('div', {
         'data-helm-home-greeting': '',
         children: [
-          jsx('h1', { style: { margin: 0, fontSize: 19, fontWeight: 500, letterSpacing: '-0.01em', color: B.t1 }, children: `${greeting()}${name ? `, ${name}` : ''}.` }),
+          naming
+            ? jsx('input', {
+                autoFocus: true,
+                defaultValue: name,
+                placeholder: 'Your first name',
+                'aria-label': 'Your first name',
+                onBlur: e => {
+                  if (helmPrefsRef) helmPrefsRef.setPrefs({ deskName: e.target.value.trim().slice(0, 40) })
+                  setNaming(false)
+                },
+                onKeyDown: e => {
+                  if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
+                },
+                style: { height: 30, borderRadius: 6, border: `1px solid ${V.accent}`, background: 'transparent', padding: '0 8px', fontSize: 17, color: B.t1, outline: 'none' }
+              })
+            : jsx('h1', { title: name ? 'Click to change your name' : 'Click to add your name', onClick: () => setNaming(true), style: { margin: 0, fontSize: 19, fontWeight: 500, letterSpacing: '-0.01em', color: B.t1, cursor: 'text' }, children: `${greeting()}${name ? `, ${name}` : ''}.` }),
           jsx('span', { style: { color: B.t4, fontSize: 12.5 }, children: statusSentence(crew) })
         ]
       }),
