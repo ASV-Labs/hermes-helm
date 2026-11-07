@@ -9,6 +9,7 @@
   - approvals and questions with their buttons on the right of the row (*Approve* in the accent)
   - Today as one line per job
   - quick-action chips along the bottom
+- README: real screenshots of the Desk, Customize look and the Bots board, captured from Hermes Desktop with chat titles blurred.
 - The robot heads that used to sit in the Desk rows are gone. Robots stay in the bot picker, the Bots board, the session list and the composer.
 
 ## 1.0.2 — 2026-11-06

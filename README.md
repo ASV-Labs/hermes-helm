@@ -57,7 +57,11 @@ Hermes opens on the Desk.
 
 Each section folds: click its header, and the Desk remembers your choice. A folded section shows its count.
 
-![The Desk: greeting, prompt, Continue, Needs you with Approve / Allow session / Deny, Today's scheduled jobs](docs/screens/desk.png)
+![The Desk in Hermes Desktop: greeting, prompt to any bot, Continue, Needs you, and Today folded to its count](docs/screens/app-desk.png)
+
+*Captured from Hermes Desktop with chat titles blurred. Here is the same Desk with an approval and a question waiting:*
+
+![The Desk with an approval (Approve / Allow session / Deny) and a question waiting](docs/screens/desk.png)
 
 ### Needs you, everywhere — and the live plan
 
@@ -74,6 +78,8 @@ The **Session** pane beside your chat shows the bot's task plan as it works (*Pl
 The **Bots board** lists every bot with its rendered robot and live state (*working*, *reply waiting*, *idle*), its latest session and its spend.
 
 Each robot is assembled from **191 Blender-rendered layers**: toppers, faces, chest modules, tools, things to wear and seven colours. Its face follows the bot's state, and the robot becomes the bot's Hermes avatar. helm never replaces a photo you uploaded. **New bot** creates a real Hermes bot. → [Robots guide](docs/guides/robots.md)
+
+![The Bots board in Hermes Desktop: each bot's robot, state, model and actions](docs/screens/app-bots-board.png)
 
 ![A crew of helm robots](docs/robots-dark.png)
 
@@ -99,6 +105,8 @@ The redesign layer runs across the whole app:
 - **Layout:** corners, reading width and rail colour
 - **Density:** session list density and chat text size
 - **Surfaces:** every helm surface can be switched on or off
+
+![Customize look in Hermes Desktop: base, accent, type, shape, density and the on-the-desk toggles](docs/screens/app-customize-look.png)
 
 → [Customize look guide](docs/guides/customize-look.md)
 
