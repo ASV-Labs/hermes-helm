@@ -165,33 +165,68 @@ ${HELM_CSS_SCOPE} [data-slot="tabs-trigger"][data-state="active"] {
   box-shadow: inset 0 -2px 0 var(--ui-accent);
 }
 
-/* Transcript: a calmer reading column; your messages are framed cards. */
+/* Transcript, to the Chat board: your message is a full-width framed block
+   (#16232B on #1F3038), the bot's text has no bubble (13.5/1.6), inline code
+   is a small mono pill, tool calls read as a compact log on a left rule. */
+${HELM_CSS_SCOPE} { --dt-user-bubble: #16232B; }
 ${HELM_CSS_SCOPE} [data-slot="aui_thread-content"] { max-width: var(--helm-reading, none); margin-inline: auto; }
-${HELM_CSS_SCOPE} [data-slot="aui_assistant-message-content"] { line-height: 1.62; }
-${HELM_CSS_SCOPE} [data-slot="aui_user-message-root"] [data-slot="aui_user-message-text"] { line-height: 1.55; }
+${HELM_CSS_SCOPE} .composer-human-message {
+  border-color: #1F3038 !important;
+  border-radius: 10px !important;
+  padding: 9px 13px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+${HELM_CSS_SCOPE} [data-slot="aui_user-message-text"] { font-size: 13.5px; line-height: 1.5; color: #E6EBF0; }
+${HELM_CSS_SCOPE} [data-slot="aui_assistant-message-content"] { font-size: 13.5px; line-height: 1.6; color: #E6EBF0; }
+${HELM_CSS_SCOPE} [data-slot="aui_assistant-message-content"] :not(pre) > code {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  background: #121820;
+  border: 1px solid #1C242D;
+  border-radius: 4px;
+  padding: 0 5px;
+}
 ${HELM_CSS_SCOPE} [data-slot="aui_turn-activity"],
 ${HELM_CSS_SCOPE} [data-slot="tool-block"] {
-  border-left: 1px solid var(--helm-hair);
+  border-left: 1px solid #1C242D;
   padding-left: 10px;
   margin-left: 2px;
+  font-size: 12px;
+  color: #98A4B1;
 }
-${HELM_CSS_SCOPE} [data-slot="tool-row"] { font-variant-numeric: tabular-nums; }
-${HELM_CSS_SCOPE} [data-slot="code-card"] { border: 1px solid var(--helm-hair) !important; }
+${HELM_CSS_SCOPE} [data-slot="tool-row"] {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  color: #C3CCD5;
+  font-variant-numeric: tabular-nums;
+}
+${HELM_CSS_SCOPE} [data-slot="code-card"] {
+  background: #0F1419 !important;
+  border: 1px solid #1C242D !important;
+  border-radius: 6px !important;
+}
+${HELM_CSS_SCOPE} [data-slot="code-card-body"] { font-size: 11.5px; line-height: 1.55; }
 ${HELM_CSS_SCOPE} [data-slot="aui_reasoning-text"] { color: var(--ui-text-tertiary); }
 
-/* Approvals read as decisions: amber edge, never lost in the stream. */
+/* Approvals: the board's card, amber 2px edge on #121820, 28px buttons. */
 ${HELM_CSS_SCOPE} [data-slot="tool-approval-card"] {
-  border-left: 3px solid #E8A657 !important;
-  background: color-mix(in srgb, #E8A657 6%, var(--ui-bg-card)) !important;
+  border: 1px solid #2A2F33 !important;
+  border-left: 2px solid #E8A657 !important;
+  border-radius: 8px !important;
+  background: #121820 !important;
+  padding: 10px 12px !important;
 }
+${HELM_CSS_SCOPE} [data-slot="tool-approval-actions"] button { height: 28px; border-radius: 6px; font-size: 12px; }
 
-/* Composer: a flat card with a hairline, accent edge while focused. */
+/* Composer: the board's box, #222B35 hairline, radius 12, #121820. */
 ${HELM_CSS_SCOPE} [data-slot="composer-surface"] {
   box-shadow: none !important;
-  border: 1px solid var(--helm-hair) !important;
-  background: var(--ui-bg-card) !important;
+  border: 1px solid #222B35 !important;
+  border-radius: 12px !important;
+  background: #121820 !important;
 }
-${HELM_CSS_SCOPE} [data-slot="composer-surface"]:focus-within { border-color: color-mix(in srgb, var(--ui-accent) 55%, var(--helm-hair)) !important; }
+${HELM_CSS_SCOPE} [data-slot="composer-surface"]:focus-within { border-color: color-mix(in srgb, var(--ui-accent) 55%, #222B35) !important; }
 
 /* Status bar: small, tabular, one hairline. */
 ${HELM_CSS_SCOPE} [data-slot="statusbar"] {
