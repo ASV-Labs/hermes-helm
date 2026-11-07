@@ -145,7 +145,9 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
     assert.ok(html.includes(word), `desk: ${word}`)
   const pane = renderToString(contributions.find(c => c.area === 'panes' && c.id === 'session-pane').render())
   for (const word of ['Session', 'Model', 'Folder', 'Cost', 'Scheduled jobs', 'Open']) assert.ok(pane.includes(word), `task pane: ${word}`)
-  const botPane = renderToString(contributions.find(c => c.area === 'panes' && c.id === 'bot-pane').render())
+  mod._internals.$helmTabVisible.set(true)
+  const botPane = renderToString(contributions.find(c => c.area === 'panes' && c.id === 'session-pane').render())
+  mod._internals.$helmTabVisible.set(false)
   for (const word of ['Upcoming routines', 'Permissions', 'Computer', 'Exchanges', 'Voice', 'Edit profile', 'Duplicate', 'Share', 'ACTIVITY', 'DISPATCH', 'LIBRARY']) assert.ok(botPane.includes(word), `bot pane: ${word}`)
   assert.ok(contributions.find(c => c.area === 'composer.middleware'), 'route-automatically middleware')
   // Task plan: the latest todo_list wins; nested and cancelled items survive

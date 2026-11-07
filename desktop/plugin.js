@@ -4048,7 +4048,7 @@ function HomeCwdLine({ prefs }) {
 // under it. Rendered from the composer's underside and placed against the
 // chat surface, so split tiles each get their own.
 const CHAT_CSS = `
-[data-chat-surface]:has([data-helm-chat]) { --composer-width: 860px; }
+[data-chat-surface]:has([data-helm-chat]) { --composer-width: 860px; --sticky-human-top: 40px; }
 [data-chat-surface]:has([data-helm-chat]) [data-slot="aui_thread-content"] {
   margin-left: 0 !important; margin-right: auto !important; max-width: 904px !important; padding: 46px 22px 0 !important;
 }
@@ -4266,7 +4266,7 @@ function SessionChrome({ looks, prefs }) {
       const o = op.getBoundingClientRect()
       const d = dock.getBoundingClientRect()
       const c = sf ? sf.getBoundingClientRect() : d
-      const next = { top: Math.round(s.top - o.top), left: Math.round(s.left - o.left), width: Math.round(Math.min(s.width, 904)), progTop: Math.round(d.top - o.top - 32), progLeft: Math.round(c.left - o.left), progWidth: Math.round(c.width) }
+      const next = { top: Math.round(s.top - o.top), left: Math.round(s.left - o.left), width: Math.round(Math.min(s.width, 904)), progTop: Math.round(d.top - o.top - 32), progLeft: Math.round(d.left - o.left + 5), progWidth: Math.round(d.width - 10) }
       setBox(prev => (prev && Object.keys(next).every(k => prev[k] === next[k]) ? prev : next))
     }
     place()
@@ -5227,7 +5227,7 @@ function openBot(p, activity) {
   haptic('tap')
   $botFocus.set(p.name)
   try {
-    if (host.revealPane) setTimeout(() => host.revealPane(`${ID}:bot-pane`), 300)
+    if (host.revealPane) setTimeout(() => host.revealPane(`${ID}:session-pane`), 300)
   } catch {
     /* older host */
   }
@@ -5953,6 +5953,11 @@ async function setRoutineEnabled(job, on) {
     host.notifyError?.(`Could not change ${job.name || 'the routine'}: ${err && err.message ? err.message : err}`)
   }
   refreshToday()
+}
+
+function RightPane({ looks }) {
+  const botView = useValue($helmTabVisible)
+  return botView ? jsx(BotProfilePane, { looks }) : jsx(SessionPane, { looks })
 }
 
 function BotProfilePane({ looks }) {
@@ -6993,7 +6998,7 @@ function startSidebarNeedsYou(prefs) {
 // ───────────────────────────────────────────────────────────────── plugin
 
 // Pure helpers, exported for the test suite only.
-export const _internals = { routeBrief, readBrief, routingRules, tierOfModel, roomSummary, permsLine, onHandoffEvent, $handoffs, onReplyEvent, $lastReply, AnimatedRobot, petKey, petStateFor, petSheets, PET_ROW, autoAvatars, pngEdge, AVATAR_EDGE, DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
+export const _internals = { $helmTabVisible, routeBrief, readBrief, routingRules, tierOfModel, roomSummary, permsLine, onHandoffEvent, $handoffs, onReplyEvent, $lastReply, AnimatedRobot, petKey, petStateFor, petSheets, PET_ROW, autoAvatars, pngEdge, AVATAR_EDGE, DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
 
 export default {
   id: ID,
@@ -7158,15 +7163,7 @@ export default {
       { id: 'composer-to', area: 'composer.actions', order: 5, render: () => jsx(ComposerToPill, { looks }) },
       { id: 'bot-chat-hint', area: 'composer.actions', order: 22, render: () => jsx(BotChatHint, {}) },
       { id: 'route-middleware', area: 'composer.middleware', data: { handler: routeMiddleware } },
-      {
-        id: 'bot-pane',
-        area: 'panes',
-        title: 'Bot',
-        data: { placement: 'right', collapsible: true, dock: { pane: `${ID}:session-pane`, pos: 'center' }, tabTitleText: () => 'Bot', width: '290px', minWidth: '240px' },
-        render: () => jsx(BotProfilePane, { looks })
-      },
       { id: 'session-chrome', area: 'composer.underside', order: 2, render: () => jsx(SessionChrome, { looks, prefs }) },
-      { id: 'session-context', area: 'composer.top', order: 3, render: () => jsx(SessionContextRow, {}) },
       { id: 'sidechat-key', area: KEYBINDS_AREA, data: { id: 'helm.side-chat', label: 'Side chat (/btw)', category: 'view', defaults: ['mod+;'], run: openSideChat } },
       { id: 'approvals-chip', area: 'statusBar.right', order: 121, render: () => jsx(ApprovalsChip, {}) },
       { id: 'hud-panel', area: 'composer.top', order: 4, render: () => jsx(HudPanel, { looks, prefs }) },
@@ -7175,8 +7172,8 @@ export default {
         id: 'session-pane',
         area: 'panes',
         title: 'Task',
-        data: { placement: 'right', collapsible: true, dock: { pane: 'files', pos: 'center' }, tabTitleText: () => 'Task', width: '280px', minWidth: '240px' },
-        render: () => jsx(SessionPane, { looks })
+        data: { placement: 'right', collapsible: true, dock: { pane: 'files', pos: 'center' }, tabTitleText: () => ($helmTabVisible.get() ? 'Bot' : 'Task'), width: '290px', minWidth: '240px' },
+        render: () => jsx(RightPane, { looks })
       },
       { id: 'bots-route', area: ROUTES_AREA, data: { path: BOTS_ROUTE }, render: () => jsx(BotsPage, { looks, setLook, avatars, os: ctx.os }) },
       { id: 'bots-nav', area: SIDEBAR_NAV_AREA, data: { path: BOTS_ROUTE, label: 'Bots board', codicon: 'hubot' } },
