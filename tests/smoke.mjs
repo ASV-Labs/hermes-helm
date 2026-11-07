@@ -200,7 +200,7 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
   assert.equal(helmTab.data.dock.pos, 'center', 'Helm tab is a tab, not a split (a split breaks the sidebar toggle)')
   assert.ok(!contributions.find(c => c.id === 'needs-you-pane'), 'no split-above-Sessions pane any more')
   const tabHtml = renderToString(helmTab.render())
-  for (const word of ['Needs you', 'gh release create', 'Approve', 'Bots', 'Working', 'Bots board']) assert.ok(tabHtml.includes(word), `helm tab: ${word}`)
+  for (const word of ['Needs you', 'gh release create', 'Approve', 'Bots', 'Working', 'Board view']) assert.ok(tabHtml.includes(word), `helm tab: ${word}`)
   dump('helm-tab', tabHtml)
   const strip = renderToString(byArea('composer.top')[0].render())
   assert.ok(strip.includes('Continue') && strip.includes('Install helm') && strip.includes('1 needs you'), `desk strip: ${strip.slice(0, 300)}`)

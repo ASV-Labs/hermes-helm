@@ -3153,7 +3153,9 @@ function HelmBotRow({ p, look, line, activity, selected }) {
           jsx('span', { style: { fontSize: 11.5, color: line.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: line.text })
         ]
       }),
-      jsx('span', { style: { fontSize: 10.5, color: V.t3, fontFamily: V.mono }, children: when })
+      activity.unread > 0
+        ? jsx('span', { title: 'Unread output', style: { width: 6, height: 6, borderRadius: 3, background: V.accent, display: 'block', justifySelf: 'end' } })
+        : jsx('span', { style: { fontSize: 10.5, color: V.t3, fontFamily: V.mono }, children: when })
     ]
   })
 }
@@ -3203,7 +3205,7 @@ function HelmTab({ looks, prefs, setPrefs }) {
           })
         : null,
       jsxs('div', {
-        style: { padding: '8px 10px 0', display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' },
+        style: { padding: '8px 10px 0', display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap', overflow: 'hidden' },
         children: [
           jsx(HelmChip, { label: 'All', active: filter === 'all', onClick: () => setFilter('all') }),
           jsx(HelmChip, { label: 'Needs you', count: needCount, active: filter === 'needs-you', tone: needCount ? V.amber : undefined, onClick: () => setFilter('needs-you') }),
@@ -3239,7 +3241,7 @@ function HelmTab({ looks, prefs, setPrefs }) {
       jsxs('div', {
         style: { marginTop: 'auto', padding: '12px 14px 0', display: 'flex', gap: 14, fontSize: 12 },
         children: [
-          jsx('button', { type: 'button', onClick: () => host.navigate(BOTS_ROUTE), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit' }, children: 'Bots board' }),
+          jsx('button', { type: 'button', onClick: () => host.navigate(BOTS_ROUTE), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit' }, children: 'Board view' }),
           jsx('button', { type: 'button', onClick: openNewBot, style: { border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit' }, children: 'New bot' })
         ]
       })
