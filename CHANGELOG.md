@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0 — 2026-11-07
+
+- **Animated robots.** Every look is now animated, in the petdex/Codex sprite-sheet format that Hermes pets use. The sheet has 9 states: idle, working, needs you, done, failed, reading, waving, and roaming left and right.
+  - The Bots board shows each bot's full robot moving with its live state. It jumps when a job finishes and waves when you point at it.
+  - The composer and picker chips, and the session pane, animate their heads.
+  - The Look editor's mood buttons preview every animation.
+- **Robots as Hermes pets.** Each bot's robot is saved as that bot's Hermes pet. A bot without a pet is switched to it, so the robot appears on the desktop and reacts to what the bot is doing. Pets you chose are never replaced.
+- **New preferences:** *Animated robots* and *Robots as Hermes pets*. Both are on by default, and helm follows Reduce motion.
+- **Backend:** `/pets/sheet` serves sheets. `/pets/install` is the backend's single write: `pet.json` and `spritesheet.webp` in `<bot home>/pets/helm-<bot>/`.
+- **New check:** `tests/pet_sheet_check.py` verifies geometry, frames per row, margins and determinism.
+
 ## 1.0.5 — 2026-11-07
 
 - **Robots reach Hermes's Bots tab reliably.**

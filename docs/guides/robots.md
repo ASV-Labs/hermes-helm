@@ -62,3 +62,27 @@ The layers are already in `dashboard/sprites/`. Rebuilding them is only for chan
 3. Run `python3 tools/render/shrink.py dashboard/sprites`.
 
 To preview a single bot, use `tools/render/render_one.py`. Hermes never runs anything in `tools/`.
+
+## Animated robots and Hermes pets
+
+Every look is animated. helm builds a sprite sheet for it with one row per state, in the petdex/Codex format that Hermes pets use:
+
+| State | When you see it | What it does |
+|---|---|---|
+| **idle** | Ready, or no sessions yet | Breathes, blinks, its topper sways |
+| **working** (`running`) | A turn is in flight | Focused face, busy tool, sparks, a humming chest light |
+| **needs you** (`waiting`) | A reply or approval is waiting on you | Question-mark eyes, curious head tilts |
+| **done** | A job just finished | A star-eyed jump |
+| **failed** | Something went wrong | A jolt, then a slump with smoke |
+| **reading** (`review`) | It's thinking through a task | Leans in, with a scan line sweeping its screen |
+| **roaming** (`running-left` / `running-right`) | It walks across your desktop as a Hermes pet | Rolls along with speed lines |
+| **waving** | You point at it on the Bots board | Waves back |
+
+- **Preview them all.** In the Look editor (**Bots board → Customize**), the mood buttons under the big robot play each animation for your look.
+- **Turn motion off.** Switch off **Animated robots** in *Customize look → On the desk*. helm also follows macOS's **Reduce motion** setting and shows still robots.
+- **Your bot's Hermes pet.** With **Robots as Hermes pets** on (the default), each bot's robot is saved as that bot's Hermes pet, named *helm-&lt;bot&gt;*. A bot with no pet yet is switched to it, so its robot shows up on your desktop and moves with what the bot is doing.
+  - A bot that already has a pet keeps it. You can pick the robot any time from Hermes's pet picker.
+  - Changing a look updates its pet within about 20 seconds.
+  - helm never turns the pet display back on after you turn it off.
+- **Use the robot as a bot's picture in Hermes's Bots tab.** Right-click the bot, choose **Edit**, open the **Pet** tab and pick *&lt;bot&gt; (helm robot)*. That tab shows a still frame; the moving robot plays on helm's Bots board and as the desktop pet.
+- **The first time** a look appears, its sheet takes a few seconds to build. helm shows the still robot until it's ready.

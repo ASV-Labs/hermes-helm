@@ -42,7 +42,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '1.0.5'
+const VERSION = '1.1.0'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -395,6 +395,8 @@ const DEFAULT_PREFS = {
   showNeedsYouChip: true,
   showTodayChip: true,
   autoAvatars: true,
+  animateRobots: true,
+  robotPets: true,
   preferredTheme: 'helm-dark',
   accent: '',
   radius: 'default',
@@ -530,6 +532,129 @@ function SpriteStack({ look, expr, width, crop, className, title }) {
           : null
       )
     })
+  })
+}
+
+// ─── animated robots ─────────────────────────────────────────────────────────
+// The backend renders each look as a petdex/Codex sprite sheet (the format of
+// Hermes pets). helm's screens play it at half resolution, one row per state:
+// idle, running-right/left (roaming), waving, jumping, failed, waiting,
+// running (working) and review. All robots step on one shared ticker.
+const PET_ROWS = [['idle', 6], ['running-right', 8], ['running-left', 8], ['waving', 4], ['jumping', 5], ['failed', 8], ['waiting', 6], ['running', 6], ['review', 6]]
+const PET_ROW = Object.fromEntries(PET_ROWS.map(([state, frames], index) => [state, { index, frames }]))
+const PET_CELL_W = 96
+const PET_CELL_H = 104
+const PET_SHEET_W = PET_CELL_W * 8
+const PET_SHEET_H = PET_CELL_H * PET_ROWS.length
+const PET_FRAME_MS = 183 // 1100 ms per six-frame loop, the petdex default
+const PET_HEAD = [22.5, 21.5, 44.7, 44.7] // the head inside a half-resolution cell, framed like HEAD_CROP
+const petSheets = new Map()
+const petPending = new Set()
+const $petTick = atom(0)
+const $petSheets = atom(0)
+const $animate = atom(true)
+let petTimer = null
+let petUsers = 0
+let petFailures = 0
+
+function petKey(look) {
+  return [look.color, look.topper, look.face, look.chest, look.tool, look.back].join('-')
+}
+
+/** helm's bot status → the sprite-sheet row that shows it. */
+function petStateFor(statusKey) {
+  return { working: 'running', 'needs-you': 'waiting', failed: 'failed', review: 'review' }[statusKey] || 'idle'
+}
+
+function requestPetSheet(key) {
+  if (!spriteRest || spritesDown || petSheets.has(key) || petPending.has(key) || petFailures >= 3) return
+  petPending.add(key)
+  spriteRest(`/pets/sheet?look=${encodeURIComponent(key)}`, { timeoutMs: 120000 })
+    .then(res => {
+      petSheets.set(key, res && typeof res.url === 'string' && res.url.startsWith('data:image/') ? res.url : null)
+      petFailures = 0
+    })
+    .catch(() => {
+      petFailures += 1
+    })
+    .finally(() => {
+      petPending.delete(key)
+      $petSheets.set($petSheets.get() + 1)
+    })
+}
+
+function prefersReducedMotion() {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return false
+  }
+}
+
+function petTickerHold() {
+  petUsers += 1
+  if (!petTimer) {
+    petTimer = setInterval(() => {
+      if (typeof document === 'undefined' || !document.hidden) $petTick.set(($petTick.get() + 1) % 840)
+    }, PET_FRAME_MS)
+  }
+  return () => {
+    petUsers = Math.max(0, petUsers - 1)
+    if (petUsers === 0 && petTimer) {
+      clearInterval(petTimer)
+      petTimer = null
+    }
+  }
+}
+
+/**
+ * A bot's robot, animated for `state`. Until its sheet arrives (or with
+ * animation off) it shows the still robot. A finished job plays a jump; with
+ * `waveOnHover`, pointing at it waves back.
+ */
+function AnimatedRobot({ look, state = 'idle', size = 64, head = false, expr, title, waveOnHover = false }) {
+  useValue($petSheets)
+  const enabled = useValue($animate)
+  const key = petKey(look)
+  const url = enabled ? petSheets.get(key) || null : null
+  useEffect(() => {
+    if (enabled) requestPetSheet(key)
+  }, [key, enabled])
+  const moving = Boolean(url) && !prefersReducedMotion()
+  useEffect(() => (moving ? petTickerHold() : undefined), [moving])
+  const tick = useValue($petTick)
+  const [moment, setMoment] = useState(null)
+  const previous = useRef(state)
+  useEffect(() => {
+    if (previous.current === 'running' && state === 'idle') setMoment({ state: 'jumping', ms: 1800 })
+    previous.current = state
+  }, [state])
+  useEffect(() => {
+    if (!moment) return undefined
+    const timer = setTimeout(() => setMoment(null), moment.ms)
+    return () => clearTimeout(timer)
+  }, [moment])
+  if (!url) {
+    return head ? jsx(RobotHead, { look, expr, size, title }) : jsx(RobotFull, { look, expr, size })
+  }
+  const row = PET_ROW[(moment && moment.state) || state] || PET_ROW.idle
+  const frame = moving ? tick % row.frames : 0
+  const [cx, cy, cw, ch] = head ? PET_HEAD : [0, 0, PET_CELL_W, PET_CELL_H]
+  const scale = size / cw
+  return jsx('div', {
+    role: 'img',
+    'aria-label': title || 'bot',
+    title: waveOnHover ? title : undefined,
+    onMouseEnter: waveOnHover && moving ? () => setMoment({ state: 'waving', ms: 1500 }) : undefined,
+    className: cn('relative shrink-0 select-none overflow-hidden', head && 'rounded-full'),
+    style: {
+      width: size,
+      height: Math.round(ch * scale),
+      backgroundImage: `url("${url}")`,
+      backgroundRepeat: 'no-repeat',
+      backgroundSize: `${PET_SHEET_W * scale}px ${PET_SHEET_H * scale}px`,
+      backgroundPosition: `${-(frame * PET_CELL_W + cx) * scale}px ${-(row.index * PET_CELL_H + cy) * scale}px`
+    }
   })
 }
 
@@ -821,6 +946,7 @@ function LookEditor({ profile, look, onChange, onClose }) {
   const name = botLabel(profile)
   const set = patch => onChange({ ...look, ...patch })
   const headFor = patch => jsx(RobotHead, { look: { ...look, ...patch }, size: 32 })
+  const [preview, setPreview] = useState('idle')
   return jsxs('div', {
     className: 'flex min-h-0 flex-1 gap-6 p-4',
     children: [
@@ -829,26 +955,35 @@ function LookEditor({ profile, look, onChange, onClose }) {
         children: [
           jsx('div', {
             className: 'flex h-80 w-full items-center justify-center rounded-lg border border-(--ui-stroke-secondary) bg-(--ui-bg-editor)',
-            children: jsx(RobotFull, { look, size: 230 })
+            children: jsx(AnimatedRobot, { look, state: preview, size: 230, title: `${name} · ${preview}` })
           }),
           jsx('div', { className: 'text-sm font-medium', children: name }),
           jsxs('div', {
-            className: 'flex w-full items-center justify-between',
+            className: 'grid w-full grid-cols-4 gap-1',
             children: [
-              ['idle', 'idle'],
-              ['focused', 'working'],
-              ['question', 'needs you'],
-              ['happy', 'done'],
-              ['error', 'failed'],
-              ['sleep', 'asleep']
-            ].map(([expr, label]) =>
+              ['idle', 'idle', null],
+              ['running', 'working', 'focused'],
+              ['waiting', 'needs you', 'question'],
+              ['waving', 'done', 'happy'],
+              ['failed', 'failed', 'error'],
+              ['review', 'reading', 'focused'],
+              ['running-right', 'roaming', 'happy'],
+              ['jumping', 'celebrate', 'star']
+            ].map(([state, label, expr]) =>
               jsxs(
-                'div',
+                'button',
                 {
-                  className: 'flex flex-col items-center gap-1',
-                  children: [jsx(RobotHead, { look, expr, size: 26 }), jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: label })]
+                  type: 'button',
+                  'aria-pressed': preview === state,
+                  title: `Preview ${label}`,
+                  onClick: () => setPreview(state),
+                  className: cn(
+                    'flex flex-col items-center gap-0.5 rounded-md border py-1',
+                    preview === state ? 'border-(--ui-accent)' : 'border-transparent hover:bg-(--chrome-action-hover)'
+                  ),
+                  children: [jsx(RobotHead, { look, expr: expr || look.face, size: 24 }), jsx('span', { className: 'text-[0.625rem] text-(--ui-text-tertiary)', children: label })]
                 },
-                expr
+                state
               )
             )
           }),
@@ -1068,7 +1203,7 @@ function BotCard({ profile, look, focusedWorking, onEdit, onStatus, os }) {
       jsxs('div', {
         className: 'flex items-center gap-3',
         children: [
-          jsx(RobotHead, { look, expr, size: 52, title: label }),
+          jsx(AnimatedRobot, { look, expr, state: petStateFor(status.key), size: 60, title: label, waveOnHover: true }),
           jsxs('div', {
             className: 'flex min-w-0 flex-1 flex-col',
             children: [
@@ -1277,6 +1412,34 @@ async function autoAvatars(profiles, looks, avatars, prefs) {
     }
   } finally {
     avatarSweep = false
+  }
+}
+
+// Each bot's robot as its Hermes pet: the backend writes the standard pet
+// folder into the bot's own home, then Hermes's pet.select adopts it, but only
+// for a bot without a pet of its own. A bot whose pet is already helm's gets
+// the new sheet when its look changes; any other pet is left alone.
+const petInstalled = new Map()
+let petSweep = false
+async function robotPets(profiles, looks, prefs) {
+  if (!prefs.get().robotPets || !spriteRest || spritesDown || typeof host.request !== 'function' || petSweep) return
+  petSweep = true
+  try {
+    for (const p of profiles) {
+      const key = petKey(normalizeLook(looks.get()[p.name], p.name))
+      if (petInstalled.get(p.name) === key) continue
+      try {
+        const res = await spriteRest('/pets/install', { method: 'POST', body: { profile: p.name, look: key, name: botLabel(p) }, timeoutMs: 120000 })
+        if (!res || !res.ok || !res.slug) continue
+        const gallery = await host.request('pet.gallery', { localOnly: true, profile: p.name })
+        if (gallery && !gallery.active) await host.request('pet.select', { slug: res.slug, profile: p.name })
+        petInstalled.set(p.name, key)
+      } catch {
+        /* an older gateway without pets, or the backend still starting: next crew refresh retries */
+      }
+    }
+  } finally {
+    petSweep = false
   }
 }
 
@@ -1518,7 +1681,7 @@ function ComposerBotChip({ looks }) {
     onClick: () => host.navigate(BOTS_ROUTE),
     'aria-label': `Talking to ${profile}`,
     className: 'flex h-7 w-7 items-center justify-center rounded-full hover:bg-(--chrome-action-hover)',
-    children: jsx(RobotHead, { look, expr: busy ? 'focused' : look.face, size: 22, title: profile })
+    children: jsx(AnimatedRobot, { look, head: true, expr: busy ? 'focused' : look.face, state: busy ? 'running' : 'idle', size: 22, title: profile })
   })
 }
 
@@ -1575,7 +1738,7 @@ function ContextLine({ looks, prefs }) {
     onClick: () => host.navigate(BOTS_ROUTE),
     className: 'flex h-6 max-w-md items-center gap-1.5 rounded-md px-1.5 text-[0.6875rem] text-(--ui-text-tertiary) hover:bg-(--chrome-action-hover)',
     children: [
-      jsx(RobotHead, { look, expr: busy ? 'focused' : look.face, size: 18, title: profile }),
+      jsx(AnimatedRobot, { look, head: true, expr: busy ? 'focused' : look.face, state: busy ? 'running' : 'idle', size: 18, title: profile }),
       jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: profile }),
       bits.length ? jsx('span', { className: 'truncate tabular-nums', children: '· ' + bits.join(' · ') }) : null
     ]
@@ -1978,7 +2141,7 @@ function BotPicker({ profiles, value, onPick, looks }) {
             background: on ? 'color-mix(in srgb, var(--ui-accent) 14%, transparent)' : 'transparent',
             color: on ? V.t1 : V.t3
           },
-          children: [jsx(RobotHead, { look, expr: on ? 'happy' : look.face, size: 20, title: p.name }), botLabel(p)]
+          children: [jsx(AnimatedRobot, { look, head: true, expr: on ? 'happy' : look.face, state: 'idle', size: 20, title: p.name }), botLabel(p)]
         },
         p.name
       )
@@ -2940,7 +3103,7 @@ function SessionPane({ looks }) {
       jsxs('div', {
         style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 },
         children: [
-          jsx(RobotHead, { look, expr: busy ? 'focused' : r && r.unread ? 'question' : look.face, size: 34, title: owner || 'bot' }),
+          jsx(AnimatedRobot, { look, head: true, expr: busy ? 'focused' : r && r.unread ? 'question' : look.face, state: busy ? 'running' : r && r.unread ? 'waiting' : 'idle', size: 34, title: owner || 'bot' }),
           jsxs('div', {
             style: { minWidth: 0 },
             children: [
@@ -3270,6 +3433,8 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
     ['showCostChip', 'Status bar: focused cost', 'Cost and context of the focused chat.'],
     ['showComposerBot', 'Composer robot', 'Who you’re talking to, left of the composer.'],
     ['autoAvatars', 'Robots as Hermes avatars', 'New bots get a robot as their Hermes avatar (never replaces a photo you uploaded).'],
+    ['animateRobots', 'Animated robots', 'Robots move with what their bot is doing: working, waiting on you, done, failed. Follows Reduce motion.'],
+    ['robotPets', 'Robots as Hermes pets', 'Each bot’s robot becomes its Hermes pet, the animated companion on your desktop. It is switched on only for bots without a pet of their own.'],
     ['hideMessagingRow', 'Hide the Messaging row', 'Capabilities can never be hidden.']
   ]
 
@@ -3376,7 +3541,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
           jsxs('div', {
             className: 'sticky top-0 flex w-56 shrink-0 flex-col items-center gap-2 py-6',
             children: [
-              jsx(RobotFull, { look: sample, size: 180 }),
+              jsx(AnimatedRobot, { look: sample, size: 180, waveOnHover: true, title: 'sample bot' }),
               jsx(Button, { variant: 'outline', size: 'sm', onClick: () => host.navigate(BOTS_ROUTE), children: 'Open the Bots board' }),
               jsx('div', { className: 'text-center text-[0.6875rem] text-(--ui-text-tertiary)', children: 'Every bot gets its own rendered robot: ears, face, chest, what it carries and wears, colour. It becomes the bot’s avatar across Hermes.' })
             ]
@@ -3390,17 +3555,19 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
 // ───────────────────────────────────────────────────────────────── plugin
 
 // Pure helpers, exported for the test suite only.
-export const _internals = { autoAvatars, pngEdge, AVATAR_EDGE, DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
+export const _internals = { AnimatedRobot, petKey, petStateFor, petSheets, PET_ROW, autoAvatars, pngEdge, AVATAR_EDGE, DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
 
 export default {
   id: ID,
   name: 'Helm',
   description: 'A redesigned Hermes Desktop: a calmer interface you can tune, a crew view of every bot, rendered robots that become your bots’ avatars, and live status across the desk.',
   register(ctx) {
-    spriteRest = typeof ctx.rest === 'function' ? path => ctx.rest(path) : null
+    spriteRest = typeof ctx.rest === 'function' ? (path, opts) => ctx.rest(path, opts) : null
     spritesDown = false
     spriteFailures = 0
     const prefs = atom({ ...DEFAULT_PREFS, ...ctx.storage.get('prefs', {}) })
+    $animate.set(prefs.get().animateRobots !== false)
+    prefs.subscribe(v => $animate.set(v.animateRobots !== false))
     const looks = atom(ctx.storage.get('looks', {}))
     const avatarsStore = ctx.storage.get('avatars', {})
     const avatars = atom(avatarsStore && typeof avatarsStore === 'object' ? avatarsStore : {})
@@ -3623,7 +3790,10 @@ export default {
     })
     const offCrew = $crew.subscribe(crew => {
       syncBotCommands(crew)
-      if (crew.ready && crew.profiles.length) autoAvatars(crew.profiles, looks, avatars, prefs)
+      if (crew.ready && crew.profiles.length) {
+        autoAvatars(crew.profiles, looks, avatars, prefs)
+        robotPets(crew.profiles, looks, prefs)
+      }
     })
 
     // Settings → Appearance card and Settings → Plugins → Helm

@@ -77,6 +77,8 @@ The **Session** pane beside your chat shows the bot's task plan as it works (*Pl
 
 The **Bots board** lists every bot with its rendered robot and live state (*working*, *reply waiting*, *idle*), its latest session and its spend.
 
+**The robots are animated.** Each look becomes a full sprite sheet: idle breathing and blinking, working with sparks flying, a curious head-tilt while it waits on you, a jump when a job finishes, a slump and a puff of smoke when something fails, a scan line while it reads, and a wave when you point at it. The same sheet becomes the bot's **Hermes pet**, the animated companion on your desktop. It's built to the standard petdex/Codex format, so it works anywhere Hermes shows pets.
+
 Each robot is assembled from **191 Blender-rendered layers**: toppers, faces, chest modules, tools, things to wear and seven colours. Its face follows the bot's state, and the robot becomes the bot's Hermes avatar. helm never replaces a photo you uploaded. **New bot** creates a real Hermes bot. → [Robots guide](docs/guides/robots.md)
 
 ![The Bots board in Hermes Desktop: each bot's robot, state, model and actions](docs/screens/app-bots-board.png)
@@ -142,13 +144,21 @@ helm is built to be audited.
 - **No credentials.** helm never reads `.env`, `auth.json` or any token store.
 - **Nothing is sent or answered without you.** The Desk prompt sends only on **↵** / **Send**. Approvals and questions are answered only when you click.
 - **Agent half:** registers nothing (no tools, hooks or commands).
-- **Dashboard half:** a read-only router that serves the bundled PNGs.
+- **Dashboard half:** a small router. It serves the bundled PNGs and the robots' sprite sheets, and makes one kind of write: each bot's robot pet, in that bot's own `pets/` folder.
 
 ### Every call helm makes
 
 The agent half (`__init__.py`) registers nothing: no tools, hooks, commands or settings.
 
-The dashboard half is read-only and does one thing. It serves the bundled PNGs, with names validated against a fixed pattern. It has no path traversal, no writes and no imports of Hermes internals.
+The dashboard half does three things.
+
+- **Serves the bundled PNGs**, with names validated against a fixed pattern.
+- **Serves a look's animated sprite sheet** (`/pets/sheet`). A look is six part names, each checked against the fixed part lists before anything is drawn.
+- **Saves a bot's robot as its Hermes pet** (`/pets/install`). This is its only write: `pet.json` and `spritesheet.webp` in `<that bot's home>/pets/helm-<bot>/`, the standard pet layout Hermes reads.
+  - The bot name must match Hermes's profile-name pattern.
+  - The bot's home is found with Hermes's public `hermes_constants` helpers and must already exist.
+
+It has no path traversal and imports no Hermes internals.
 
 **Reads**
 
@@ -170,6 +180,10 @@ The dashboard half is read-only and does one thing. It serves the bundled PNGs, 
 - Sends a message from the Desk prompt when you press **↵** or *Send*.
 - Creates a bot (`profiles.create`) from *New bot*.
 - Sets a bot's avatar (`profiles.set_asset`) to its robot, but never over a photo you uploaded.
+- Makes each bot's robot its Hermes pet when **Robots as Hermes pets** is on:
+  - It writes the pet folder described above.
+  - It switches a bot to that pet with Hermes's own `pet.select`, but only if the bot has no pet. It checks this with `pet.gallery`.
+  - It never replaces a pet you chose and never turns pets back on for a bot.
 
 **Writes**
 
@@ -186,7 +200,8 @@ The redesign layer is CSS supplied through the SDK's theme `customCSS`. It selec
 | Part | Role |
 |---|---|
 | `desktop/plugin.js` | The interface, written against `@hermes/plugin-sdk` only. |
-| `dashboard/plugin_api.py` | A tiny read-only FastAPI router that the gateway mounts at `/api/plugins/helm/`. It serves the robot layers in `dashboard/sprites/`. |
+| `dashboard/plugin_api.py` | A small FastAPI router that the gateway mounts at `/api/plugins/helm/`. It serves the robot layers in `dashboard/sprites/` and the sprite sheets, and saves a bot's robot pet. |
+| `dashboard/pet_sheet.py` | Animates the layers into a 1536×1872 petdex/Codex sprite sheet: 9 rows, one per state, in 192×208 frames. Pure Pillow; the same look always gives the same sheet. |
 | `__init__.py` | The agent half. It registers nothing. |
 | `tools/render/` | The Blender source that produced the layers. Hermes never runs it. |
 | `tools/screens/` | Re-renders the README screenshots from the real components, using demo data. |

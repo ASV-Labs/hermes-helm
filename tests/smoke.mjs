@@ -237,6 +237,27 @@ assert.ok(renderToString(composer.render()).includes('Talking to vision'), 'comp
 // New robots become Hermes avatars: get_asset probe ran for every bot
 assert.ok((globalThis.__requests || []).some(([m, n]) => m === 'profiles.get_asset' && n === 'builder'), 'auto avatar probe')
 
+// Animated robots: the key matches the backend's look_key, statuses map to sheet
+// rows, and a robot shows its row (or the still robot until its sheet arrives).
+{
+  const { AnimatedRobot, petKey, petStateFor, petSheets, PET_ROW } = mod._internals
+  const look = { topper: 'antenna', face: 'idle', chest: 'planet', tool: 'wrench', back: 'jetpack', color: 'blue' }
+  assert.equal(petKey(look), 'blue-antenna-idle-planet-wrench-jetpack', 'pet key matches pet_sheet.look_key')
+  assert.equal(petStateFor('working'), 'running')
+  assert.equal(petStateFor('needs-you'), 'waiting')
+  assert.equal(petStateFor('new'), 'idle')
+  assert.deepEqual([PET_ROW.idle.index, PET_ROW.waiting.index, PET_ROW.review.index], [0, 6, 8])
+  const still = renderToString(createElement(AnimatedRobot, { look, state: 'waiting', size: 60 }))
+  assert.ok(!still.includes('background-image'), 'no sheet yet: the still robot')
+  petSheets.set(petKey(look), 'data:image/webp;base64,AAAA')
+  const moving = renderToString(createElement(AnimatedRobot, { look, state: 'waiting', size: 96, title: 'bot' }))
+  assert.ok(moving.includes('background-image'), 'sheet shown')
+  assert.ok(moving.includes('-624px'), 'waiting row (6 × 104 px)')
+  const head = renderToString(createElement(AnimatedRobot, { look, state: 'idle', size: 44.7, head: true }))
+  assert.ok(head.includes('rounded-full'), 'head crop')
+  petSheets.clear()
+}
+
 // Avatar self-heal: helm's 256 px robot is kept, a photo is never touched,
 // and Bot Mode's 160 px face backfill is not mistaken for a photo.
 {
