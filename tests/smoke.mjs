@@ -118,7 +118,7 @@ for (const t of themes) {
   for (const k of ['background', 'foreground', 'primary']) assert.ok(/^#[0-9A-Fa-f]{6}$/.test(d.colors[k]), `${d.name} colors.${k}`)
   assert.ok(d.customCSS.includes('data-hermes-theme^="helm"'), 'customCSS scoped to helm')
 }
-assert.equal(byArea('statusBar.right').length, 4, 'needs-you, today, working, cost chips')
+assert.equal(byArea('statusBar.right').length, 5, 'needs-you, today, working, cost, approvals chips')
 assert.equal(byArea('titleBar.center').length, 1, 'titlebar context line')
 assert.equal(byArea('sessionRow.leading').length, 1, 'session row robot')
 assert.equal(byArea('sessionRow.trailing').length, 1, 'session row cost')
@@ -132,7 +132,7 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
 {
   const np = byArea('sidebarNav.prefs')
   assert.equal(np.length, 1, 'one nav-prefs contribution')
-  assert.deepEqual(np[0].data.hide, ['messaging', 'artifacts', 'cron', 'helm:bots-nav', 'helm:look-nav'], 'design nav by default: New session, Desk, Capabilities, plugin rows')
+  assert.deepEqual(np[0].data.hide, ['messaging', 'artifacts', 'cron', 'helm:bots-nav', 'helm:look-nav', 'helm:desk-nav'], 'design nav by default: New session, Capabilities, plugin rows')
   assert.deepEqual(np[0].data.order, ['new-session', 'helm:desk-nav'], 'Desk sits under New session')
 }
 // The Desk: greeting, status sentence, prompt, continue, needs you, today
@@ -265,14 +265,15 @@ const rowStatus = renderToString(byArea('sessionRow.trailing')[0].data.render({ 
 assert.ok(rowStatus.includes('data-helm-row-status') && rowStatus.includes('Question'), `row status line: ${rowStatus}`)
 assert.ok(renderToString(byArea('sessionRow.trailing')[0].data.render({ sessionId: 'nope' })).includes('Idle'), 'rows older than the read say Idle')
 const ctxLine = renderToString(byArea('titleBar.center')[0].render())
-assert.ok(ctxLine.includes('vision') && ctxLine.includes('$0.42'), `context line: ${ctxLine.slice(0, 200)}`)
+assert.equal(ctxLine, '', 'no context line by default (the boards have none)')
 const chips = Object.fromEntries(byArea('statusBar.right').map(c => [c.id, renderToString(c.render())]))
 assert.ok(chips['needs-you'].includes('1 needs you'), `needs-you chip: ${chips['needs-you']}`)
 assert.ok(chips.today.includes('$0.36 today'), `today chip: ${chips.today}`)
 assert.ok(chips.working.includes('2 working'), `working chip: ${chips.working}`)
 assert.equal(chips.cost, '', 'cost chip off by default (context % sits in the title bar)')
-const composer = contributions.find(c => c.area === 'composer.leading')
-assert.ok(renderToString(composer.render()).includes('Talking to vision'), 'composer chip names the focused bot')
+assert.ok(!contributions.find(c => c.area === 'composer.leading'), 'no composer robot by default (the boards have none)')
+const ask = contributions.find(c => c.id === 'ask-pill')
+assert.ok(ask && contributions.find(c => c.id === 'composer-hint'), 'approval pill and hint in the composer')
 
 // New robots become Hermes avatars: get_asset probe ran for every bot
 assert.ok((globalThis.__requests || []).some(([m, n]) => m === 'profiles.get_asset' && n === 'builder'), 'auto avatar probe')

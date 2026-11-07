@@ -279,6 +279,35 @@ ${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[type="submit"] {
 ${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[type="submit"]:disabled { background: color-mix(in srgb, var(--ui-accent) 35%, #121820) !important; }
 ${HELM_CSS_SCOPE} [data-slot="composer-surface"]:focus-within { border-color: color-mix(in srgb, var(--ui-accent) 55%, #222B35) !important; }
 
+/* Composer, to the boards: input on its own row, then one toolbar row with
+   + and the model / effort / approval pills on the left, the hint, mic and
+   send on the right. Send is the cyan 28px square (the voice-start button that
+   stands in for it on an empty draft wears the same). */
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] div.grid.w-full {
+  grid-template-columns: auto minmax(0, 1fr) !important;
+  grid-template-areas: "input input" "menu controls" !important;
+  row-gap: 8px !important;
+  align-items: center;
+}
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] [class*="grid-area:controls"] { justify-content: flex-start !important; flex-wrap: nowrap; }
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] [class*="grid-area:controls"] > div:has(> button[type="submit"]),
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] [class*="grid-area:controls"] > div:has(button[class*="primary-size"]) { display: contents !important; }
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] [class*="grid-area:controls"] > div:has(> button[type="submit"]) > :nth-child(n+3),
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] [class*="grid-area:controls"] > div:has(button[class*="primary-size"]) > :nth-child(n+3) { order: 5; }
+${HELM_CSS_SCOPE} [data-helm-ask] { order: 3; }
+${HELM_CSS_SCOPE} [data-helm-hint] { order: 4; margin-left: auto; }
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] { padding: 10px 12px 8px !important; }
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] [class*="grid-area:input"] { font-size: 14px; }
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[class*="primary-size"] {
+  width: 28px !important; height: 28px !important; border-radius: 6px !important;
+  background: var(--ui-accent) !important; color: #06161A !important; border: 0 !important;
+}
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[class*="voice-menu-size"] { display: none !important; }
+
+/* Resting terminal strip: the boards have none. It comes back the moment the
+   terminal is opened (its tab turns active). */
+${HELM_CSS_SCOPE} [data-tree-group]:has([data-tree-tab="terminal"]):not(:has([data-tree-tab][data-active="true"])):not(:has([data-tree-tab="workspace"])) { display: none !important; }
+
 /* Status bar: small, tabular, one hairline. */
 ${HELM_CSS_SCOPE} [data-slot="statusbar"] {
   font-variant-numeric: tabular-nums;
@@ -330,6 +359,18 @@ function withAccent(colors, hex) {
   return { ...colors, primary: hex, primaryForeground: fg, ring: hex, midground: hex, midgroundForeground: fg, composerRing: hex }
 }
 
+// Hermes mixes a theme's seeds with neutrals; the boards want the exact
+// surfaces: chrome/main, the sidebar panel, cards.
+function surfacesCSS(colors, scope) {
+  return `${scope} {
+  --ui-bg-chrome: ${colors.background};
+  --ui-bg-sidebar: ${colors.sidebarBackground || colors.card};
+  --ui-bg-editor: ${colors.background};
+  --ui-bg-elevated: ${colors.card};
+}
+`
+}
+
 function tunablesCSS(prefs) {
   return `${HELM_CSS_SCOPE} {
   --helm-radius: ${RADIUS[prefs.radius] ?? RADIUS.default};
@@ -360,7 +401,7 @@ function customTheme(prefs) {
     typography: { ...TYPOGRAPHY, fontSans: font.fontSans },
     terminal: base.terminal,
     darkTerminal: base.darkTerminal,
-    customCSS: tunablesCSS(prefs) + HELM_CSS
+    customCSS: surfacesCSS(base.colors, ':root[data-hermes-theme="helm-custom"]') + tunablesCSS(prefs) + HELM_CSS
   }
 }
 
@@ -510,7 +551,7 @@ const THEMES = [
     typography: TYPOGRAPHY,
     terminal: TERMINAL_DARK,
     darkTerminal: TERMINAL_DARK,
-    customCSS: HELM_CSS
+    customCSS: surfacesCSS(DARK, ':root[data-hermes-theme="helm-dark"]') + HELM_CSS
   },
   {
     name: 'helm-graphite',
@@ -521,7 +562,7 @@ const THEMES = [
     typography: TYPOGRAPHY,
     terminal: TERMINAL_DARK,
     darkTerminal: TERMINAL_DARK,
-    customCSS: HELM_CSS
+    customCSS: surfacesCSS(GRAPHITE, ':root[data-hermes-theme="helm-graphite"]') + HELM_CSS
   },
   {
     name: 'helm-paper',
@@ -532,7 +573,7 @@ const THEMES = [
     typography: TYPOGRAPHY,
     terminal: TERMINAL_LIGHT,
     darkTerminal: TERMINAL_DARK,
-    customCSS: HELM_CSS
+    customCSS: surfacesCSS(PAPER, ':root[data-hermes-theme="helm-paper"]') + HELM_CSS
   }
 ]
 
@@ -542,12 +583,12 @@ const DEFAULT_PREFS = {
   showWorkingChip: true,
   showCostChip: false,
   hideMessagingRow: false,
-  showComposerBot: true,
+  showComposerBot: false,
   showRowBots: false,
   showRowCost: true,
   showRowStatus: true,
   designNav: true,
-  showContextLine: true,
+  showContextLine: false,
   showNeedsYouChip: true,
   showTodayChip: true,
   autoAvatars: true,
@@ -2963,15 +3004,24 @@ function NeedsYouChip({ prefs }) {
   })
 }
 
+function ApprovalsChip() {
+  const mode = useValue($approvalMode)
+  useEffect(() => {
+    readApprovalMode()
+  }, [])
+  if (!mode) return null
+  return jsx('span', { title: 'Approval mode for this window', className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] text-(--ui-text-tertiary)', children: `Approvals: ${mode === 'manual' ? 'ask' : mode}` })
+}
+
 function TodayChip({ prefs }) {
   const { showTodayChip } = useValue(prefs)
   const crew = useValue($crew)
   const { today } = crewTotals(crew)
-  if (!showTodayChip || today < 0.01) return null
+  if (!showTodayChip) return null
   return jsx('span', {
     title: 'Spend across every bot’s sessions active today',
     className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] tabular-nums text-(--ui-text-tertiary)',
-    children: `${fmtCost(today)} today`
+    children: `${fmtCost(today) || '$0.00'} today`
   })
 }
 
@@ -3710,9 +3760,12 @@ function DeskPage({ looks, prefs, setPrefs }) {
 // chat is a fresh draft; Hermes's splash is hidden while it shows.
 const HOME_CSS = `
 [data-chat-surface]:has([data-helm-home]) [data-slot="aui_intro"] { display: none !important; }
+[data-chat-surface]:has([data-helm-home]) { --composer-width: 740px; }
 [data-chat-surface]:has([data-helm-home]) [data-slot="composer-dock"]:not([data-popped-out]) {
-  top: 118px !important; bottom: auto !important; width: min(740px, calc(100% - 3rem)) !important;
+  top: 118px !important; bottom: auto !important; width: min(740px, calc(100% - 3rem)) !important; max-width: none !important;
 }
+[data-chat-surface]:has([data-helm-home]) [data-slot="composer-dock"] [data-slot="composer-root"] { width: 100% !important; max-width: none !important; }
+[data-chat-surface]:has([data-helm-home]) [data-slot="composer-surface"] [class*="grid-area:input"] { font-size: 15px; }
 [data-chat-surface]:has([data-helm-home]) [data-slot="composer-dock"] > :last-child { display: block !important; padding: 0 !important; }
 [data-helm-home-greeting] { position: absolute; left: 5px; right: 5px; bottom: calc(100% + 22px); display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; row-gap: 4px; }
 `
@@ -3752,6 +3805,7 @@ function HomeUnderside({ looks, prefs }) {
   const root = useRef(null)
   const sections = useRef(null)
   const [chipsTop, setChipsTop] = useState(null)
+  const [chipsLeft, setChipsLeft] = useState(5)
   const [secMax, setSecMax] = useState(null)
   const [naming, setNaming] = useState(false)
   useEffect(() => {
@@ -3765,6 +3819,7 @@ function HomeUnderside({ looks, prefs }) {
       const b = bounds.getBoundingClientRect()
       const d = dock.getBoundingClientRect()
       setChipsTop(Math.round(b.bottom - d.top - 58))
+      setChipsLeft(Math.round(b.left - d.left + 20))
       const sec = sections.current
       if (sec) setSecMax(Math.max(120, Math.round(b.bottom - 58 - 18 - sec.getBoundingClientRect().top)))
     }
@@ -3858,7 +3913,7 @@ function HomeUnderside({ looks, prefs }) {
         ]
       }),
       jsxs('div', {
-        style: { position: chipsTop ? 'absolute' : 'static', top: chipsTop || undefined, left: 5, right: 5, display: 'flex', gap: 8, alignItems: 'center' },
+        style: { position: chipsTop ? 'absolute' : 'static', top: chipsTop || undefined, left: chipsLeft, display: 'flex', gap: 8, alignItems: 'center', whiteSpace: 'nowrap' },
         children: [
           jsx(HomeChip, { icon: '<path d="M4 20l16-8L4 4v6l10 2-10 2z"/>', label: 'Status report', onClick: () => setDraft('Give me a short status report: what you did, what is running, what needs me.') }),
           jsx(HomeChip, { icon: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', label: 'Automations', onClick: () => host.navigate('/cron') }),
@@ -3867,6 +3922,78 @@ function HomeUnderside({ looks, prefs }) {
           jsx('button', { type: 'button', 'aria-label': 'Bots board', title: 'Bots board', onClick: () => host.navigate(BOTS_ROUTE), style: { width: 34, height: 34, borderRadius: 8, border: '1px solid #222B35', background: '#121820', color: '#98A4B1', font: 'inherit', fontSize: 17, cursor: 'pointer' }, children: '+' })
         ]
       })
+    ]
+  })
+}
+
+// Composer toolbar extras from the boards: the approval-mode pill ("Ask
+// before acting") and the hint on the right. The pill reads and sets the
+// window's approvals.mode, the same setting Hermes's status bar shows.
+const $approvalMode = atom(null)
+let approvalInflight = false
+async function readApprovalMode() {
+  if (approvalInflight || typeof host.request !== 'function') return
+  approvalInflight = true
+  try {
+    const r = await withTimeout(host.request('config.get', { key: 'approvals.mode' }), 8000)
+    if (r && typeof r.value === 'string') $approvalMode.set(r.value)
+  } catch {
+    /* gateway not up yet */
+  } finally {
+    approvalInflight = false
+  }
+}
+const ASK_LABEL = { manual: 'Ask before acting', smart: 'Smart approvals', off: 'Act without asking' }
+
+function ComposerAskPill() {
+  const mode = useValue($approvalMode)
+  useEffect(() => {
+    readApprovalMode()
+    const h = setInterval(readApprovalMode, 60000)
+    return () => clearInterval(h)
+  }, [])
+  if (inHudWindow()) return null
+  const set = async value => {
+    try {
+      await host.request('config.set', { key: 'approvals.mode', value })
+      $approvalMode.set(value)
+    } catch (err) {
+      host.notifyError?.(`Could not change approvals: ${err && err.message ? err.message : err}`)
+    }
+  }
+  return jsxs('label', {
+    'data-helm-ask': '',
+    title: 'Approvals for this bot',
+    style: { position: 'relative', height: 28, padding: '0 9px', borderRadius: 6, border: '1px solid #222B35', color: '#C3CCD5', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap', flex: '0 0 auto' },
+    children: [
+      `${ASK_LABEL[mode] || 'Approvals'} ▾`,
+      jsx('select', {
+        'aria-label': 'Approvals',
+        value: mode || '',
+        onChange: e => set(e.target.value),
+        style: { position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' },
+        children: [jsx('option', { value: '', disabled: true, children: 'Approvals' }, ''), ...Object.entries(ASK_LABEL).map(([v, l]) => jsx('option', { value: v, children: l }, v))]
+      })
+    ]
+  })
+}
+
+function ComposerHint() {
+  if (inHudWindow()) return null
+  return jsx('span', { 'data-helm-hint': '', style: { fontSize: 11.5, color: '#76838F', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: '0 1 auto' }, children: '@ hands off to a bot · / runs a command' })
+}
+
+function HomeCwdLine({ prefs }) {
+  const { homeOnNewSession } = useValue(prefs)
+  const fresh = useFreshDraft()
+  const cwd = useValue(host.state.cwd)
+  if (!fresh || homeOnNewSession === false || !cwd) return null
+  const home = String(cwd).replace(/^\/Users\/[^/]+/, '~')
+  return jsxs('div', {
+    style: { display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, color: '#98A4B1', padding: '0 2px 2px' },
+    children: [
+      jsx('svg', { width: 12, height: 12, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, 'aria-hidden': true, children: jsx('path', { d: 'M3 7h6l2 2h10v10H3z' }) }),
+      jsx('span', { style: { fontFamily: B.mono, fontSize: 11 }, children: home })
     ]
   })
 }
@@ -5837,6 +5964,11 @@ export default {
       ctx.storage.set('prefs', stored)
     }
     // The home now lives on New session (the Main board), so launch there.
+    // The boards show no context line in the title bar and no robot in the composer.
+    if (stored.designVersion < 5) {
+      Object.assign(stored, { showContextLine: false, showComposerBot: false, designVersion: 5 })
+      ctx.storage.set('prefs', stored)
+    }
     if (stored.designVersion < 4) {
       Object.assign(stored, { openDeskAtLaunch: false, homeOnNewSession: true, designVersion: 4 })
       ctx.storage.set('prefs', stored)
@@ -5887,7 +6019,7 @@ export default {
       // Scheduled jobs live on the Desk chips and in ⌘K; the Bots board in the
       // Helm tab; Customize look in ⌘K and Settings.
       const p = prefs.get()
-      const hide = p.designNav !== false ? ['messaging', 'artifacts', 'cron', `${ID}:bots-nav`, `${ID}:look-nav`] : p.hideMessagingRow ? ['messaging'] : []
+      const hide = p.designNav !== false ? ['messaging', 'artifacts', 'cron', `${ID}:bots-nav`, `${ID}:look-nav`, `${ID}:desk-nav`] : p.hideMessagingRow ? ['messaging'] : []
       const key = hide.join(',')
       if (unregisterNav && key === navKey) return
       if (unregisterNav) unregisterNav()
@@ -5962,6 +6094,10 @@ export default {
       { id: 'desk-key', area: KEYBINDS_AREA, data: { id: 'helm.desk', label: 'Open the Desk', category: 'view', defaults: ['mod+alt+0'], run: () => host.navigate(DESK_ROUTE) } },
       { id: 'desk-strip', area: 'composer.top', order: 5, render: () => jsx(DeskStrip, { looks, prefs }) },
       { id: 'home', area: 'composer.underside', order: 1, render: () => jsx(HomeUnderside, { looks, prefs }) },
+      { id: 'home-cwd', area: 'composer.top', order: 2, render: () => jsx(HomeCwdLine, { prefs }) },
+      { id: 'ask-pill', area: 'composer.actions', order: 10, render: () => jsx(ComposerAskPill, {}) },
+      { id: 'composer-hint', area: 'composer.actions', order: 20, render: () => jsx(ComposerHint, {}) },
+      { id: 'approvals-chip', area: 'statusBar.right', order: 121, render: () => jsx(ApprovalsChip, {}) },
       { id: 'hud-panel', area: 'composer.top', order: 4, render: () => jsx(HudPanel, { looks, prefs }) },
       { id: 'hud-footer', area: 'composer.bottom', order: 90, render: () => jsx(HudFooter, { prefs }) },
       {
