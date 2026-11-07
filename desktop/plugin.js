@@ -561,6 +561,7 @@ const DEFAULT_PREFS = {
   openDeskAtLaunch: true,
   showNeedsYouPane: true,
   showDeskStrip: true,
+  showHudPanel: true,
   deskName: '',
   // Desk sections you folded, comma-separated ids ('continue,today').
   deskFolded: ''
@@ -3040,6 +3041,106 @@ function DeskPage({ looks, prefs, setPrefs }) {
 }
 
 // Above the composer on a fresh draft: jump back into recent work.
+// ──────────────────────────────────────────────────────────────── HUD
+// The HUD board in Hermes's own HUD window (View › HUD mode): who is on,
+// what waits on you, who is working. Rendered above the HUD composer, only
+// in that window.
+function inHudWindow() {
+  try {
+    return document.documentElement.hasAttribute('data-hud-window') || new URLSearchParams(window.location.search).get('win') === 'hud'
+  } catch {
+    return false
+  }
+}
+
+function HudPanel({ looks, prefs }) {
+  const { showHudPanel } = useValue(prefs)
+  const crew = useValue($crew)
+  const looksValue = useValue(looks)
+  const n = useNeedsYou()
+  const profile = useValue(host.state.focusedSessionProfile)
+  const busy = useValue(host.state.busy)
+  const [hud, setHud] = useState(inHudWindow)
+  useEffect(() => {
+    const t = setTimeout(() => setHud(inHudWindow()), 400)
+    return () => clearTimeout(t)
+  }, [])
+  if (!hud || showHudPanel === false) return null
+  const working = []
+  for (const p of crew.profiles || []) {
+    const act = activityFor(crew, p.name)
+    const live = act.sessions.find(r => r.is_active && !r.ended_at)
+    if (live) working.push({ p, act, live })
+  }
+  const me = (crew.profiles || []).find(p => p.name === profile)
+  const myLive = working.find(w => w.p.name === profile)
+  const mins = myLive && myLive.live.started_at ? Math.max(1, Math.round((Date.now() - toMs(myLive.live.started_at)) / 60000)) : null
+  const today = crewTotals(crew).today
+  const head = (label, color) => jsx('div', { style: { padding: '0 2px 6px', ...B_CAPS, color: color || B.t4 }, children: label })
+  return jsxs('div', {
+    'data-helm-hud': '',
+    style: { display: 'flex', flexDirection: 'column', gap: 14, padding: '10px 4px 8px', fontSize: 13, color: B.t1, maxHeight: '60vh', overflowY: 'auto' },
+    children: [
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px' },
+        children: [
+          jsx('span', { style: { width: 8, height: 8, borderRadius: 4, background: busy || myLive ? V.accent : B.green } }),
+          jsx('span', { style: { fontWeight: 500 }, children: me ? botLabel(me) : profile || 'Hermes' }),
+          jsx('span', { style: { fontSize: 12, color: B.t4 }, children: busy || myLive ? `· working${mins ? ` · ${mins} min` : ''}` : '· idle' }),
+          jsx('button', { type: 'button', title: 'Open the full app', onClick: () => host.navigate(BOTS_ROUTE), style: { marginLeft: 'auto', height: 24, padding: '0 6px', borderRadius: 6, border: 0, background: 'transparent', color: B.t3, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: 'Board ↗' })
+        ]
+      }),
+      n.total
+        ? jsxs('section', {
+            children: [
+              head(`Needs you · ${n.total}`, B.amber),
+              jsxs('div', {
+                style: { borderTop: `1px solid ${B.hair}` },
+                children: [
+                  ...n.approvals.map(item => jsx(ApprovalRow, { item, looks: looksValue, compact: true }, item.requestId)),
+                  ...n.questions.map(item => jsx(QuestionRow, { item, looks: looksValue, compact: true }, `q:${item.sessionId}`))
+                ]
+              })
+            ]
+          })
+        : null,
+      working.length
+        ? jsxs('section', {
+            children: [
+              head('Working'),
+              ...working.map((w, i) =>
+                jsxs('button', {
+                  type: 'button',
+                  onClick: () => openSession(w.live, w.p.name),
+                  style: { display: 'grid', gridTemplateColumns: '20px 1fr auto', gap: 8, alignItems: 'center', padding: '7px 2px', lineHeight: 1.3, borderTop: `1px solid ${B.hair}`, borderBottom: i === working.length - 1 ? `1px solid ${B.hair}` : undefined, borderLeft: 0, borderRight: 0, background: 'transparent', color: 'inherit', font: 'inherit', textAlign: 'left', cursor: 'pointer', width: '100%' },
+                  children: [
+                    jsx(AnimatedRobot, { look: normalizeLook(looksValue[w.p.name] || null, w.p.name), head: true, size: 18, expr: 'focused', state: 'running', title: botLabel(w.p) }),
+                    jsxs('span', {
+                      style: { display: 'flex', flexDirection: 'column', minWidth: 0 },
+                      children: [
+                        jsxs('span', { style: { fontSize: 13 }, children: [botLabel(w.p), jsx('span', { style: { fontSize: 11.5, color: V.accent }, children: w.live.tool_call_count ? ` · ${w.live.tool_call_count} tool calls` : ' · working' })] }),
+                        jsx('span', { style: { fontSize: 11.5, color: B.t3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: sessionTitle(w.live) })
+                      ]
+                    }),
+                    jsx('span', { style: { fontSize: 11.5, color: V.accent }, children: 'Open' })
+                  ]
+                }, w.p.name)
+              )
+            ]
+          })
+        : null,
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'center', gap: 12, fontSize: 11, color: B.t4, padding: '0 2px' },
+        children: [
+          jsxs('span', { style: { display: 'flex', alignItems: 'center', gap: 5 }, children: [jsx('span', { style: { width: 6, height: 6, borderRadius: 3, background: B.green } }), 'Backend ready'] }),
+          jsx('span', { style: { marginLeft: 'auto', fontFamily: B.mono }, children: `${fmtCost(today) || '$0.00'} today` }),
+          jsx('span', { children: `${(crew.profiles || []).length} bots` })
+        ]
+      })
+    ]
+  })
+}
+
 function DeskStrip({ looks, prefs }) {
   const { showDeskStrip } = useValue(prefs)
   const active = useValue(host.state.activeSessionId)
@@ -3047,7 +3148,7 @@ function DeskStrip({ looks, prefs }) {
   const crew = useValue($crew)
   const looksValue = useValue(looks)
   const recent = useMemo(() => recentAcross(crew, 3), [crew])
-  if (!showDeskStrip || active || stored || !recent.length) return null
+  if (!showDeskStrip || active || stored || !recent.length || inHudWindow()) return null
   const waiting = crewTotals(crew).needYou
   return jsxs('div', {
     style: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, padding: '6px 8px 2px', fontSize: 11, color: V.t3 },
@@ -4508,7 +4609,8 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
                         jsx(Check, { k: 'showWorkingChip', label: 'n working' }),
                         jsx(Check, { k: 'showTodayChip', label: '$ today across the crew' }),
                         jsx(Check, { k: 'showCostChip', label: 'Focused chat cost and context' }),
-                        jsx(Check, { k: 'showContextLine', label: 'Bot, folder, model in the title bar' })
+                        jsx(Check, { k: 'showContextLine', label: 'Bot, folder, model in the title bar' }),
+                        jsx(Check, { k: 'showHudPanel', label: 'Needs you and Working in the HUD', hint: 'View › HUD mode' })
                       ]
                     })
                   ]
@@ -4692,6 +4794,7 @@ export default {
       { id: 'desk-palette', area: PALETTE_AREA, data: { id: 'helm.desk', label: 'Helm: Desk', keywords: ['home', 'desk', 'dashboard', 'today', 'continue', 'helm'], run: () => host.navigate(DESK_ROUTE) } },
       { id: 'desk-key', area: KEYBINDS_AREA, data: { id: 'helm.desk', label: 'Open the Desk', category: 'view', defaults: ['mod+alt+0'], run: () => host.navigate(DESK_ROUTE) } },
       { id: 'desk-strip', area: 'composer.top', order: 5, render: () => jsx(DeskStrip, { looks, prefs }) },
+      { id: 'hud-panel', area: 'composer.top', order: 4, render: () => jsx(HudPanel, { looks, prefs }) },
       {
         id: 'session-pane',
         area: 'panes',
