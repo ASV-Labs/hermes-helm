@@ -304,6 +304,27 @@ ${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[class*="primary-size"] {
 }
 ${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[class*="voice-menu-size"] { display: none !important; }
 
+/* Surfaces, to the board: the title bar is one #0F1419 band with a hairline
+   under it; below it the sidebar is the #121820 panel (tab row included) with
+   its own hairline under the tabs; the main area stays #0F1419. Painted on
+   the zones themselves so glass mode can't wash the panel out. */
+${HELM_CSS_SCOPE} [data-tree-group]:has([data-tree-tab="sessions"]) { background: var(--ui-bg-sidebar) !important; }
+${HELM_CSS_SCOPE} [data-tree-group]:has([data-tree-tab="sessions"]) > [data-panel-header] {
+  background: linear-gradient(to top, #1C242D 0 1px, var(--ui-bg-sidebar) 1px 28px, #1C242D 28px 29px, var(--ui-bg-chrome) 29px) !important;
+}
+${HELM_CSS_SCOPE} [data-tree-group]:has([data-tree-tab="sessions"]) > [data-panel-header] [data-slot="pane-tab"],
+${HELM_CSS_SCOPE} [data-tree-group]:has([data-tree-tab="sessions"]) > [data-panel-header] [data-zone-tabstrip] { background: transparent !important; }
+${HELM_CSS_SCOPE} [data-tree-group]:has([data-tree-tab="workspace"]) > [data-panel-header] { background: var(--ui-bg-chrome) !important; box-shadow: inset 0 -1px 0 #1C242D; }
+${HELM_CSS_SCOPE} [data-tree-group]:has([data-tree-tab="workspace"]) { background: var(--ui-bg-chrome) !important; }
+${HELM_CSS_SCOPE} [data-tree-group]:has([data-tree-tab="sessions"]) [data-slot="sidebar"] { background: transparent !important; }
+${HELM_CSS_SCOPE} [data-slot="statusbar"] { background: var(--ui-bg-chrome) !important; border-top: 1px solid #1C242D !important; }
+
+/* Session rows, to the board: no leading status glyph on a quiet row (the
+   working row keeps its dot), so titles line up with the section labels and
+   the status line sits flush under the title. */
+${HELM_CSS_SCOPE} [data-slot="sidebar"] div:has(> [data-row-actions]):not([data-working="true"]) [class*="size-3.5"][class*="shrink-0"][class*="place-items-center"] { display: none !important; }
+${HELM_CSS_SCOPE} [data-slot="sidebar"] { --helm-row-indent: 0px; }
+
 /* Resting terminal strip: the boards have none. It comes back the moment the
    terminal is opened (its tab turns active). */
 ${HELM_CSS_SCOPE} [data-tree-group]:has([data-tree-tab="terminal"]):not(:has([data-tree-tab][data-active="true"])):not(:has([data-tree-tab="workspace"])) { display: none !important; }
@@ -5759,8 +5780,8 @@ const RAIL_ICONS = {
 const RAIL_CSS = `
 :root[data-helm-rail] [data-tree-split]:not([data-tree-split] *),
 :root[data-helm-rail] [data-tree-group]:not([data-tree-split] *):not([data-tree-group] *) { margin-left: 50px; }
-#helm-rail { position: fixed; left: 0; width: 50px; box-sizing: border-box; z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; background: #0F1419; border-right: 1px solid #1C242D; -webkit-app-region: no-drag; }
-#helm-rail-drag { position: fixed; left: 0; top: 0; width: 50px; z-index: 40; -webkit-app-region: drag; }
+#helm-rail { position: fixed; left: 0; width: 49px; box-sizing: border-box; z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 0; background: #0F1419; border-right: 1px solid #1C242D; -webkit-app-region: no-drag; }
+#helm-rail-drag { position: fixed; left: 0; top: 0; width: 50px; z-index: 40; -webkit-app-region: drag; background: #0F1419; box-shadow: inset 0 -1px 0 #1C242D; }
 #helm-rail button { position: relative; width: 34px; height: 34px; border: 0; border-radius: 8px; background: transparent; color: #98A4B1; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
 #helm-rail button:hover { background: #141B23; color: #E6EBF0; }
 #helm-rail button[aria-current="page"] { background: #171E27; color: #E6EBF0; }
@@ -5869,9 +5890,12 @@ function startRail(prefs) {
     let top = 40
     let bottom = 0
     try {
-      for (const h of document.querySelectorAll('[data-tree-group][data-window-top] > [data-panel-header]')) {
-        const r = h.getBoundingClientRect()
-        if (r.left < 120 && r.bottom > 0) top = Math.round(r.bottom)
+      // The title bar band: the main zone's header (its tabs ride in the title
+      // bar), not the sidebar's, which adds the tab row under it.
+      const mainHead = document.querySelector('[data-tree-group]:has([data-tree-tab="workspace"]) > [data-panel-header]')
+      if (mainHead) {
+        const r = mainHead.getBoundingClientRect()
+        if (r.bottom > 0) top = Math.round(r.bottom)
       }
       const bar = document.querySelector('[data-slot="statusbar"]')
       if (bar) {
@@ -5883,7 +5907,7 @@ function startRail(prefs) {
     }
     // The titlebar band is the same height collapsed or not; keep the
     // tallest reading so the rail never jumps when the sidebar folds.
-    topSeen = Math.max(topSeen, top)
+    topSeen = top || topSeen
     top = topSeen
     nav.style.top = `${top}px`
     nav.style.bottom = `${bottom}px`
