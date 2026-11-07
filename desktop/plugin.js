@@ -226,6 +226,14 @@ ${HELM_CSS_SCOPE} [data-slot="composer-surface"] {
   border-radius: 12px !important;
   background: #121820 !important;
 }
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[type="submit"] {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 6px !important;
+  background: var(--ui-accent) !important;
+  color: #06161A !important;
+}
+${HELM_CSS_SCOPE} [data-slot="composer-surface"] button[type="submit"]:disabled { background: color-mix(in srgb, var(--ui-accent) 35%, #121820) !important; }
 ${HELM_CSS_SCOPE} [data-slot="composer-surface"]:focus-within { border-color: color-mix(in srgb, var(--ui-accent) 55%, #222B35) !important; }
 
 /* Status bar: small, tabular, one hairline. */
