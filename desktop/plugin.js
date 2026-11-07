@@ -627,6 +627,7 @@ const DEFAULT_PREFS = {
   homeOnNewSession: true,
   showHudPanel: true,
   showRail: true,
+  showSidebarNeeds: true,
   hudBoard: true,
   routing: {},
   deskName: '',
@@ -5962,6 +5963,79 @@ function startRail(prefs) {
   }
 }
 
+// ──────────────────────────────────────────── sidebar NEEDS YOU group
+// The board's amber NEEDS YOU group at the top of the Sessions list, above
+// Pinned. Hermes has no slot there, so helm places a plain block of its own
+// before the Pinned group and keeps it in place as the list re-renders.
+function startSidebarNeedsYou(prefs) {
+  if (typeof document === 'undefined' || !isPrimaryWindow()) return () => {}
+  const box = document.createElement('div')
+  box.id = 'helm-sidebar-needs'
+  box.setAttribute('role', 'group')
+  box.setAttribute('aria-label', 'Needs you')
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+  const build = () => {
+    const n = needsYouOf($inbox.get(), $crew.get())
+    const items = [
+      ...n.approvals.map(a => ({ kind: 'Approval', line: (a.command || a.description || '').split('\n')[0], a })),
+      ...n.questions.map(q => ({ kind: 'Question', line: String(q.question || q.text || 'waiting for your answer').split('\n')[0], a: q }))
+    ]
+    if (!items.length || prefs.get().showSidebarNeeds === false) {
+      box.style.display = 'none'
+      box.innerHTML = ''
+      return
+    }
+    box.style.display = 'block'
+    const rows = items.slice(0, 6).map((it, i) => {
+      const row = it.a.row
+      const who = it.a.profile ? botLabel(($crew.get().profiles || []).find(p => p.name === it.a.profile) || { name: it.a.profile }) : ''
+      const title = `${it.a.title || (row && sessionTitle(row)) || 'Session'}${who ? ` · ${who}` : ''}`
+      const when = row ? shortAgo(row.last_active) : ''
+      return `<button type="button" data-i="${i}" class="helm-sbn-row"><span class="helm-sbn-top"><span class="helm-sbn-title">${esc(title)}</span><span class="helm-sbn-when">${esc(when)}</span></span><span class="helm-sbn-sub">${esc(it.kind)} · ${esc(it.line.slice(0, 80))}</span></button>`
+    })
+    box.innerHTML = `<div class="helm-sbn-head"><span>Needs you</span><span class="helm-sbn-count">${items.length}</span></div>${rows.join('')}`
+    box.querySelectorAll('.helm-sbn-row').forEach(el => {
+      el.addEventListener('click', () => {
+        const it = items[Number(el.getAttribute('data-i'))]
+        if (it && it.a.row) openSession(it.a.row, it.a.profile)
+        else if (it && it.a.storedId && host.openSession) host.openSession(it.a.storedId, { profile: it.a.profile || undefined })
+      })
+    })
+  }
+  const style = document.createElement('style')
+  style.textContent = `
+#helm-sidebar-needs { padding: 4px 0 2px; }
+#helm-sidebar-needs .helm-sbn-head { padding: 12px 14px 4px; display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #E8A657; }
+#helm-sidebar-needs .helm-sbn-count { color: #76838F; letter-spacing: 0; font-weight: 500; }
+#helm-sidebar-needs .helm-sbn-row { display: flex; flex-direction: column; gap: 1px; width: calc(100% - 16px); margin: 0 8px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: #E6EBF0; font: inherit; font-size: 13px; line-height: 1.3; text-align: left; cursor: pointer; }
+#helm-sidebar-needs .helm-sbn-row:hover { background: #171E27; }
+#helm-sidebar-needs .helm-sbn-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+#helm-sidebar-needs .helm-sbn-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+#helm-sidebar-needs .helm-sbn-when { margin-left: auto; font-size: 10.5px; color: #76838F; font-family: 'JetBrains Mono', ui-monospace, monospace; }
+#helm-sidebar-needs .helm-sbn-sub { font-size: 11.5px; color: #98A4B1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+`
+  document.head.appendChild(style)
+  const place = () => {
+    try {
+      const pin = document.querySelector('[data-session-pin-drop]')
+      if (!pin || !pin.parentElement) return
+      if (box.nextElementSibling !== pin) pin.parentElement.insertBefore(box, pin)
+    } catch {
+      /* the list is mid-render; next tick */
+    }
+  }
+  build()
+  place()
+  const offs = [$inbox.subscribe(build), $crew.subscribe(build), prefs.subscribe(build)]
+  const h = setInterval(place, 800)
+  return () => {
+    offs.forEach(off => typeof off === 'function' && off())
+    clearInterval(h)
+    box.remove()
+    style.remove()
+  }
+}
+
 // ───────────────────────────────────────────────────────────────── plugin
 
 // Pure helpers, exported for the test suite only.
@@ -6216,6 +6290,8 @@ export default {
     startPromptEvents(ctx)
     // The board's icon rail, outside the pane tree.
     ctx.onDispose(startRail(prefs))
+    // The board's NEEDS YOU group at the top of the Sessions list.
+    ctx.onDispose(startSidebarNeedsYou(prefs))
     // Rooms for the Helm tab and the board.
     if (isPrimaryWindow()) startRooms(ctx)
     // The Helm tab: a third tab in the sessions column, beside SESSIONS and BOTS,
