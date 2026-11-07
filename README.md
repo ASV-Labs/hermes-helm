@@ -79,6 +79,8 @@ The **Bots board** lists every bot with its rendered robot and live state (*work
 
 **The robots are animated.** Each look becomes a full sprite sheet: idle breathing and blinking, working with sparks flying, a curious head-tilt while it waits on you, a jump when a job finishes, a slump and a puff of smoke when something fails, a scan line while it reads, and a wave when you point at it. The same sheet becomes the bot's **Hermes pet**, the animated companion on your desktop. It's built to the standard petdex/Codex format, so it works anywhere Hermes shows pets.
 
+![Eight helm robots animating their states: idle, working, needs you, done, failed, reading, waving and roaming](docs/robots-animated.gif)
+
 Each robot is assembled from **191 Blender-rendered layers**: toppers, faces, chest modules, tools, things to wear and seven colours. Its face follows the bot's state, and the robot becomes the bot's Hermes avatar. helm never replaces a photo you uploaded. **New bot** creates a real Hermes bot. → [Robots guide](docs/guides/robots.md)
 
 ![The Bots board in Hermes Desktop: each bot's robot, state, model and actions](docs/screens/app-bots-board.png)
