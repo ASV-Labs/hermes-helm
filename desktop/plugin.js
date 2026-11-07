@@ -3720,13 +3720,7 @@ const HOME_CSS = `
 function useFreshDraft() {
   const active = useValue(host.state.activeSessionId)
   const stored = useValue(host.state.focusedStoredSessionId)
-  const [path, setPath] = useState(hashPath)
-  useEffect(() => {
-    const on = () => setPath(hashPath())
-    window.addEventListener('hashchange', on)
-    return () => window.removeEventListener('hashchange', on)
-  }, [])
-  return !active && !stored && path === '/' && isPrimaryWindow() && !inHudWindow()
+  return !active && !stored && isPrimaryWindow() && !inHudWindow()
 }
 
 function HomeChip({ icon, label, onClick }) {
