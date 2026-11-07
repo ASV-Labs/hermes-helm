@@ -293,7 +293,7 @@ assert.ok(settingsHtml.includes('Helm Dark'), 'settings shows themes')
 for (const child of settingsPage.children) renderToString(child.render())
 const lookRoute = byArea('routes').find(r => r.data.path === '/helm/look')
 const lookHtml = renderToString(lookRoute.render())
-for (const word of ['Customize look', 'Accent', 'Type', 'Corners', 'Reading width', 'Rail', 'Session list', 'Titlebar context', 'Open the Bots board']) assert.ok(lookHtml.includes(word), `look page: ${word}`)
+for (const word of ['Appearance', 'Theme', 'Accent', 'Density and type', 'Corners', 'Reading width', 'Chat text scale', 'Status under each session', 'Export helm.json', 'Reset to helm defaults']) assert.ok(lookHtml.includes(word), `look page: ${word}`)
 if (process.env.HELM_SCREEN) writeFileSync(join(here, '.tmp', 'look.html'), lookHtml)
 
 // Customize look rebuilds the live theme and switches to it

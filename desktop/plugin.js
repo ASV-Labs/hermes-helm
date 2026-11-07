@@ -340,9 +340,14 @@ function tunablesCSS(prefs) {
 
 // The live theme the Customize-look page edits: a base helm theme with the
 // chosen accent, type and tunables. Re-registered on every change.
+function accentOf(id, light) {
+  if (ACCENTS[id]) return light ? ACCENTS[id].light : ACCENTS[id].dark
+  return /^#[0-9a-f]{6}$/i.test(String(id || '')) ? String(id) : ''
+}
+
 function customTheme(prefs) {
   const base = THEMES.find(t => t.name === prefs.preferredTheme && t.name !== 'helm-custom') || THEMES[0]
-  const accent = ACCENTS[prefs.accent]
+  const accent = ACCENTS[prefs.accent] || (accentOf(prefs.accent) ? { dark: prefs.accent, light: prefs.accent } : null)
   const light = base.name === 'helm-paper'
   const font = FONTS[prefs.font] || FONTS.system
   return {
@@ -4292,9 +4297,9 @@ function Section({ title, hint, children }) {
 
 function LookPage({ prefs, setPrefs, applyLook, looks }) {
   const p = useValue(prefs)
-  const looksValue = useValue(looks)
   const [density, setDensity] = useState(() => safeSetting('sessionListDensity', 'comfortable'))
   const [scale, setScale] = useState(() => safeSetting('chatTextScale', 110))
+  const [hex, setHex] = useState('')
   useEffect(() => {
     const offs = []
     try {
@@ -4306,141 +4311,248 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
     return () => offs.forEach(off => typeof off === 'function' && off())
   }, [])
   const set = patch => applyLook(patch)
-  const base = THEMES.find(t => t.name === p.preferredTheme) || THEMES[0]
-  const light = base.name === 'helm-paper'
-  const sample = normalizeLook(looksValue.default || null, 'default')
+  const accentHex = accentOf(p.accent) || '#62C6D3'
+  useEffect(() => setHex(accentHex), [accentHex])
 
-  const toggles = [
-    ['openDeskAtLaunch', 'Open the Desk at launch', 'Hermes starts on the Desk: what’s running, what needs you, what ran today.'],
-    ['showNeedsYouPane', 'Needs you in the sidebar', 'Approvals, questions and unread replies from every bot above your sessions, only while something is waiting.'],
-    ['showDeskStrip', 'Continue strip on new chats', 'Recent sessions above the composer of a fresh chat, one click back in.'],
-    ['showContextLine', 'Titlebar context', 'Bot, folder, model, cost and context of the chat you’re in.'],
-    ['showRowBots', 'Bots in the session list', 'Each session row shows the robot of the bot it belongs to; its face is the row’s state.'],
-    ['showRowCost', 'Cost in the session list', 'Spend per session, right-aligned.'],
-    ['showNeedsYouChip', 'Status bar: needs you', 'Unread replies across every bot; click to see them.'],
-    ['showTodayChip', 'Status bar: today', 'Spend across all bots today.'],
-    ['showWorkingChip', 'Status bar: working', 'Sessions mid-turn right now.'],
-    ['showCostChip', 'Status bar: focused cost', 'Cost and context of the focused chat.'],
-    ['showComposerBot', 'Composer robot', 'Who you’re talking to, left of the composer.'],
-    ['autoAvatars', 'Robots as Hermes avatars', 'New bots get a robot as their Hermes avatar (never replaces a photo you uploaded).'],
-    ['animateRobots', 'Animated robots', 'Robots move with what their bot is doing: working, waiting on you, done, failed. Follows Reduce motion.'],
-    ['robotPets', 'Robots as Hermes pets', 'Each bot’s robot becomes its Hermes pet, the animated companion on your desktop. It is switched on only for bots without a pet of their own.'],
-    ['designNav', 'Design sidebar nav', 'New session, Desk, Capabilities and your plugin rows only. Messaging, Artifacts and Scheduled jobs stay in ⌘K and on the Desk.'],
-    ['showRowStatus', 'Status line under each session', 'Working, waiting on you, done or failed, with cost.'],
-    ['hideMessagingRow', 'Hide the Messaging row', 'Capabilities can never be hidden.']
-  ]
+  const H2 = ({ children, hint, right }) =>
+    jsxs('div', {
+      style: { display: 'flex', alignItems: 'baseline', gap: 10 },
+      children: [
+        jsx('h2', { style: { margin: 0, fontSize: 13, fontWeight: 600, color: B.t1 }, children }),
+        hint ? jsx('span', { style: { fontSize: 12, color: B.t4 }, children: hint }) : null,
+        right || null
+      ]
+    })
+  const Seg = ({ value, options, onChange, label }) =>
+    jsx('div', {
+      role: 'group',
+      'aria-label': label,
+      style: { display: 'flex', gap: 2, background: B.bg, border: `1px solid ${B.ctl}`, borderRadius: 6, padding: 2, width: 'max-content' },
+      children: options.map(o =>
+        jsx('button', {
+          type: 'button',
+          'aria-pressed': String(value) === String(o.id),
+          onClick: () => onChange(o.id),
+          style: { height: 22, padding: '0 10px', borderRadius: 4, border: 0, font: 'inherit', fontSize: 11.5, cursor: 'pointer', background: String(value) === String(o.id) ? B.sel : 'transparent', color: String(value) === String(o.id) ? B.t1 : B.t3 },
+          children: o.label
+        }, o.id)
+      )
+    })
+  const Select = ({ value, options, onChange, label }) =>
+    jsxs('label', {
+      style: { position: 'relative', height: 26, padding: '0 9px', borderRadius: 6, border: `1px solid ${B.ctl}`, background: B.bg, color: B.t1, fontSize: 12, width: 'max-content', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' },
+      children: [
+        `${(options.find(o => o.id === value) || options[0]).label} ▾`,
+        jsx('select', { 'aria-label': label, value, onChange: e => onChange(e.target.value), style: { position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }, children: options.map(o => jsx('option', { value: o.id, children: o.label }, o.id)) })
+      ]
+    })
+  const Check = ({ k, label, hint }) =>
+    jsxs('label', {
+      style: { display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 12.5, color: B.t1 },
+      children: [
+        jsx('input', { type: 'checkbox', checked: Boolean(p[k]), onChange: e => setPrefs({ [k]: e.target.checked }), style: { margin: 0, accentColor: accentHex } }),
+        jsx('span', { children: label }),
+        hint ? jsx('span', { style: { marginLeft: 'auto', fontSize: 11.5, color: B.t4, textAlign: 'right' }, children: hint }) : null
+      ]
+    })
+  const swatches = [['cyan', 'Cyan'], ['amber', 'Amber'], ['violet', 'Lavender'], ['green', 'Green'], ['white', 'Neutral']]
+  const exportPrefs = () => {
+    try {
+      const blob = new Blob([JSON.stringify({ helm: VERSION, prefs: prefs.get(), looks: looks.get() }, null, 2)], { type: 'application/json' })
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = 'helm.json'
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000)
+    } catch (err) {
+      host.notifyError?.(`Export failed: ${err && err.message ? err.message : err}`)
+    }
+  }
+  const importPrefs = file => {
+    if (!file) return
+    file.text().then(txt => {
+      const data = JSON.parse(txt)
+      const next = data && typeof data.prefs === 'object' ? data.prefs : null
+      if (!next) throw new Error('no prefs in that file')
+      const clean = {}
+      for (const k of Object.keys(DEFAULT_PREFS)) if (k in next && typeof next[k] === typeof DEFAULT_PREFS[k]) clean[k] = next[k]
+      applyLook(clean)
+      host.notify?.({ kind: 'success', message: 'Imported helm.json.' })
+    }).catch(err => host.notifyError?.(`Import failed: ${err && err.message ? err.message : err}`))
+  }
+  const btn = (label, onClick, quiet) =>
+    jsx('button', { type: 'button', onClick, style: { height: 28, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, background: 'transparent', color: quiet ? B.t3 : B.t2, font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: label })
 
-  return jsxs('div', {
-    className: 'flex h-full w-full min-h-0 flex-col',
-    children: [
-      jsxs('div', {
-        className: 'flex shrink-0 items-center gap-3 border-b border-(--ui-stroke-secondary) px-4 py-2 text-xs',
-        children: [
-          jsx(Codicon, { name: 'symbol-color', size: 14 }),
-          jsx('span', { className: 'font-medium text-(--ui-text-secondary)', children: 'Customize look' }),
-          jsx('span', { className: 'text-(--ui-text-tertiary)', children: 'Every change applies to the whole desk as you make it.' }),
-          jsx(Button, { variant: 'ghost', size: 'sm', className: 'ml-auto', onClick: () => set({ accent: '', radius: 'default', font: 'system', width: 'default', rail: 'mono' }), children: 'Reset shape & type' })
-        ]
-      }),
-      jsxs('div', {
-        className: 'flex min-h-0 flex-1 gap-6 overflow-auto px-6',
-        children: [
-          jsxs('div', {
-            className: 'min-w-0 max-w-3xl flex-1',
-            children: [
-              jsx(Section, {
-                title: 'Base',
-                children: jsx('div', {
-                  className: 'flex flex-wrap gap-2',
-                  children: THEMES.map(t =>
-                    jsxs(
-                      'button',
-                      {
-                        type: 'button',
-                        'aria-pressed': p.preferredTheme === t.name,
-                        onClick: () => set({ preferredTheme: t.name }),
-                        className: cn('flex flex-col gap-1.5 rounded-md border p-2 text-left text-xs', p.preferredTheme === t.name ? 'border-(--ui-accent)' : 'border-(--ui-stroke-secondary) hover:bg-(--chrome-action-hover)'),
-                        children: [
-                          jsxs('span', {
-                            className: 'flex h-10 w-36 gap-1 rounded p-1',
-                            style: { background: t.colors.background, border: `1px solid ${t.colors.border}` },
-                            children: [
-                              jsx('span', { className: 'w-3 rounded-sm', style: { background: t.colors.sidebarBackground } }),
-                              jsx('span', { className: 'flex-1 rounded-sm', style: { background: t.colors.card } }),
-                              jsx('span', { className: 'h-2 w-2 self-end rounded-sm', style: { background: (ACCENTS[p.accent] && (t.name === 'helm-paper' ? ACCENTS[p.accent].light : ACCENTS[p.accent].dark)) || t.colors.primary } })
-                            ]
-                          }),
-                          jsx('span', { className: 'text-(--ui-text-primary)', children: t.label }),
-                          jsx('span', { className: 'text-(--ui-text-tertiary)', children: t.description })
-                        ]
-                      },
-                      t.name
-                    )
-                  )
-                })
-              }),
-              jsx(Section, {
-                title: 'Accent',
-                hint: 'One colour carries focus, selection and the active row.',
-                children: jsx('div', {
-                  className: 'flex flex-wrap gap-2',
+  return jsx('div', {
+    style: { height: '100%', overflowY: 'auto', background: B.bg, color: B.t1, fontSize: 13, lineHeight: 1.45 },
+    children: jsxs('div', {
+      style: { width: 820, maxWidth: '100%', padding: '22px 36px 24px', display: 'flex', flexDirection: 'column', gap: 22, boxSizing: 'content-box' },
+      children: [
+        jsxs('div', {
+          children: [
+            jsx('h1', { style: { margin: 0, fontSize: 18, fontWeight: 500, letterSpacing: '-0.01em' }, children: 'Appearance' }),
+            jsxs('div', { style: { fontSize: 12.5, color: B.t3, marginTop: 4 }, children: ['Hermes’s own appearance settings, plus what helm adds. Saved in helm’s plugin storage under ', jsx('span', { style: { fontFamily: B.mono, fontSize: 12 }, children: '~/.hermes/desktop-plugins/' }), ', which app updates never touch.'] })
+          ]
+        }),
+        jsxs('section', {
+          style: { display: 'flex', flexDirection: 'column', gap: 8 },
+          children: [
+            jsx(H2, { hint: 'helm’s themes · your accent and type ride on top', children: 'Theme' }),
+            jsx('div', {
+              style: { display: 'grid', gridTemplateColumns: 'repeat(6, minmax(0, 1fr))', gap: 8 },
+              children: THEMES.filter(t => t.name !== 'helm-custom').map(t => {
+                const on = p.preferredTheme === t.name
+                const acc = accentOf(p.accent, t.name === 'helm-paper') || t.colors.primary
+                return jsxs('button', {
+                  type: 'button',
+                  'aria-pressed': on,
+                  onClick: () => set({ preferredTheme: t.name }),
+                  style: { border: `1px solid ${on ? accentHex : B.ctl}`, borderRadius: 8, background: B.panel, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, textAlign: 'left', cursor: 'pointer', font: 'inherit', color: B.t1 },
                   children: [
-                    jsx(Swatch, { active: !p.accent, title: 'Theme default', onClick: () => set({ accent: '' }), children: 'Default' }, 'theme'),
-                    ...Object.entries(ACCENTS).map(([id, c]) =>
-                      jsx(Swatch, { active: p.accent === id, title: id, onClick: () => set({ accent: id }), children: jsx('span', { className: 'h-4 w-4 rounded-full', style: { background: light ? c.light : c.dark } }) }, id)
-                    )
+                    jsxs('span', {
+                      style: { height: 36, borderRadius: 5, background: t.colors.background, border: `1px solid ${t.colors.border}`, display: 'flex', gap: 3, padding: 4, boxSizing: 'border-box' },
+                      children: [
+                        jsx('span', { style: { width: 10, borderRadius: 2, background: t.colors.sidebarBackground } }),
+                        jsx('span', { style: { flex: 1, borderRadius: 2, background: t.colors.card } }),
+                        jsx('span', { style: { width: 8, height: 8, borderRadius: 2, background: acc, alignSelf: 'flex-end' } })
+                      ]
+                    }),
+                    jsx('span', { style: { fontSize: 11.5 }, children: t.label })
                   ]
-                })
-              }),
-              jsx(Section, {
-                title: 'Type',
-                children: jsx('div', {
-                  className: 'flex flex-wrap gap-2',
-                  children: Object.entries(FONTS).map(([id, f]) => jsx(Swatch, { active: p.font === id, title: f.label, onClick: () => set({ font: id }), style: { fontFamily: f.fontSans }, children: f.label }, id))
-                })
-              }),
-              jsx(Section, {
-                title: 'Shape',
-                children: jsxs('div', {
-                  className: 'flex flex-wrap items-center gap-6',
-                  children: [
-                    jsxs('div', { className: 'flex items-center gap-2 text-xs text-(--ui-text-secondary)', children: ['Corners', jsx(SegmentedControl, { value: p.radius, options: [{ id: 'sharp', label: 'Sharp' }, { id: 'default', label: 'Soft' }, { id: 'round', label: 'Round' }], onChange: v => set({ radius: v }) })] }),
-                    jsxs('div', { className: 'flex items-center gap-2 text-xs text-(--ui-text-secondary)', children: ['Reading width', jsx(SegmentedControl, { value: p.width, options: [{ id: 'narrow', label: 'Narrow' }, { id: 'default', label: 'App' }, { id: 'wide', label: 'Wide' }], onChange: v => set({ width: v }) })] }),
-                    jsxs('div', { className: 'flex items-center gap-2 text-xs text-(--ui-text-secondary)', children: ['Rail', jsx(SegmentedControl, { value: p.rail, options: [{ id: 'mono', label: 'Mono' }, { id: 'colour', label: 'Colour' }], onChange: v => set({ rail: v }) })] })
-                  ]
-                })
-              }),
-              jsx(Section, {
-                title: 'Density',
-                hint: 'The app’s own settings.',
-                children: jsxs('div', {
-                  className: 'flex flex-wrap items-center gap-6',
-                  children: [
-                    jsxs('div', { className: 'flex items-center gap-2 text-xs text-(--ui-text-secondary)', children: ['Session list', jsx(SegmentedControl, { value: density, options: [{ id: 'compact', label: 'Compact' }, { id: 'comfortable', label: 'Comfortable' }, { id: 'detailed', label: 'Detailed' }], onChange: v => trySetSetting('sessionListDensity', v) })] }),
-                    jsxs('div', { className: 'flex items-center gap-2 text-xs text-(--ui-text-secondary)', children: ['Chat text', jsx(SegmentedControl, { value: String(scale), options: [90, 100, 110, 125, 150].map(n => ({ id: String(n), label: String(n) })), onChange: v => trySetSetting('chatTextScale', Number(v)) })] })
-                  ]
-                })
-              }),
-              jsx(Section, {
-                title: 'On the desk',
-                children: jsx('div', {
-                  className: 'flex flex-col',
-                  children: toggles.map(([key, label, description]) => jsx(ToggleRow, { label, description, checked: Boolean(p[key]), onChange: on => setPrefs({ [key]: on }) }, key))
-                })
+                }, t.name)
               })
-            ]
-          }),
-          jsxs('div', {
-            className: 'sticky top-0 flex w-56 shrink-0 flex-col items-center gap-2 py-6',
-            children: [
-              jsx(AnimatedRobot, { look: sample, size: 180, waveOnHover: true, title: 'sample bot' }),
-              jsx(Button, { variant: 'outline', size: 'sm', onClick: () => host.navigate(BOTS_ROUTE), children: 'Open the Bots board' }),
-              jsx('div', { className: 'text-center text-[0.6875rem] text-(--ui-text-tertiary)', children: 'Every bot gets its own rendered robot: ears, face, chest, what it carries and wears, colour. It becomes the bot’s avatar across Hermes.' })
-            ]
-          })
-        ]
-      })
-    ]
+            })
+          ]
+        }),
+        jsxs('div', {
+          style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 28 },
+          children: [
+            jsxs('div', {
+              style: { display: 'flex', flexDirection: 'column', gap: 18 },
+              children: [
+                jsxs('section', {
+                  style: { display: 'flex', flexDirection: 'column', gap: 8 },
+                  children: [
+                    jsx(H2, { children: 'Accent' }),
+                    jsxs('div', {
+                      style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+                      children: [
+                        ...swatches.map(([id, name]) =>
+                          jsx('button', { type: 'button', title: name, 'aria-label': name, 'aria-pressed': p.accent === id || (!p.accent && id === 'cyan'), onClick: () => set({ accent: id }), style: { width: 26, height: 26, borderRadius: 13, border: `2px solid ${p.accent === id || (!p.accent && id === 'cyan') ? B.t1 : 'transparent'}`, background: ACCENTS[id].dark, cursor: 'pointer', padding: 0 } }, id)
+                        ),
+                        jsx('label', { htmlFor: 'helm-accent-hex', style: { position: 'absolute', left: -9999 }, children: 'Custom accent' }),
+                        jsx('input', {
+                          id: 'helm-accent-hex',
+                          value: hex,
+                          onChange: e => setHex(e.target.value),
+                          onBlur: () => (/^#[0-9a-f]{6}$/i.test(hex.trim()) ? set({ accent: hex.trim().toUpperCase() }) : setHex(accentHex)),
+                          onKeyDown: e => e.key === 'Enter' && e.currentTarget.blur(),
+                          style: { width: 90, height: 26, boxSizing: 'border-box', borderRadius: 6, border: `1px solid ${B.ctl}`, background: B.bg, color: B.t1, padding: '0 8px', fontFamily: B.mono, fontSize: 11.5 }
+                        }),
+                        jsx('span', { style: { fontSize: 11.5, color: B.t4 }, children: 'tints the active theme' })
+                      ]
+                    })
+                  ]
+                }),
+                jsxs('section', {
+                  style: { display: 'flex', flexDirection: 'column', gap: 8 },
+                  children: [
+                    jsx(H2, { children: 'Density and type' }),
+                    jsxs('div', {
+                      style: { display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px 12px', alignItems: 'center', fontSize: 12.5 },
+                      children: [
+                        jsx('span', { style: { color: B.t3 }, children: 'Density' }),
+                        jsx(Seg, { label: 'Density', value: density, options: [{ id: 'comfortable', label: 'Comfortable' }, { id: 'compact', label: 'Compact' }, { id: 'detailed', label: 'Detailed' }], onChange: v => trySetSetting('sessionListDensity', v) }),
+                        jsx('span', { style: { color: B.t3 }, children: 'Interface font' }),
+                        jsx(Select, { label: 'Interface font', value: p.font, options: Object.entries(FONTS).map(([id, f]) => ({ id, label: f.label })), onChange: v => set({ font: v }) }),
+                        jsx('span', { style: { color: B.t3 }, children: 'Chat text scale' }),
+                        jsx(Seg, { label: 'Chat text scale', value: scale, options: [90, 100, 110, 125, 150].map(n => ({ id: n, label: String(n) })), onChange: v => trySetSetting('chatTextScale', Number(v)) }),
+                        jsx('span', { style: { color: B.t3 }, children: 'Corners' }),
+                        jsx(Seg, { label: 'Corners', value: p.radius, options: [{ id: 'sharp', label: 'Sharp' }, { id: 'default', label: 'Soft' }, { id: 'round', label: 'Round' }], onChange: v => set({ radius: v }) }),
+                        jsx('span', { style: { color: B.t3 }, children: 'Reading width' }),
+                        jsx(Seg, { label: 'Reading width', value: p.width, options: [{ id: 'narrow', label: 'Narrow' }, { id: 'default', label: 'App' }, { id: 'wide', label: 'Wide' }], onChange: v => set({ width: v }) })
+                      ]
+                    })
+                  ]
+                }),
+                jsxs('section', {
+                  style: { display: 'flex', flexDirection: 'column', gap: 8 },
+                  children: [
+                    jsx(H2, { children: 'Sidebar' }),
+                    jsxs('div', {
+                      style: { display: 'flex', flexDirection: 'column', gap: 6 },
+                      children: [
+                        jsx(Check, { k: 'designNav', label: 'Five-row nav', hint: 'the rest stays in ⌘K' }),
+                        jsx(Check, { k: 'showRowStatus', label: 'Status under each session' }),
+                        jsx(Check, { k: 'showRowCost', label: 'Cost on each session row' }),
+                        jsx(Check, { k: 'showRowBots', label: 'Robot on each session row' }),
+                        jsx(Check, { k: 'showDeskStrip', label: 'Continue strip on new chats' }),
+                        jsx(Check, { k: 'openDeskAtLaunch', label: 'Open the Desk at launch' })
+                      ]
+                    })
+                  ]
+                })
+              ]
+            }),
+            jsxs('div', {
+              style: { display: 'flex', flexDirection: 'column', gap: 18 },
+              children: [
+                jsxs('section', {
+                  style: { display: 'flex', flexDirection: 'column', gap: 8 },
+                  children: [
+                    jsx(H2, { hint: 'right side of the status bar', children: 'Status bar and title bar' }),
+                    jsxs('div', {
+                      style: { display: 'flex', flexDirection: 'column', gap: 6 },
+                      children: [
+                        jsx(Check, { k: 'showNeedsYouChip', label: 'n need you', hint: 'amber' }),
+                        jsx(Check, { k: 'showWorkingChip', label: 'n working' }),
+                        jsx(Check, { k: 'showTodayChip', label: '$ today across the crew' }),
+                        jsx(Check, { k: 'showCostChip', label: 'Focused chat cost and context' }),
+                        jsx(Check, { k: 'showContextLine', label: 'Bot, folder, model in the title bar' })
+                      ]
+                    })
+                  ]
+                }),
+                jsxs('section', {
+                  style: { display: 'flex', flexDirection: 'column', gap: 8 },
+                  children: [
+                    jsx(H2, { children: 'Robots' }),
+                    jsxs('div', {
+                      style: { display: 'flex', flexDirection: 'column', gap: 6 },
+                      children: [
+                        jsx(Check, { k: 'showComposerBot', label: 'Robot beside the composer' }),
+                        jsx(Check, { k: 'animateRobots', label: 'Animated robots', hint: 'follows Reduce motion' }),
+                        jsx(Check, { k: 'autoAvatars', label: 'Robots as Hermes avatars', hint: 'never over your photo' }),
+                        jsx(Check, { k: 'robotPets', label: 'Robots as Hermes pets' })
+                      ]
+                    }),
+                    jsxs('div', {
+                      style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 },
+                      children: [
+                        jsx(Seg, { label: 'Rail colour', value: p.rail, options: [{ id: 'mono', label: 'Mono rail' }, { id: 'colour', label: 'Colour rail' }], onChange: v => set({ rail: v }) }),
+                        jsx('button', { type: 'button', onClick: () => host.navigate(BOTS_ROUTE), style: { marginLeft: 'auto', border: 0, background: 'transparent', color: accentHex, font: 'inherit', fontSize: 12, cursor: 'pointer', padding: 0 }, children: 'Edit a bot’s look' })
+                      ]
+                    })
+                  ]
+                })
+              ]
+            })
+          ]
+        }),
+        jsxs('section', {
+          style: { borderTop: `1px solid ${B.hair}`, paddingTop: 14, display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 },
+          children: [
+            jsx('span', { style: { color: B.t3, flex: '1 1 auto' }, children: 'Saved automatically. Hermes updates replace the app, not desktop-plugins/, so this survives them.' }),
+            btn('Export helm.json', exportPrefs),
+            jsxs('label', {
+              style: { height: 28, padding: '0 10px', borderRadius: 6, border: `1px solid ${B.ctl}`, color: B.t2, fontSize: 12, display: 'flex', alignItems: 'center', cursor: 'pointer', position: 'relative' },
+              children: ['Import', jsx('input', { type: 'file', accept: 'application/json,.json', onChange: e => importPrefs(e.target.files && e.target.files[0]), style: { position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' } })]
+            }),
+            btn('Reset to helm defaults', () => applyLook({ ...DEFAULT_PREFS, deskName: p.deskName, deskFolded: p.deskFolded }), true)
+          ]
+        })
+      ]
+    })
   })
 }
 
