@@ -45,6 +45,9 @@ export const Codicon = ({ name }) => jsx('i', { className: `codicon codicon-${na
 export const ListRow = ({ title, description, action }) => jsx('div', { className: 'list-row', children: [jsx('b', { children: title }, 't'), jsx('p', { children: description }, 'd'), jsx('span', { children: action }, 'a')] })
 export const ToggleRow = ({ label, description, checked }) => jsx('label', { children: [label, String(checked), description] })
 export const SegmentedControl = ({ options, value }) => jsx('div', { 'data-value': value, children: options.map(o => jsx('span', { children: o.label }, o.id)) })
+export const Dialog = ({ children }) => jsx('div', { 'data-dialog': '', children })
+export const DialogContent = ({ children }) => jsx('div', { children })
+export const DialogTitle = ({ children }) => jsx('h2', { children })
 
 function stripHandlers(p) {
   const out = {}

@@ -32,6 +32,9 @@ import {
   ListRow,
   ToggleRow,
   SegmentedControl,
+  Dialog,
+  DialogContent,
+  DialogTitle,
   THEMES_AREA,
   ROUTES_AREA,
   SIDEBAR_NAV_AREA,
@@ -6568,15 +6571,8 @@ function BotEditorModal() {
       btn(tab === 'soul' ? 'Save SOUL.md' : `Save ${tab}`, saveFor[tab], true, busy || loading || !!err)
     ]
   }
-  return jsx('div', {
-    'data-helm-bot-editor': '',
-    onMouseDown: e => e.target === e.currentTarget && close(),
-    onKeyDown: e => e.key === 'Escape' && close(),
-    tabIndex: -1,
-    style: { position: 'fixed', inset: 0, zIndex: 1000, pointerEvents: 'auto', WebkitAppRegion: 'no-drag', background: 'rgba(6, 9, 12, 0.62)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: B.t1, fontSize: 13, lineHeight: 1.45 },
-    children: jsxs('div', {
-      role: 'dialog',
-      'aria-label': `Edit ${label}`,
+  const dialogBox = jsxs('div', {
+      'data-helm-bot-editor': '',
       style: { width: 'min(1060px, calc(100vw - 48px))', height: 'min(700px, calc(100vh - 48px))', border: `1px solid ${B.ctl}`, borderRadius: 14, background: B.panel, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' },
       children: [
         jsxs('div', {
@@ -6591,6 +6587,17 @@ function BotEditorModal() {
         bodyEl,
         jsx('div', { style: { flex: '0 0 52px', display: 'flex', alignItems: 'center', gap: 10, padding: '0 18px', borderTop: `1px solid ${B.hair}`, fontSize: 11.5, color: B.t4 }, children: footer })
       ]
+    })
+  return jsx(Dialog, {
+    open: true,
+    onOpenChange: v => !v && close(),
+    children: jsxs(DialogContent, {
+      fitContent: true,
+      showCloseButton: false,
+      blurBackdrop: false,
+      className: '!max-w-none !p-0 !border-0 !bg-transparent !shadow-none',
+      bodyClassName: '!p-0 !overflow-visible',
+      children: [jsx(DialogTitle, { className: 'sr-only', children: `Edit ${label}` }), dialogBox]
     })
   })
 }
@@ -7882,7 +7889,7 @@ export default {
       { id: 'sidechat-key', area: KEYBINDS_AREA, data: { id: 'helm.side-chat', label: 'Side chat (/btw)', category: 'view', defaults: ['mod+;'], run: openSideChat } },
       { id: 'approvals-chip', area: 'statusBar.right', order: 121, render: () => jsx(ApprovalsChip, {}) },
       { id: 'hooks-chip', area: 'statusBar.right', order: 125, render: () => jsx(HooksChip, {}) },
-      { id: 'bot-editor', area: 'titleBar.center', order: 90, render: () => jsx(BotEditorModal, {}) },
+      { id: 'bot-editor', area: 'statusBar.right', order: 300, render: () => jsx(BotEditorModal, {}) },
       { id: 'hud-panel', area: 'composer.top', order: 4, render: () => jsx(HudPanel, { looks, prefs }) },
       { id: 'hud-footer', area: 'composer.bottom', order: 90, render: () => jsx(HudFooter, { prefs }) },
       {
