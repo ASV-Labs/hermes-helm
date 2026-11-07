@@ -42,7 +42,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '1.0.4'
+const VERSION = '1.0.5'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -1241,22 +1241,42 @@ async function pushAvatar(profileName, look, avatars) {
 }
 
 // New bots get a robot automatically, unless their owner already gave them a
-// picture of their own (any server avatar that is not Bot Mode's 160 px face).
+// picture of their own (any server avatar that is neither helm's 256 px robot
+// nor Bot Mode's 160 px face). The check repeats once a minute per bot: when a
+// bot appears, Bot Mode rasterizes its vector face to a 160 px PNG and pushes
+// that as the server avatar, and if that lands after helm's robot it replaces
+// it. helm puts the robot back; a photo uploaded later is left alone.
+const AVATAR_RECHECK_MS = 60000
+const avatarCheckedAt = new Map()
+let avatarSweep = false
 async function autoAvatars(profiles, looks, avatars, prefs) {
-  if (!prefs.get().autoAvatars || typeof host.request !== 'function') return
-  for (const p of profiles) {
-    const done = avatars.get()[p.name]
-    if (done) continue
-    try {
-      const res = await host.request('profiles.get_asset', { name: p.name, asset: 'avatar' })
-      if (res && res.found && res.data && pngEdge(res.data) !== 160) {
-        avatars.set({ ...avatars.get(), [p.name]: 'user' })
-        continue
+  if (!prefs.get().autoAvatars || typeof host.request !== 'function' || avatarSweep) return
+  avatarSweep = true
+  try {
+    for (const p of profiles) {
+      const done = avatars.get()[p.name]
+      if (done === 'user') continue
+      const now = Date.now()
+      if (now - (avatarCheckedAt.get(p.name) || 0) < AVATAR_RECHECK_MS) continue
+      avatarCheckedAt.set(p.name, now)
+      try {
+        const res = await host.request('profiles.get_asset', { name: p.name, asset: 'avatar' })
+        const edge = res && res.found && res.data ? pngEdge(res.data) : 0
+        if (edge === AVATAR_EDGE) {
+          if (!done) avatars.set({ ...avatars.get(), [p.name]: 'helm' })
+          continue
+        }
+        if (edge && edge !== 160) {
+          avatars.set({ ...avatars.get(), [p.name]: 'user' })
+          continue
+        }
+        await pushAvatar(p.name, normalizeLook(looks.get()[p.name], p.name), avatars)
+      } catch {
+        /* sprites not served yet, an older gateway, or a profile this gateway can't reach: retry next minute */
       }
-      await pushAvatar(p.name, normalizeLook(looks.get()[p.name], p.name), avatars)
-    } catch {
-      /* sprites not served yet or an older gateway: try again next tick */
     }
+  } finally {
+    avatarSweep = false
   }
 }
 
@@ -1286,6 +1306,14 @@ function NewBotView({ looks, setLook, avatars, onDone }) {
     setBusy(true)
     setError('')
     try {
+      // Compose the robot first, so it reaches the profile the moment the
+      // profile exists, before Bot Mode backfills its own vector face.
+      let avatar = null
+      try {
+        avatar = await composeAvatar(look)
+      } catch {
+        /* sprites not served yet: the minute-by-minute check adds it */
+      }
       await host.request('profiles.create', {
         name: slug,
         description: role.trim(),
@@ -1293,12 +1321,15 @@ function NewBotView({ looks, setLook, avatars, onDone }) {
         share_auth: true,
         soul: `# ${title}\n\nYou are ${title}${role.trim() ? `, ${role.trim()}` : ''}. You work alongside the other bots on this desk and report back plainly.\n`
       })
-      setLook(slug, look)
-      try {
-        await pushAvatar(slug, look, avatars)
-      } catch {
-        /* the avatar retries on the next crew refresh */
+      if (avatar) {
+        try {
+          await host.request('profiles.set_asset', { name: slug, asset: 'avatar', data: avatar })
+          avatars.set({ ...avatars.get(), [slug]: lookKey(look) })
+        } catch {
+          /* the minute-by-minute check adds it */
+        }
       }
+      setLook(slug, look)
       await refreshCrew()
       host.notify?.({ kind: 'success', message: `${title} is on the crew.` })
       onDone(slug)
@@ -3359,7 +3390,7 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
 // ───────────────────────────────────────────────────────────────── plugin
 
 // Pure helpers, exported for the test suite only.
-export const _internals = { DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
+export const _internals = { autoAvatars, pngEdge, AVATAR_EDGE, DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
 
 export default {
   id: ID,

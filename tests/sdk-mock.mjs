@@ -94,7 +94,10 @@ export const host = {
   listPersistedSessions: async (_route, { profile }) => ({ sessions: (globalThis.__helmSessions || {})[profile] || [] }),
   request: async (method, params) => {
     globalThis.__requests = (globalThis.__requests || []).concat([[method, params && params.name]])
-    if (method === 'profiles.get_asset') return { found: false }
+    if (method === 'profiles.get_asset') {
+      const assets = globalThis.__assets || {}
+      return params && params.name in assets ? { found: true, data: assets[params.name] } : { found: false }
+    }
     globalThis.__rpc = (globalThis.__rpc || []).concat([[method, params]])
     const gw = globalThis.__gw || {}
     if (method in gw) return typeof gw[method] === 'function' ? gw[method](params) : gw[method]

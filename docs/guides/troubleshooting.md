@@ -30,6 +30,14 @@ helm 1.0.1 · inbox: 12 live chats (primary), 1 waiting, 1 approvals, 0 question
    ```
    Then open Hermes again. It starts a fresh backend that includes helm's routes.
 
+## A bot shows a classic face in Hermes's Bots tab, not its robot
+
+**Cause:** there are three possible causes.
+
+- **The bot was made with Hermes's own New bot dialog.** Bot Mode saved the classic face first and keeps that answer in memory until the app quits. helm replaces the face with the robot within about 20 seconds; quit and reopen Hermes Desktop to see it.
+- **The bot has a picture you uploaded.** helm never replaces your own picture. To use the robot, remove the picture in *Bot Mode → Edit*, then press **Done** in the robot's Look editor on the Bots board.
+- **Robots as Hermes avatars is off.** Turn it on in *Customize look → On the desk*.
+
 ## The Desk's Today list says "Couldn't read scheduled jobs"
 
 Today reads each bot's scheduled jobs through the gateway's public `cron.manage` call (list only). This is the same call Hermes's own Bots tab makes.

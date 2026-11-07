@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.5 — 2026-11-07
+
+- **Robots reach Hermes's Bots tab reliably.**
+  - helm's **New bot** composes the robot before creating the bot and sets it at the moment of creation, before Bot Mode can save its classic face.
+  - Once a minute, helm re-checks each bot's avatar and puts the robot back if Bot Mode's 160 px face replaced it. A photo you uploaded is never touched.
+  - For bots made in Hermes's own New bot dialog, the robot shows in the Bots tab after the next app restart. The robots and troubleshooting guides explain why.
+- The launch film and demo GIF show the 1.0.4 Desk: the composer pinned at the bottom, folding sections, and the accent Approve.
+
 ## 1.0.4 — 2026-11-07
 
 - **The Desk is chat-shaped.** The composer is pinned to the bottom, and Continue, Needs you, Today and the quick actions stack above it, so the newest content sits nearest the composer. The Desk opens scrolled to the bottom.

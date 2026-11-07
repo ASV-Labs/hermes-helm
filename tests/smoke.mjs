@@ -237,6 +237,30 @@ assert.ok(renderToString(composer.render()).includes('Talking to vision'), 'comp
 // New robots become Hermes avatars: get_asset probe ran for every bot
 assert.ok((globalThis.__requests || []).some(([m, n]) => m === 'profiles.get_asset' && n === 'builder'), 'auto avatar probe')
 
+// Avatar self-heal: helm's 256 px robot is kept, a photo is never touched,
+// and Bot Mode's 160 px face backfill is not mistaken for a photo.
+{
+  const { autoAvatars, pngEdge, AVATAR_EDGE } = mod._internals
+  const png = edge => {
+    const b = Buffer.alloc(33)
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]).copy(b)
+    b.writeUInt32BE(edge, 16)
+    b.writeUInt32BE(edge, 20)
+    return 'data:image/png;base64,' + b.toString('base64')
+  }
+  assert.equal(pngEdge(png(160)), 160, 'png edge reader')
+  globalThis.__assets = { ours: png(AVATAR_EDGE), photo: png(96), face: png(160) }
+  let map = {}
+  const avatars = { get: () => map, set: v => { map = v } }
+  const looks = { get: () => ({}) }
+  const prefs = { get: () => ({ autoAvatars: true }) }
+  await autoAvatars([{ name: 'ours' }, { name: 'photo' }, { name: 'face' }], looks, avatars, prefs)
+  assert.equal(map.ours, 'helm', 'own robot recognised')
+  assert.equal(map.photo, 'user', 'photo left alone')
+  assert.notEqual(map.face, 'user', 'face backfill is not a photo')
+  globalThis.__assets = {}
+}
+
 // Settings + Look page
 const settingsHtml = renderToString(settingsPage.render())
 assert.ok(settingsHtml.includes('Helm Dark'), 'settings shows themes')

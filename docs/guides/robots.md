@@ -22,7 +22,8 @@ Open it with `⌘⌥R` or *Helm: Bots board* in `⌘K`.
 Hermes also has a **New bot** dialog of its own, from its built-in Bots plugin. That dialog uses Hermes's classic face shapes, and helm can't change it: the plugin catalog doesn't allow plugins to replace a built-in plugin's screens.
 
 - To build a bot with a helm robot from the start, use **+ New bot** in the Desk's bot picker, **New bot** on the Bots board, or **Helm: New bot (robot)** in ⌘K.
-- A bot made in Hermes's dialog still gets a helm robot. When **Robots as Hermes avatars** is on, helm gives it a robot avatar within a few seconds, unless you uploaded a photo.
+- A bot made in Hermes's dialog still gets a helm robot. When **Robots as Hermes avatars** is on, helm sets the robot as its avatar within about 20 seconds, unless you uploaded a photo.
+- **In Hermes's Bots tab, that robot appears after the next app restart.** The moment Hermes's dialog creates a bot, Bot Mode saves its classic face as the avatar and remembers that, in memory, until the app quits. helm replaces the face with the robot, and the Bots tab picks it up at the next launch. Bots made with helm's own **New bot** get their robot at the moment they are created, so they show it in the Bots tab right away.
 
 ## Building a robot
 
@@ -42,6 +43,7 @@ The **face changes with state**. It's focused while the bot is working, it asks 
 When **Robots as Hermes avatars** is on (*Customize look → On the desk*), each bot's robot becomes its avatar across Hermes. New bots get theirs automatically.
 
 - **The automatic pass never replaces a photo you uploaded.** Before it sets an avatar, helm reads what the bot already has (`profiles.get_asset`). If that's your own image, helm marks the bot as yours and leaves it alone from then on.
+- **helm keeps checking.** Once a minute it re-reads each bot's avatar. If Bot Mode's classic face has replaced the robot, helm puts the robot back. If you have uploaded a photo since, helm leaves it alone.
 - **Pressing Done in a robot's Look editor is an explicit choice.** It makes that robot the bot's avatar. If Bot Mode still shows a photo you uploaded for that bot, remove the photo in *Bot Mode → Edit* and the robot will show.
 - Avatars are saved in each bot's Hermes profile (`profiles.set_asset`), so removing helm doesn't remove them. Change them in the app's bot settings.
 
