@@ -45,11 +45,11 @@ helm 1.0.1 · inbox: 12 live chats (primary), 1 waiting, 1 approvals, 0 question
 
 ## The Desk's Today list says "Couldn't read scheduled jobs"
 
-Today reads each bot's scheduled jobs through the gateway's public `cron.manage` call (list only). This is the same call Hermes's own Bots tab makes.
+Today reads each bot's scheduled jobs through the gateway's public `cron.manage` call (`list`; the Bot view's routine switches use `pause` / `resume`, never add or remove). This is the same call Hermes's own Bots tab makes.
 
 - The message means the gateway didn't answer that call. helm retries every 30 seconds.
 - If it persists, check that **Scheduled jobs** opens in the app itself. If it doesn't, the problem is the gateway, not helm.
-- On Hermes older than 0.22.0, the per-bot listing isn't available. helm requires 0.22.0 or newer.
+- On Hermes older than 0.22.1, the per-bot listing isn't available. helm requires 0.22.1 or newer.
 
 ## Something is waiting, but Needs you is empty
 

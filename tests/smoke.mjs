@@ -48,6 +48,12 @@ const ctx = {
     return () => {}
   },
   onDispose: fn => disposed.push(fn),
+  // The app's view/navigation actions (ctx.runAction): record the id, allow
+  // the ones the SDK lists, refuse the rest like the real host does.
+  runAction: id => {
+    globalThis.__actions = (globalThis.__actions || []).concat(id)
+    return ['composer.focus', 'conversation.scrollPageUp'].includes(id) ? { ok: true } : { ok: false, reason: 'denied', error: id }
+  },
   setInterval: () => () => {},
   os: { writeClipboard: async () => true },
   rest: async path => {
@@ -378,4 +384,26 @@ assert.equal(custom.data.colors.background, '#F7F6F2', 'custom theme follows the
   assert.deepEqual($liveTodos.get()['rt-x'].map(t => t.status), ['completed', 'pending'])
 }
 disposed.forEach(fn => fn())
+// Catalog rule 8: the desktop half never selects the app's own markup from
+// script. The sidebar filter pills are a sidebar.profileGroup.header render
+// (not an element parked under the sidebar search), the rail measures the
+// status bar from helm's own probe item, and the composer is reached through
+// host.composer / the app's actions.
+{
+  const { SidebarPills, $rowFilter, runAppAction, focusComposer } = mod._internals
+  const pills = renderToString(createElement(SidebarPills))
+  assert.ok(pills.includes('data-helm-sidebar-pills') && pills.includes('Needs you · 1') && pills.includes('aria-pressed="true"'), `sidebar pills: ${pills}`)
+  $rowFilter.set('working')
+  assert.ok(renderToString(createElement(SidebarPills)).includes('data-k="working" aria-pressed="true"'), 'pressed pill follows the filter')
+  $rowFilter.set('all')
+  const probe = contributions.find(c => c.area === 'statusBar.left' && c.id === 'statusbar-probe')
+  assert.ok(probe && renderToString(probe.render()).includes('data-helm-statusbar-probe'), 'status-bar probe item registered')
+  assert.equal(runAppAction('conversation.scrollPageUp'), true, 'allowed app action runs')
+  assert.equal(runAppAction('session.archive'), false, 'refused app action degrades to false')
+  focusComposer()
+  assert.ok((globalThis.__actions || []).includes('composer.focus'), 'focusComposer falls back to the composer.focus app action when host.composer.focus is absent')
+  const src = readFileSync(join(here, '..', 'desktop', 'plugin.js'), 'utf8').replace(/\/\/[^\n]*/g, '')
+  assert.ok(!/document\.querySelector(All)?\(\s*['"`][^'"`]*\[data-(slot|tour|sidebar|testid)\b/.test(src), 'no document.querySelector on the app\'s data-slot markup (catalog lint: app DOM reach)')
+}
+
 console.log('helm smoke: ok —', contributions.length, 'contributions,', rendered.length, 'rendered')

@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.2.1 — 2026-11-07
+
+Catalog-compliant desktop surface. `hermes plugins validate` refused 1.2.0 for eight `document.querySelector` calls on the app's own `data-slot` markup (catalog rule 8); 1.2.1 passes that check with 0 refusals, so the catalog can move from 1.0.5 to this release.
+
+- **Composer focus** (Side chat, Steer) goes through `host.composer.focus`, falling back to the app's `composer.focus` action.
+- **Earlier messages** in the chat header pages the transcript through the app's `conversation.scrollPageUp` action (hidden on a host without `ctx.runAction`).
+- **Sidebar filter pills** (All / Needs you / Working / Done) render in the SDK's `sidebar.profileGroup.header` slot at the top of each bot's session group, instead of being parked under the session search. One filter for the whole list.
+- **Title-bar tab dots are gone.** The tab strip has no plugin slot; the tabs keep Hermes's own look. Status stays in the session rows, the Desk and the HUD.
+- **HUD *Latest from*** comes from the `message.complete` event only; helm no longer reads the transcript's markup. The line is empty until the bot's next reply.
+- **Voice chat** on the Bot view opens the bot's chat and focuses the composer instead of clicking the composer's microphone button for you.
+- **The rail** measures the status bar from its own zero-width status-bar item.
+- **Floor is Hermes ≥ 0.22.1** (`plugin.yaml` and the catalog entry agree).
+- **CI** installs Pillow for the sprite-router test and runs `tests/pet_sheet_check.py`.
+- **README:** the catalog listing is live; *Every call helm makes* now lists everything 1.2.x calls (approval mode, routine switches, bot editor saves, bot computer, stop, the HUD's bridge reads) and what helm measures in the app's markup.
+
 ## 1.2.0 — 2026-11-07
 
 The app now matches the seven design boards: Main, Chat, Crew, Bot, Builder, Customize and HUD.

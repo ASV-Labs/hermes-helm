@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Hermes **0.22.0 or newer**, with Hermes Desktop. helm declares `requires_hermes: ">=0.22.0"`, and Hermes won't install it on anything older.
+- Hermes **0.22.1 or newer**, with Hermes Desktop. helm declares `requires_hermes: ">=0.22.1"`, and Hermes won't install it on anything older.
 - It's hand-tested on macOS (Apple silicon). Linux and Windows run the same code, but nobody has walked through them by hand yet. If something looks off there, [open an issue](https://github.com/ASV-Labs/hermes-helm/issues/new/choose).
 
 ## Install
@@ -14,7 +14,7 @@ hermes plugins install ASV-Labs/hermes-helm
 hermes plugins enable helm
 ```
 
-helm has been submitted to the official Hermes plugin catalog. Once it's listed, `hermes plugins install helm` works as well. Both commands install the same code.
+helm is listed in the official Hermes plugin catalog, so `hermes plugins install helm` works as well. The catalog pins one reviewed commit and moves to a new release after it passes `hermes plugins validate`, so the GitHub install can be a version ahead.
 
 Then, in Hermes Desktop:
 
