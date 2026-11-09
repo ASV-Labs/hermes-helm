@@ -45,7 +45,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '1.2.0'
+const VERSION = '1.2.1'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -2240,6 +2240,22 @@ const TIER_WORDS = [
   ['frontier', /\b(code|deploy|release|ship|build|refactor|fix|implement|migrat\w*|debug|merge|script|install|upgrade)\b/i]
 ]
 let helmPrefsRef = null
+// The plugin context, kept for the app actions a click can run
+// (ctx.runAction: composer focus, transcript paging). Null before register.
+let helmCtx = null
+
+// Run one of the app's own view/navigation actions (the handler behind its
+// shortcut and palette entry). False when the host has no runAction or the
+// action is refused — callers degrade, never reach into the app's markup.
+function runAppAction(id) {
+  try {
+    if (!helmCtx || typeof helmCtx.runAction !== 'function') return false
+    const r = helmCtx.runAction(id)
+    return Boolean(r && r.ok)
+  } catch {
+    return false
+  }
+}
 
 function tierOfModel(model) {
   const m = String(model || '').toLowerCase()
@@ -4156,17 +4172,24 @@ function setDetail(v) {
   if (helmPrefsRef) helmPrefsRef.setPrefs({ activityDetail: v })
 }
 
-function openSideChat() {
-  const run = host.composer && typeof host.composer.setDraft === 'function' ? host.composer.setDraft(null, '/btw ') : null
-  Promise.resolve(run).then(() => {
-    const ed = document.querySelector('[data-chat-surface] [data-slot="composer-rich-input"]')
-    if (ed && typeof ed.focus === 'function') ed.focus()
-  })
+// Caret into the composer the app's focus bus routes to: the SDK's
+// host.composer.focus, else the app's own composer.focus action. Never the
+// editor's DOM.
+function focusComposer() {
+  try {
+    if (host.composer && typeof host.composer.focus === 'function') {
+      host.composer.focus(null)
+      return
+    }
+  } catch {
+    /* fall through to the app action */
+  }
+  runAppAction('composer.focus')
 }
 
-function focusComposer() {
-  const ed = document.querySelector('[data-chat-surface] [data-slot="composer-rich-input"]')
-  if (ed && typeof ed.focus === 'function') ed.focus()
+function openSideChat() {
+  const run = host.composer && typeof host.composer.setDraft === 'function' ? host.composer.setDraft(null, '/btw ') : null
+  Promise.resolve(run).then(focusComposer, focusComposer)
 }
 
 function tildePath(p) {
@@ -4254,15 +4277,14 @@ function ChatHeader({ looks, width }) {
       jsx(RobotHead, { look, expr: busy ? 'focused' : look.face, size: 16, title: owner || 'bot' }),
       jsx('span', { style: { color: '#E6EBF0', fontWeight: 500, whiteSpace: 'nowrap' }, children: p ? botLabel(p) : owner || 'Hermes' }),
       ...bits,
-      botView
+      // Pages the transcript up through the app's own scroll action (the
+      // handler behind its shortcut); hidden on a host without runAction.
+      botView && helmCtx && typeof helmCtx.runAction === 'function'
         ? jsx('button', {
             type: 'button',
-            onClick: () => {
-              const vp = document.querySelector('[data-chat-surface] [data-slot="aui_thread-viewport"]')
-              if (vp) vp.scrollTo({ top: 0, behavior: 'smooth' })
-            },
+            onClick: () => runAppAction('conversation.scrollPageUp'),
             style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11.5, cursor: 'pointer', whiteSpace: 'nowrap' },
-            children: 'Show earlier messages'
+            children: 'Earlier messages'
           })
         : null,
       botView ? null : jsxs('span', {
@@ -4441,103 +4463,69 @@ function SessionContextRow() {
 }
 
 // Sessions sidebar, to the Chat board: All / Needs you · n / Working / Done
-// pills under the search. They filter the list by each row's status line.
+// pills at the top of each bot's session group, through the SDK's
+// sidebar.profileGroup.header slot (the one plugin door into the sidebar;
+// Hermes's own Bots plugin mounts its Screen portal there). One filter for
+// the whole list: every group's row shows the same pressed pill. They
+// filter by each row's status line (data-helm-row-kind, helm's own mark).
 const $rowFilter = atom('all')
-function startSidebarPills() {
-  if (typeof document === 'undefined' || !isPrimaryWindow()) return () => {}
-  const box = document.createElement('div')
-  box.id = 'helm-sidebar-pills'
-  box.setAttribute('role', 'group')
-  box.setAttribute('aria-label', 'Filter sessions')
-  const style = document.createElement('style')
-  style.textContent = `
-#helm-sidebar-pills { display: flex; gap: 4px; padding: 6px 8px 2px; }
-#helm-sidebar-pills button { height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid #222B35; background: transparent; color: #98A4B1; font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
-#helm-sidebar-pills button[data-k="needs"] { color: #E8A657; }
-#helm-sidebar-pills button[aria-pressed="true"] { background: #171E27; color: #E6EBF0; }
-#helm-sidebar-pills button:hover { color: #E6EBF0; }
-:root:has([data-helm-home]) #helm-sidebar-pills { display: none; }
+const SIDEBAR_PILLS_CSS = `
+[data-helm-sidebar-pills] { display: flex; gap: 4px; padding: 2px 0 4px; }
+[data-helm-sidebar-pills] button { height: 22px; padding: 0 8px; border-radius: 11px; border: 1px solid #222B35; background: transparent; color: #98A4B1; font: inherit; font-size: 11px; white-space: nowrap; cursor: pointer; }
+[data-helm-sidebar-pills] button[data-k="needs"] { color: #E8A657; }
+[data-helm-sidebar-pills] button[aria-pressed="true"] { background: #171E27; color: #E6EBF0; }
+[data-helm-sidebar-pills] button:hover { color: #E6EBF0; }
+:root:has([data-helm-home]) [data-helm-sidebar-pills] { display: none; }
 :root:not(:has([data-helm-home])) #helm-sidebar-needs { display: none !important; }
 :root[data-helm-row-filter="working"] [data-slot="sidebar"] div:has(> [data-row-actions]):not(:has([data-helm-row-kind="working"])),
 :root[data-helm-row-filter="needs"] [data-slot="sidebar"] div:has(> [data-row-actions]):not(:has([data-helm-row-kind="needs"])),
 :root[data-helm-row-filter="done"] [data-slot="sidebar"] div:has(> [data-row-actions]):not(:has([data-helm-row-kind="done"])) { display: none !important; }
 `
-  document.head.appendChild(style)
-  const build = () => {
-    const f = $rowFilter.get()
-    const n = needsYouOf($inbox.get(), $crew.get())
-    const pills = [['all', 'All'], ['needs', n.total ? `Needs you · ${n.total}` : 'Needs you'], ['working', 'Working'], ['done', 'Done']]
-    box.innerHTML = pills.map(([k, l]) => `<button type="button" data-k="${k}" aria-pressed="${f === k}">${l}</button>`).join('')
-    box.querySelectorAll('button').forEach(b =>
-      b.addEventListener('click', () => {
-        const k = b.getAttribute('data-k')
-        $rowFilter.set($rowFilter.get() === k ? 'all' : k)
-      })
+function SidebarPills() {
+  const f = useValue($rowFilter)
+  const inbox = useValue($inbox)
+  const crew = useValue($crew)
+  const n = needsYouOf(inbox, crew)
+  const pills = [['all', 'All'], ['needs', n.total ? `Needs you · ${n.total}` : 'Needs you'], ['working', 'Working'], ['done', 'Done']]
+  return jsx('div', {
+    'data-helm-sidebar-pills': '',
+    role: 'group',
+    'aria-label': 'Filter sessions',
+    children: pills.map(([k, l]) =>
+      jsx('button', { type: 'button', 'data-k': k, 'aria-pressed': f === k, onClick: () => $rowFilter.set($rowFilter.get() === k ? 'all' : k), children: l }, k)
     )
+  })
+}
+function startSidebarPills(ctx) {
+  if (typeof document === 'undefined' || !isPrimaryWindow() || !ctx || typeof ctx.register !== 'function') return () => {}
+  const style = document.createElement('style')
+  style.textContent = SIDEBAR_PILLS_CSS
+  document.head.appendChild(style)
+  const paint = () => {
+    const f = $rowFilter.get()
     if (f === 'all') document.documentElement.removeAttribute('data-helm-row-filter')
     else document.documentElement.setAttribute('data-helm-row-filter', f)
   }
-  const place = () => {
-    try {
-      const sidebar = document.querySelector('[data-slot="sidebar"]')
-      const search = sidebar && sidebar.querySelector('input[type="search"], input[placeholder*="earch"]')
-      if (!search) return
-      let anchor = search
-      while (anchor.parentElement && anchor.parentElement !== sidebar && !anchor.parentElement.contains(document.querySelector('[data-session-pin-drop]'))) anchor = anchor.parentElement
-      if (anchor.nextElementSibling !== box) anchor.after(box)
-    } catch {
-      /* mid-render */
-    }
+  paint()
+  const off = $rowFilter.subscribe(paint)
+  let dispose = null
+  try {
+    dispose = ctx.register({ id: 'sidebar-pills', area: 'sidebar.profileGroup.header', data: { render: () => jsx(SidebarPills, {}) } })
+  } catch {
+    /* host without the slot: the sidebar keeps Hermes's look */
   }
-  build()
-  place()
-  const offs = [$rowFilter.subscribe(build), $inbox.subscribe(build), $crew.subscribe(build)]
-  const h = setInterval(place, 800)
   return () => {
-    offs.forEach(off => typeof off === 'function' && off())
-    clearInterval(h)
-    box.remove()
+    if (typeof off === 'function') off()
+    if (typeof dispose === 'function') dispose()
     style.remove()
     document.documentElement.removeAttribute('data-helm-row-filter')
   }
 }
 
-// Title-bar session tabs: the board's 6px status dot before each label —
-// cyan while that chat works, amber when it waits on you, faint otherwise.
-function startTabDots() {
-  if (typeof document === 'undefined' || !isPrimaryWindow()) return () => {}
-  const style = document.createElement('style')
-  style.textContent = `
-[data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"], [data-tree-tab^="plugin-workspace:"])::before { content: ''; width: 6px; height: 6px; border-radius: 3px; background: #343D47; flex-shrink: 0; margin-right: 8px; align-self: center; }
-[data-slot="pane-tab"][data-helm-dot="working"]::before, [data-slot="pane-tab"][data-active="true"][data-helm-dot]::before { background: var(--ui-accent) !important; }
-[data-slot="pane-tab"][data-helm-dot="needs"]::before { background: #E8A657 !important; }
-[data-slot="pane-tab"][data-tree-tab="plugin-workspace:helm:board"]::before { display: none !important; }
-`
-  document.head.appendChild(style)
-  const tick = () => {
-    try {
-      const busy = atomGet(host.state.busyBySession) || {}
-      const active = atomGet(host.state.activeSessionId)
-      const inbox = $inbox.get()
-      const waitingRuntime = new Set([...(inbox.approvals || []), ...(inbox.questions || [])].map(a => a.sessionId || a.runtimeId).filter(Boolean))
-      document.querySelectorAll('[data-slot="pane-tab"]:is([data-tree-tab="workspace"], [data-tree-tab^="session-tile:"], [data-tree-tab^="plugin-workspace:"])').forEach(tab => {
-        const t = tab.getAttribute('data-tree-tab')
-        const rid = t === 'workspace' ? active : t.slice('session-tile:'.length)
-        const kind = rid && waitingRuntime.has(rid) ? 'needs' : rid && busy[rid] ? 'working' : 'idle'
-        if (tab.getAttribute('data-helm-dot') !== kind) tab.setAttribute('data-helm-dot', kind)
-      })
-    } catch {
-      /* mid-render */
-    }
-  }
-  tick()
-  const h = setInterval(tick, 1000)
-  return () => {
-    clearInterval(h)
-    style.remove()
-  }
-}
-
+// Title-bar session tabs keep Hermes's own look: the pane-tab strip has no
+// plugin slot, and helm does not select the app's tabs from script (catalog
+// rule 8). The per-chat status dot lives in the session rows, the Desk and
+// the HUD instead.
 // Above the composer on a fresh draft: jump back into recent work.
 // ──────────────────────────────────────────────────────────────── HUD
 // The HUD board in Hermes's own HUD window (View › HUD mode): who is on,
@@ -4581,16 +4569,6 @@ function plainReply(text) {
   return clean.split(/(`[^`]+`)/g).map((part, i) => (part.startsWith('`') && part.endsWith('`') && part.length > 1 ? jsx('span', { style: { fontFamily: B.mono, fontSize: 12 }, children: part.slice(1, -1) }, i) : part))
 }
 
-function lastReplyFromDom() {
-  try {
-    const all = document.querySelectorAll('[data-slot="aui_assistant-message-content"]')
-    const el = all[all.length - 1]
-    return el ? String(el.textContent || '').trim() : ''
-  } catch {
-    return ''
-  }
-}
-
 function HudPanel({ looks, prefs }) {
   const mode = useHudMode(prefs)
   const crew = useValue($crew)
@@ -4600,7 +4578,6 @@ function HudPanel({ looks, prefs }) {
   const profile = useValue(host.state.focusedSessionProfile)
   const busy = useValue(host.state.busy)
   const runtimeId = useValue(host.state.focusedSessionId)
-  const [domReply, setDomReply] = useState('')
   useEffect(() => {
     if (!mode.board) return
     const root = document.documentElement
@@ -4613,12 +4590,7 @@ function HudPanel({ looks, prefs }) {
     } catch {
       /* this HUD cannot be resized */
     }
-    const t = setInterval(() => setDomReply(lastReplyFromDom()), 2000)
-    setDomReply(lastReplyFromDom())
-    return () => {
-      clearInterval(t)
-      root.removeAttribute('data-helm-hud-board')
-    }
+    return () => root.removeAttribute('data-helm-hud-board')
   }, [mode.board])
   if (!mode.on) return null
   const working = []
@@ -4631,7 +4603,9 @@ function HudPanel({ looks, prefs }) {
   const myLive = working.find(w => w.p.name === profile)
   const mins = myLive && myLive.live.started_at ? Math.max(1, Math.round((Date.now() - toMs(myLive.live.started_at)) / 60000)) : null
   const name = me ? botLabel(me) : profile || 'Hermes'
-  const latest = (replies[profile] && replies[profile].text) || domReply
+  // "Latest from" comes from the message.complete event only (host.onEvent);
+  // helm does not read the transcript's markup. Empty until the bot's next reply.
+  const latest = (replies[profile] && replies[profile].text) || ''
   const head = (label, color) => jsx('div', { style: { padding: '0 2px 6px', ...B_CAPS, color: color || B.t4 }, children: label })
   const hud = typeof window !== 'undefined' && window.hermesDesktop && window.hermesDesktop.hud
   const stop = () => {
@@ -6136,10 +6110,16 @@ function BotProfilePane({ looks }) {
       host.notifyError?.('Could not reach the clipboard.')
     }
   }
+  // The composer's microphone has no SDK action, and helm does not click
+  // the app's buttons for you: open a chat with this bot and point at it.
   const voiceChat = () => {
-    const b = document.querySelector('[data-slot="composer-surface"] button[aria-label*="oice" i], [data-slot="composer-surface"] button[aria-label*="ictat" i]')
-    if (b) b.click()
-    else host.notify?.({ kind: 'info', message: 'Open a chat with this bot first; voice starts from its composer.' })
+    try {
+      if (atomGet(host.state.focusedSessionProfile) !== p.name) host.newChat(p.name)
+    } catch {
+      /* the chat may already be open */
+    }
+    focusComposer()
+    host.notify?.({ kind: 'info', message: `Voice starts from the microphone button in ${botLabel(p)}'s composer.` })
   }
   const kv = []
   const add = (k, v, mono) => {
@@ -6749,7 +6729,7 @@ const HEALTH_SDK = [
 const HEALTH_DOM = [
   ['[data-slot="statusbar"]', 'status bar styling'],
   ['[data-tree-group]', 'sidebar and rail placement'],
-  ['[data-slot="pane-tab"]', 'title-bar tabs and dots']
+  ['[data-slot="pane-tab"]', 'title-bar tab styling']
 ]
 function runHealthCheck(ctx) {
   const missing = []
@@ -7735,9 +7715,12 @@ function startRail(prefs) {
         const r = mainHead.getBoundingClientRect()
         if (r.bottom > 0) top = Math.round(r.bottom)
       }
-      const bar = document.querySelector('[data-slot="statusbar"]')
-      if (bar) {
-        const r = bar.getBoundingClientRect()
+      // The status bar band, measured from helm's own zero-width probe item
+      // in it (statusBar.left) — mounted only while the bar is shown, and
+      // stretched to the bar's full height like every item there.
+      const probe = document.querySelector('[data-helm-statusbar-probe]')
+      if (probe) {
+        const r = probe.getBoundingClientRect()
         if (r.height > 0) bottom = Math.max(0, Math.round(window.innerHeight - r.top))
       }
     } catch {
@@ -7877,13 +7860,14 @@ function startSidebarNeedsYou(prefs) {
 // ───────────────────────────────────────────────────────────────── plugin
 
 // Pure helpers, exported for the test suite only.
-export const _internals = { $helmTabVisible, routeBrief, readBrief, routingRules, tierOfModel, roomSummary, permsLine, onHandoffEvent, $handoffs, onReplyEvent, $lastReply, AnimatedRobot, petKey, petStateFor, petSheets, PET_ROW, autoAvatars, pngEdge, AVATAR_EDGE, DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
+export const _internals = { SidebarPills, $rowFilter, runAppAction, focusComposer, $helmTabVisible, routeBrief, readBrief, routingRules, tierOfModel, roomSummary, permsLine, onHandoffEvent, $handoffs, onReplyEvent, $lastReply, AnimatedRobot, petKey, petStateFor, petSheets, PET_ROW, autoAvatars, pngEdge, AVATAR_EDGE, DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
 
 export default {
   id: ID,
   name: 'Helm',
   description: 'A redesigned Hermes Desktop: a calmer interface you can tune, a crew view of every bot, rendered robots that become your bots’ avatars, and live status across the desk.',
   register(ctx) {
+    helmCtx = ctx
     hookCount = 0
     const regMany = list => {
       hookCount += list.length
@@ -8006,6 +7990,9 @@ export default {
     })
     // Status bar, titlebar, sidebar rows: the desk-wide layer.
     regMany([
+      // Zero-width, so the rail can read where the status bar starts without
+      // selecting the app's markup.
+      { id: 'statusbar-probe', area: 'statusBar.left', order: 0, render: () => jsx('span', { 'data-helm-statusbar-probe': '', 'aria-hidden': true, style: { display: 'block', width: 0, alignSelf: 'stretch', pointerEvents: 'none' } }) },
       { id: 'needs-you', area: 'statusBar.right', order: 116, render: () => jsx(NeedsYouChip, { prefs }) },
       { id: 'today', area: 'statusBar.right', order: 117, render: () => jsx(TodayChip, { prefs }) },
       { id: 'working', area: 'statusBar.right', order: 118, render: () => jsx(WorkingChip, { prefs }) },
@@ -8153,9 +8140,8 @@ export default {
     ctx.onDispose(startRail(prefs))
     // The board's NEEDS YOU group at the top of the Sessions list.
     ctx.onDispose(startSidebarNeedsYou(prefs))
-    // Chat board: filter pills under the session search, status dots on tabs.
-    ctx.onDispose(startSidebarPills())
-    ctx.onDispose(startTabDots())
+    // Chat board: filter pills at the top of each bot's session group.
+    ctx.onDispose(startSidebarPills(ctx))
     ctx.onDispose(startAutoCollapse(prefs))
     ctx.onDispose(startThemeGuard(prefs, setPrefs))
     {

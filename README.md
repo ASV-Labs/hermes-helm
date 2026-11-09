@@ -2,7 +2,7 @@
 
 [![Release](https://img.shields.io/github/v/release/ASV-Labs/hermes-helm?style=flat-square&color=62C6D3&label=release)](https://github.com/ASV-Labs/hermes-helm/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/ASV-Labs/hermes-helm/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/ASV-Labs/hermes-helm/actions/workflows/ci.yml)
-![Hermes 0.22+](https://img.shields.io/badge/hermes-%E2%89%A5%200.22.0-1F2730?style=flat-square)
+![Hermes 0.22.1+](https://img.shields.io/badge/hermes-%E2%89%A5%200.22.1-1F2730?style=flat-square)
 ![Desktop plugin](https://img.shields.io/badge/plugin-desktop-1F2730?style=flat-square)
 [![MIT](https://img.shields.io/badge/license-MIT-1F2730?style=flat-square)](LICENSE)
 [![by ASV Labs](https://img.shields.io/badge/by-ASV%20Labs-E6EBF0?style=flat-square)](https://asv-labs.com)
@@ -24,7 +24,7 @@ Running several Hermes bots means opening chat after chat to find out who is bus
 - **A plan you can watch.** The focused bot's task list, checked off live beside the chat.
 - **An interface you can make yours.** A redesign layer across the whole app, tuned on one page.
 
-helm uses only the public Hermes Desktop plugin SDK and the gateway calls the app itself makes. It changes no Hermes core files and never answers anything without your click.
+helm uses the public Hermes Desktop plugin SDK and the gateway calls the app itself makes (plus, in Hermes's HUD window only, the native bridge for the HUD's own settings). It passes the catalog's desktop-surface check, changes no Hermes core files and never answers anything without your click.
 
 ## Install
 
@@ -39,9 +39,9 @@ Then in Hermes Desktop:
 2. **Restart Hermes once**, so its gateway mounts helm's small backend for the robot renders.
 3. Press **`⌘⌥U`** and pick a look.
 
-Requires **Hermes ≥ 0.22.0**. The step-by-step version, including updating, backing up your setup and uninstalling, is in **[Getting started](docs/guides/getting-started.md)**.
+Requires **Hermes ≥ 0.22.1**. The step-by-step version, including updating, backing up your setup and uninstalling, is in **[Getting started](docs/guides/getting-started.md)**.
 
-> **Official Hermes plugin catalog.** helm has been submitted to the catalog ([NousResearch/hermes-agent#150160](https://github.com/NousResearch/hermes-agent/pull/150160)). Once it's listed, `hermes plugins install helm` installs the same code.
+> **Official Hermes plugin catalog.** helm is listed in the catalog ([NousResearch/hermes-agent#150160](https://github.com/NousResearch/hermes-agent/pull/150160)), so `hermes plugins install helm` works too. The catalog pins one reviewed commit; it moves to a new release once that release passes `hermes plugins validate`, so the GitHub install above can be a version ahead.
 
 ## What's inside
 
@@ -117,9 +117,12 @@ The redesign layer runs across the whole app:
 ### Status everywhere
 
 - **Titlebar:** bot, folder, model, cost and context of the chat you're in.
-- **Session rows:** the owning bot's robot and spend.
+- **Session rows:** the owning bot's status line and spend; **All / Needs you / Working / Done** pills at the top of each bot's session group filter the list.
 - **Status bar:** *N need you*, *$ today*, *N working* and the focused chat's cost.
+- **HUD:** in Hermes's HUD window, who is on, what waits on you and the latest reply, above the HUD composer.
 - **Command palette:** *Desk*, *what needs me*, *new chat with ‹bot›*, *resume ‹bot›*, every theme and *Helm: diagnostics*.
+
+Title-bar tabs keep Hermes's own look: the tab strip has no plugin slot, so helm does not draw status dots there.
 
 ## Guides
 
@@ -138,13 +141,15 @@ The guides cover the details specific to helm: what it can and can't see, and wh
 
 [![Watch the 33-second helm launch film](docs/launch-poster.jpg)](https://github.com/ASV-Labs/hermes-helm/releases/latest/download/helm-launch.mp4)
 
+The film is attached to the latest GitHub release as `helm-launch.mp4`. If the link 404s, that release's assets have not been uploaded yet; the [releases page](https://github.com/ASV-Labs/hermes-helm/releases) has the last one that carries it.
+
 ## Privacy and permissions
 
-helm is built to be audited.
+helm is built to be audited. `hermes plugins validate .` runs the catalog's checks against it; the Desktop half passes the SDK-surface check (no `document.querySelector` on the app's markup, no observers on `document.body`, no dynamic code).
 
 - **No network calls of its own.** No telemetry, no shell, no self-updater.
 - **No credentials.** helm never reads `.env`, `auth.json` or any token store.
-- **Nothing is sent or answered without you.** The Desk prompt sends only on **↵** / **Send**. Approvals and questions are answered only when you click.
+- **Nothing is sent or answered without you.** The Desk prompt sends only on **↵** / **Send**. Approvals, questions, routines, approval mode, bot settings and stops change only when you click.
 - **Agent half:** registers nothing (no tools, hooks or commands).
 - **Dashboard half:** a small router. It serves the bundled PNGs and the robots' sprite sheets, and makes one kind of write: each bot's robot pet, in that bot's own `pets/` folder.
 
@@ -162,26 +167,36 @@ The dashboard half does three things.
 
 It has no path traversal and imports no Hermes internals.
 
-**Reads**
+**Reads** (gateway calls the app itself makes; per-bot reads go through the SDK's profile-scoped `host.requestProfile`)
 
 - The profile list, through `host.profiles.list()`. This is the same endpoint the profile rail uses.
 - Each bot's recent session rows (title, timestamps, unread/active flags, cost), through `host.listPersistedSessions`. This is the sidebar's own read, and helm keeps it in memory only.
 - The app's busy/usage state, through `host.state`.
-- Each bot's scheduled jobs, through the gateway's public `cron.manage`. helm calls it with `action: list` only and never adds, pauses or removes a job.
+- Each bot's scheduled jobs, through the gateway's public `cron.manage` with `action: list`.
 - Live sessions and their pending approvals, through `session.active_list` and `approval.pending`.
 - The focused chat's transcript (`session.history`), to build its task plan. helm keeps this in memory only.
+- The window's approval mode and, per bot, a few settings (`config.get` on `approvals.mode`, `terminal.backend`, `tts.provider`, the chosen voice, `bot_desktop.placement`), and which MCP servers a bot has on (`mcp.servers.status`), for the Bot view's permissions and voice rows.
+- A bot's profile for the editor (`profiles.describe`: description, SOUL.md, skills, model), only while the editor is open.
+- A bot's computer, in the Bot view's **Computer** tab only while it is open: `display.status` and a `display.thumbnail` every 2.5 s (the same view Hermes's own Bots tab shows).
+- Each bot's avatar (`profiles.get_asset`), once a minute, and its pet state (`pet.gallery`) once per look, for the robot avatar and pet features below.
 
 **Listens**
 
-- The app's gateway event stream (`host.onEvent`), for approval, question and plan events.
+- The app's gateway event stream (`host.onEvent`), for approval, question, plan, tool, handoff and `message.complete` events. The HUD's *Latest from* line is the text of the last `message.complete` event, trimmed to 1 200 characters and kept in plugin storage; helm does not read the transcript's markup.
 
 **Acts only when you click**
 
 - Answers an approval or question (`approval.respond`, `clarify.respond`) when you click *Approve*, *Allow session*, *Deny* or *Send*.
-- Opens sessions and chats.
+- Opens sessions, chats, Hermes's pages and its own tabs (`host.openSession`, `host.newChat`, `host.navigate`, `host.openWorkspace`, `host.revealPane`); puts text in the composer (`host.composer`) and focuses it; pages the transcript and focuses the composer through the app's own actions (`ctx.runAction`: `composer.focus`, `conversation.scrollPageUp`).
 - Sends a message from the Desk prompt when you press **↵** or *Send*.
-- Creates a bot (`profiles.create`) from *New bot*.
+- Stops the focused chat's turn (`session.interrupt`) from **Stop**.
+- Changes the window's approval mode (`config.set` on `approvals.mode`) from the composer's approval pill — *Ask before acting*, *Smart approvals* or *Act without asking*; the last one turns tool approvals off for that window, exactly as Hermes's own status-bar control does.
+- Pauses or resumes a bot's scheduled job (`cron.manage` with `pause` / `resume`) from the on/off switch in the Bot view's routines. helm never adds or removes a job.
+- Creates a bot (`profiles.create`) from *New bot*, and duplicates one (`profiles.create` with `clone_from`) from *Duplicate*.
+- Saves a bot's description, disabled skills, model and provider, or SOUL.md (`profiles.configure`) from the bot editor's *Save*; an expensive model asks again before it saves.
+- Starts a bot's computer (`display.start`) from the Computer tab's *Start*.
 - Sets a bot's avatar (`profiles.set_asset`) to its robot, but never over a photo you uploaded.
+- Restarts the gateway (`host.restartGateway`) from the button on the flat-robots notice.
 - Makes each bot's robot its Hermes pet when **Robots as Hermes pets** is on:
   - It writes the pet folder described above.
   - It switches a bot to that pet with Hermes's own `pet.select`, but only if the bot has no pet. It checks this with `pet.gallery`.
@@ -190,12 +205,15 @@ It has no path traversal and imports no Hermes internals.
 **Writes**
 
 - Its own plugin storage.
-- The app's `sessionListDensity` and `chatTextScale` settings, when you change them.
+- The app's `sessionListDensity`, `chatTextScale` and `reasoning.collapsedByDefault` settings, when you change them on Customize look or the chat header.
 
-**Styling**
+**Native bridge** (`window.hermesDesktop`, HUD window only)
 
-The redesign layer is CSS supplied through the SDK's theme `customCSS`. It selects the app's `data-slot` names in CSS only. helm never queries, observes or rewrites the app's DOM. The layer switches off when you switch to another theme.
+Hermes's HUD has no SDK door yet, so in that window helm reads the HUD's own settings through the raw bridge: `hud.setBounds` sizes the HUD window to 440 × 720 once and `hud.close` closes it; `screenshot.getSettings` / `onStatus` show whether **See my screen** is on; `quickEntry.getSettings` shows the summon shortcut. Nothing else is read through the bridge, and nothing in the main window uses it.
 
+**Styling and markup**
+
+The redesign layer is CSS supplied through the SDK's theme `customCSS`; it selects the app's `data-slot` names in CSS only (`validate` warns on those selectors), and switches off when you switch to another theme. From script, helm draws only its own elements (SDK slots, its rail and HUD board) and sets `data-helm-*` attributes on the root element. It never selects, observes or edits the app's own elements, with four measurement-only reads it discloses: it reads the root element's `data-hermes-theme` attribute to restore a helm theme another plugin switched away at launch; it measures the composer's frame and the main zone's header to place its chips and rail; it checks whether the pointer is over the sessions zone for *collapse under 1100 px*; and its health check tests whether three of the app's markers still exist so it can name what a Hermes update moved.
 
 ## How it fits together
 
@@ -216,7 +234,7 @@ helm lives in `~/.hermes/desktop-plugins/helm/`, which `hermes update` never tou
 node --check desktop/plugin.js
 cd tests && npm ci && npm test     # loads the plugin against an SDK mock and renders every contribution
 python3 tests/test_plugin_api.py   # the sprite router against FastAPI's TestClient
-hermes plugins validate .          # the catalog's admission checks
+hermes plugins validate .          # the catalog's admission checks (desktop surface: 0 refusals)
 bash tools/screens/render.sh       # re-render docs/screens from the real components
 ```
 
