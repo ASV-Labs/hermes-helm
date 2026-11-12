@@ -118,7 +118,7 @@ The redesign layer runs across the whole app:
 
 - **Titlebar:** bot, folder, model, cost and context of the chat you're in.
 - **Session rows:** the owning bot's status line and spend; **All / Needs you / Working / Done** pills at the top of each bot's session group filter the list.
-- **Status bar:** *N need you*, *$ today*, *N working* and the focused chat's cost.
+- **Title-bar chip:** *N need you* and *N working*, with Tools, Customize, Fix layout and Back to stock Hermes behind it. helm adds nothing to the status bar.
 - **HUD:** in Hermes's HUD window, who is on, what waits on you and the latest reply, above the HUD composer.
 - **Command palette:** *Desk*, *what needs me*, *new chat with ‹bot›*, *resume ‹bot›*, every theme and *Helm: diagnostics*.
 
@@ -173,6 +173,7 @@ It has no path traversal and imports no Hermes internals.
 - Each bot's recent session rows (title, timestamps, unread/active flags, cost), through `host.listPersistedSessions`. This is the sidebar's own read, and helm keeps it in memory only.
 - The app's busy/usage state, through `host.state`.
 - Each bot's scheduled jobs, through the gateway's public `cron.manage` with `action: list`.
+- Your projects and each project's sessions, through the gateway's `projects.list` and `projects.project_sessions` (the calls Hermes's own sidebar makes).
 - Live sessions and their pending approvals, through `session.active_list` and `approval.pending`.
 - The focused chat's transcript (`session.history`), to build its task plan. helm keeps this in memory only.
 - The window's approval mode and, per bot, a few settings (`config.get` on `approvals.mode`, `terminal.backend`, `tts.provider`, the chosen voice, `bot_desktop.placement`), and which MCP servers a bot has on (`mcp.servers.status`), for the Bot view's permissions and voice rows.
@@ -191,7 +192,10 @@ It has no path traversal and imports no Hermes internals.
 - Sends a message from the Desk prompt when you press **↵** or *Send*.
 - Stops the focused chat's turn (`session.interrupt`) from **Stop**.
 - Changes the window's approval mode (`config.set` on `approvals.mode`) from the composer's approval pill — *Ask before acting*, *Smart approvals* or *Act without asking*; the last one turns tool approvals off for that window, exactly as Hermes's own status-bar control does.
-- Pauses or resumes a bot's scheduled job (`cron.manage` with `pause` / `resume`) from the on/off switch in the Bot view's routines. helm never adds or removes a job.
+- Pauses, resumes or runs a bot's scheduled job (`cron.manage` with `pause` / `resume` / `run`) from the Bot view's routines or the Routines page, only on your click. helm never adds or removes a job.
+- Makes a project active (`projects.set_active`) when you press **+** on it in the sidebar, then opens a new chat.
+- Runs the app's own view and navigation actions through `ctx.runAction` (Files, Review, Browser, Find, status bar, sidebar, ⌘K, Settings, Capabilities, Messaging, Artifacts, Scheduled jobs, Profiles, Agents, Keyboard shortcuts).
+- On **Use helm as the whole shell** only: requests the helm theme and hides the status bar; **Back to stock Hermes** requests your previous theme and shows the bar again.
 - Creates a bot (`profiles.create`) from *New bot*, and duplicates one (`profiles.create` with `clone_from`) from *Duplicate*.
 - Saves a bot's description, disabled skills, model and provider, or SOUL.md (`profiles.configure`) from the bot editor's *Save*; an expensive model asks again before it saves.
 - Starts a bot's computer (`display.start`) from the Computer tab's *Start*.

@@ -52,7 +52,7 @@ const ctx = {
   // the ones the SDK lists, refuse the rest like the real host does.
   runAction: id => {
     globalThis.__actions = (globalThis.__actions || []).concat(id)
-    return ['composer.focus', 'conversation.scrollPageUp'].includes(id) ? { ok: true } : { ok: false, reason: 'denied', error: id }
+    return ['composer.focus', 'conversation.scrollPageUp', 'view.toggleStatusbar', 'view.showFiles', 'nav.cron', 'nav.settings'].includes(id) ? { ok: true } : { ok: false, reason: 'denied', error: id }
   },
   setInterval: () => () => {},
   os: { writeClipboard: async () => true },
@@ -124,11 +124,13 @@ for (const t of themes) {
   for (const k of ['background', 'foreground', 'primary']) assert.ok(/^#[0-9A-Fa-f]{6}$/.test(d.colors[k]), `${d.name} colors.${k}`)
   assert.ok(d.customCSS.includes('data-hermes-theme^="helm"'), 'customCSS scoped to helm')
 }
-assert.equal(byArea('statusBar.right').length, 7, 'needs-you, today, working, cost, approvals, hooks chips + bot editor host')
+assert.equal(byArea('statusBar.right').length, 0, '2.0: helm adds nothing to the status bar (the bar is the user’s)')
+assert.deepEqual(byArea('statusBar.left').map(c => c.id), ['statusbar-probe'], 'only the zero-width probe')
+assert.deepEqual(byArea('titleBar.right').map(c => c.id).sort(), ['bot-editor', 'title-chip'], 'one title-bar chip + the bot editor mount')
 assert.equal(byArea('titleBar.center').length, 1, 'titlebar context line')
 assert.equal(byArea('sessionRow.leading').length, 1, 'session row robot')
 assert.equal(byArea('sessionRow.trailing').length, 1, 'session row cost')
-assert.equal(byArea('routes').length, 3, 'desk + bots + look routes')
+assert.equal(byArea('routes').length, 5, 'desk + bots + look + apps + routines routes')
 assert.equal(byArea('sidebarNav').length, 3, 'desk + bots + look nav rows')
 assert.equal(byArea('keybinds').length, 7, 'desk, bots, look, side chat, 3 layouts')
 assert.ok(byArea('palette').find(c => c.data.id === 'helm.talk.vision'), 'per-bot palette commands follow the crew')
@@ -211,7 +213,8 @@ assert.ok(settingsPage && settingsPage.children.length === 2, 'settings page wit
   assert.equal(helmTab.data.dock.pos, 'center', 'Helm tab is a tab, not a split (a split breaks the sidebar toggle)')
   assert.ok(!contributions.find(c => c.id === 'needs-you-pane'), 'no split-above-Sessions pane any more')
   const tabHtml = renderToString(helmTab.render())
-  for (const word of ['Needs you', 'gh release create', 'Approve', 'Bots', 'Working', 'Board view']) assert.ok(tabHtml.includes(word), `helm tab: ${word}`)
+  for (const word of ['data-helm-sidebar', 'Search bots and chats', 'Crew', 'Projects', 'All chats', 'data-helm-hero', 'New chat', 'Needs you', 'gh release create', 'Approve', 'Waiting on you', 'Apps', 'All apps', 'Routines', 'SIEMless', 'Lineage', 'Kanban', 'Bot Mode', 'New bot', 'Customize', 'Settings']) assert.ok(tabHtml.includes(word), `helm sidebar: ${word}`)
+  assert.ok(!/text-transform:\s*uppercase/.test(tabHtml), 'sidebar is sentence case')
   dump('helm-tab', tabHtml)
   const home = renderToString(contributions.find(c => c.id === 'home').render())
   for (const word of ['data-helm-home', 'Continue', 'Install helm', 'Needs you', 'Today', 'Open inbox', 'Status report', 'Hermes docs']) assert.ok(home.includes(word), `new-session home: ${word} in ${home.slice(0, 200)}`)
@@ -277,11 +280,10 @@ assert.ok(rowStatus.includes('data-helm-row-status') && rowStatus.includes('Ques
 assert.ok(renderToString(byArea('sessionRow.trailing')[0].data.render({ sessionId: 'nope' })).includes('Idle'), 'rows older than the read say Idle')
 const ctxLine = renderToString(byArea('titleBar.center')[0].render())
 assert.equal(ctxLine, '', 'no context line by default (the boards have none)')
-const chips = Object.fromEntries(byArea('statusBar.right').map(c => [c.id, renderToString(c.render())]))
-assert.ok(chips['needs-you'].includes('1 needs you'), `needs-you chip: ${chips['needs-you']}`)
-assert.ok(chips.today.includes('$0.36 today'), `today chip: ${chips.today}`)
-assert.ok(chips.working.includes('2 working'), `working chip: ${chips.working}`)
-assert.equal(chips.cost, '', 'cost chip off by default (context % sits in the title bar)')
+{
+  const chip = renderToString(byArea('titleBar.right').find(c => c.id === 'title-chip').render())
+  assert.ok(chip.includes('data-helm-title-chip') && chip.includes('working') && chip.includes('aria-haspopup="menu"'), `title chip: ${chip}`)
+}
 assert.ok(!contributions.find(c => c.area === 'composer.leading'), 'no composer robot by default (the boards have none)')
 const ask = contributions.find(c => c.id === 'ask-pill')
 assert.ok(ask && contributions.find(c => c.id === 'composer-hint'), 'approval pill and hint in the composer')
@@ -404,6 +406,61 @@ disposed.forEach(fn => fn())
   assert.ok((globalThis.__actions || []).includes('composer.focus'), 'focusComposer falls back to the composer.focus app action when host.composer.focus is absent')
   const src = readFileSync(join(here, '..', 'desktop', 'plugin.js'), 'utf8').replace(/\/\/[^\n]*/g, '')
   assert.ok(!/document\.querySelector(All)?\(\s*['"`][^'"`]*\[data-(slot|tour|sidebar|testid)\b/.test(src), 'no document.querySelector on the app\'s data-slot markup (catalog lint: app DOM reach)')
+}
+
+// ── 2.0 shell
+{
+  const I = mod._internals
+  // All apps: Hermes pages, plugin pages, tools; SIEMless hides only when turned off
+  const appsHtml = renderToString(byArea('routes').find(c => c.data.path === '/helm/apps').render())
+  for (const w of ['All apps', 'Capabilities', 'Messaging', 'Scheduled jobs', 'Command center', 'SIEMless', 'Lineage', 'Kanban', 'Files', 'Review', 'Status bar', 'Pin a page', 'Unpin']) assert.ok(appsHtml.includes(w), `apps page: ${w}`)
+  assert.equal(I.pluginAppVisible({ plugin: 'siemless' }, { siemless: false }), false, 'a plugin turned off leaves Apps')
+  assert.equal(I.pluginAppVisible({ plugin: 'siemless' }, {}), true, 'no decision = listed')
+  assert.deepEqual(I.pinnedApps({ appsPinned: ['routines', 'siemless', 'nope'] }, { siemless: false }).map(a => a.id), ['routines'])
+  assert.ok(I.allApps({ appsCustom: [{ label: 'Broker', route: '/broker' }, { label: 'bad', route: 'x' }] }, {}).some(a => a.id === 'custom:/broker'), 'pinned custom page')
+  assert.ok(!I.allApps({ appsCustom: [{ label: 'bad', route: 'x' }] }, {}).some(a => a.label === 'bad'), 'a route must start with /')
+  // SIEMless findings badge the Apps row through its documented event
+  const sub = (globalThis.__eventSubs || []).find(([t]) => t === 'plugin.siemless.finding')
+  assert.ok(sub, 'listens for plugin.siemless.finding')
+  sub[1]({ severity: 'high' })
+  sub[1]({ severity: 'low' })
+  assert.equal(I.$appBadges.get().siemless, 2)
+  const side = renderToString(contributions.find(c => c.area === 'panes' && c.id === 'helm-tab').render())
+  if (process.env.HELM_SCREEN) { writeFileSync(join(here, '.tmp', 'sidebar.html'), side); writeFileSync(join(here, '.tmp', 'apps.html'), appsHtml) }
+  assert.ok(/SIEMless[\s\S]{0,600}>2</.test(side), 'badge on the SIEMless row')
+  // Routines by desk
+  assert.deepEqual(['ads-weekly', 'cos-brief', 'csat_digest', 'gtm launch', 'sales-pipe', 'x-watcher', 'Morning digest'].map(n => I.deskOf({ name: n })), ['ads', 'cos', 'csat', 'gtm', 'sales', 'watchers', 'other'])
+  const keep = I.$statusbarShown.get()
+  mod._internals.$statusbarShown.set(true)
+  const routinesHtml = renderToString(byArea('routes').find(c => c.data.path === '/helm/routines').render())
+  if (process.env.HELM_SCREEN) writeFileSync(join(here, '.tmp', 'routines.html'), routinesHtml)
+  for (const w of ['Routines', 'Edit in Scheduled jobs', 'Pause', 'Run now', 'Everything else', 'By store']) assert.ok(routinesHtml.includes(w), `routines: ${w}`)
+  // Today is one line on the home
+  const line = renderToString(createElement(I.TodayLine))
+  assert.ok(line.includes('data-helm-today-line') && line.includes('Routines'), line)
+  // Whole shell: theme, status bar and the helm pane on your click; Back to stock restores
+  globalThis.__requestedTheme = null
+  globalThis.__actions = []
+  I.enterWholeShell()
+  assert.equal(store.get('prefs').fullShell, true)
+  assert.ok(globalThis.__actions.includes('view.toggleStatusbar'), 'rests the status bar')
+  assert.ok(String(globalThis.__requestedTheme || '').startsWith('helm'), 'applies a helm theme')
+  assert.equal(store.get('prefs').stockSnapshot.statusbar, true, 'remembers the bar was up')
+  I.$statusbarShown.set(false)
+  globalThis.__actions = []
+  I.backToStock()
+  assert.equal(store.get('prefs').fullShell, false)
+  assert.ok(globalThis.__actions.includes('view.toggleStatusbar'), 'brings the status bar back')
+  assert.equal(store.get('prefs').stockSnapshot, null)
+  I.$statusbarShown.set(keep)
+  // Projects through the gateway's own projects RPCs
+  globalThis.__gw['projects.list'] = { projects: [{ id: 'p1', name: 'Vision', color: '#5FB8D8', archived: false }, { id: 'p2', name: 'Old', archived: true }], active_id: 'p1' }
+  globalThis.__gw['projects.project_sessions'] = { project: { id: 'p1', repos: [{ lanes: [{ sessions: [{ id: 'a', title: 'Older', last_active: 1 }, { id: 'b', title: 'Newer', last_active: 9 }] }] }] } }
+  await I.refreshProjects('vision')
+  assert.deepEqual(I.$projects.get().list.map(x => x.name), ['Vision'], 'archived projects hidden')
+  assert.deepEqual((await I.projectSessions('p1', 'vision')).map(x => x.title), ['Newer', 'Older'])
+  // Nothing written to app settings at register
+  assert.ok(!globalThis.__settings || !('tabStripDefault' in globalThis.__settings), 'never sets tabStripDefault')
 }
 
 console.log('helm smoke: ok —', contributions.length, 'contributions,', rendered.length, 'rendered')
