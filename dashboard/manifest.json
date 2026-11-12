@@ -3,7 +3,7 @@
   "label": "Helm",
   "description": "Serves Helm’s robot sprites and animated sprite sheets to the desktop plugin, and saves each bot’s robot as its Hermes pet (no dashboard tab).",
   "icon": "Bot",
-  "version": "1.2.1",
+  "version": "2.0.0",
   "tab": { "path": "/helm", "hidden": true },
   "entry": "dist/index.js",
   "api": "plugin_api.py"

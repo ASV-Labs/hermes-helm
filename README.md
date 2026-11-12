@@ -11,7 +11,9 @@
 
 [Install](#install) · [What's inside](#whats-inside) · [Guides](docs/guides/README.md) · [Launch film](https://github.com/ASV-Labs/hermes-helm/releases/latest/download/helm-launch.mp4) · [Privacy](#privacy-and-permissions)
 
-![helm in motion: the Desk, approving a command from the Desk, the live plan and robots](docs/demo.gif)
+![helm 2.0 in Hermes Desktop: one sidebar with the crew, projects, chats and pinned apps, and the Desk as the new-chat page](docs/screens/app-shell.png)
+
+*helm 2.0 on Hermes Desktop v0.23.1, in the whole-shell mode. Captured from the app with chat titles and job names blurred.*
 
 ---
 
@@ -19,6 +21,7 @@
 
 Running several Hermes bots means opening chat after chat to find out who is busy, who finished and who is waiting on you. helm turns Hermes Desktop into a control desk:
 
+- **One way around.** A single sidebar for your crew, projects, chats and apps, instead of three navigation systems.
 - **One place for what needs you.** Tool approvals and questions from every bot's live chats, answered with one click.
 - **One glance at the crew.** Who is working, who replied, what it cost, what ran today.
 - **A plan you can watch.** The focused bot's task list, checked off live beside the chat.
@@ -45,33 +48,53 @@ Requires **Hermes ≥ 0.22.1**. The step-by-step version, including updating, ba
 
 ## What's inside
 
-### The Desk — `⌘⌥0`
+### One sidebar — Crew, Projects, All chats
 
-Hermes opens on the Desk.
+helm's pane in the sessions column is the way around Hermes:
 
-- **Greeting:** a one-line status of the whole crew.
-- **Prompt**, pinned to the bottom like a chat: hands work to any bot. **↵** sends; **Draft** opens the chat with your text unsent. **+ New bot** builds a new bot with its own robot.
-- **Continue:** your latest sessions across every bot.
-- **Needs you:** approvals, questions and unread replies.
-- **Today:** scheduled jobs that ran, failed or are due. It shows the five that matter most, and *Show all* lists the rest.
+- **Search** across bots and chats.
+- **Crew:** the bot you picked, large, with *New chat*, *Board* and *Edit*. Below it, every bot with its robot on its own colour, its last line, and a badge when it is waiting on you. Pick a bot to see its chats; its scheduled runs are one link to Routines. Bots you hid in Bot Mode stay hidden.
+- **Projects:** Home and your projects, the same list Hermes's own sidebar shows. Open one to see its sessions, or **+** to start a session in it.
+- **All chats:** every chat across the crew, newest first. *Hermes list* opens the native Sessions pane, with pins and archive.
+- **Rooms:** group chats of two to six bots, and *New room*.
+- **Apps:** pinned pages (Routines, Kanban, SIEMless, Lineage and Artifacts to start), and *All apps*.
+- **Footer:** switch bot, *New bot*, *Customize* and *Settings*.
 
-Each section folds: click its header, and the Desk remembers your choice. A folded section shows its count.
+| Projects | A chat, with the bot's profile beside it |
+|---|---|
+| ![helm sidebar in Projects view: Home, lineage demo, Vision, .buzz, MACBOOK and ai-employees, with the pinned apps below](docs/screens/app-projects.png) | ![A chat in helm: the Crew sidebar, the transcript and composer, and the bot's profile with routines, permissions and its computer](docs/screens/app-chat.png) |
 
-![The Desk in Hermes Desktop: greeting, prompt to any bot, Continue, Needs you, and Today folded to its count](docs/screens/app-desk.png)
+Hermes's own **Sessions** and **Bots** tabs are still one click away on the strip above, and *Bot Mode* in the sidebar fronts the native Bots pane.
 
-*Captured from Hermes Desktop with chat titles blurred. Here is the same Desk with an approval and a question waiting:*
+### The Desk — your new-chat page
 
-![The Desk with an approval (Approve / Allow session / Deny) and a question waiting](docs/screens/desk.png)
+A new chat opens on the Desk: a greeting with the crew's status, the composer (*To:* any bot, or *Route automatically*), **Continue** for your latest sessions, **Needs you** for approvals and questions, and **Today** in one line: what ran, what failed, what's next.
+
+### Apps and Routines
+
+**All apps** lists every Hermes page (Capabilities, Messaging, Scheduled jobs, Profiles, Agents, Command center, Settings, Keyboard shortcuts…), the plugin pages helm knows (Kanban, SIEMless, Lineage), the workspace tools, and any other page you pin by its route. Plugin pages open in the main area, and SIEMless's row shows a badge for new findings.
+
+**Routines** is the scheduled-jobs view for a crew: every bot's jobs grouped by desk (ads, chief of staff, customer satisfaction, go to market, sales, watchers), with last and next run, *Pause* / *Resume*, and a link to Hermes's Scheduled jobs for editing and *Trigger now*.
+
+| All apps | Routines |
+|---|---|
+| ![All apps: Hermes pages, plugin pages and workspace tools, each with Pin to sidebar](docs/screens/app-apps.png) | ![Routines grouped by desk with Pause and Open on each job (job names blurred)](docs/screens/app-routines.png) |
+
+### One title-bar chip — and Back to stock Hermes
+
+helm adds nothing to the status bar. It keeps one small chip in the title bar: who needs you and who is working. Behind it:
+
+- **Tools:** Files, Review, Browser, Find in page, show or hide the status bar, and ⌘K for the terminal, logs and everything else.
+- **Customize**, and **Fix layout…** (re-apply your layout template if a side pane ever takes the window).
+- **Use helm as the whole shell:** helm's theme, the status bar put away and helm's sidebar in front. **Back to stock Hermes** puts your theme and status bar back. Both happen only when you click.
+
+<img src="docs/screens/app-chip-menu.png" alt="The title-bar chip menu: Tools, Customize, Fix layout and Back to stock Hermes" width="360">
+
+Every Hermes function stays within two clicks or one keybind; [the function inventory](docs/function-inventory.md) lists where each one lives. Turning helm off in Settings › Plugins returns stock Hermes.
 
 ### Needs you, everywhere — and the live plan
 
-Approvals and questions from every bot appear on the Desk. They also appear in a sidebar pane, which shows up only while something is waiting.
-
-The **Session** pane beside your chat shows the bot's task plan as it works (*Plan · 1 of 4*, with the current step marked *now*), along with model, folder, tokens, cost and the rest of your crew.
-
-| Needs you — [what each button sends](docs/guides/needs-you.md) | Session pane — [where the plan comes from](docs/guides/task-plan.md) |
-|---|---|
-| ![Needs you sidebar pane with an approval and a question](docs/screens/needs-pane.png) | ![Session pane with the live task plan, session details, crew and scheduled jobs](docs/screens/session-pane.png) |
+Approvals and questions from every bot appear in the Crew view and on the Desk, answered with one click. The **Task** pane beside your chat shows the bot's plan as it works (*Plan · 1 of 4*, with the current step marked *now*), along with model, folder, tokens and cost. → [Needs you](docs/guides/needs-you.md) · [Task plan](docs/guides/task-plan.md)
 
 ### Robots you build — `⌘⌥R`
 
@@ -83,30 +106,18 @@ The **Bots board** lists every bot with its rendered robot and live state (*work
 
 Each robot is assembled from **191 Blender-rendered layers**: toppers, faces, chest modules, tools, things to wear and seven colours. Its face follows the bot's state, and the robot becomes the bot's Hermes avatar. helm never replaces a photo you uploaded. **New bot** creates a real Hermes bot. → [Robots guide](docs/guides/robots.md)
 
-![The Bots board in Hermes Desktop: each bot's robot, state, model and actions](docs/screens/app-bots-board.png)
-
 ![A crew of helm robots](docs/robots-dark.png)
 
 ### A redesign you can tune — `⌘⌥U`
 
-The redesign layer runs across the whole app:
+The redesign layer runs across the whole app: sentence-case labels and tabs, a quiet tab strip, an accent edge on the open row, a calmer reading column, framed tool activity, approvals with an amber decision edge, a hairline composer that lights up on focus, and thin scrollbars.
 
-- a one-colour rail
-- tracked-caps labels and tabs with an accent underline
-- an accent edge on the open row
-- a calmer reading column
-- framed tool activity
-- approvals with an amber decision edge
-- a hairline composer that lights up on focus
-- a tabular status bar
-- thin scrollbars
+**Customize look** tunes it live:
 
-**Customize look** tunes all of it live:
-
-- **Base:** Dark, Graphite or Paper
+- **Base:** Dark, Graphite, Ember or Paper
 - **Accent:** seven accents
 - **Type:** four type families
-- **Layout:** corners, reading width and rail colour
+- **Layout:** corners and reading width; the icon rail and hiding the Sessions · Bots · Helm strip are options
 - **Density:** session list density and chat text size
 - **Surfaces:** every helm surface can be switched on or off
 
@@ -116,13 +127,9 @@ The redesign layer runs across the whole app:
 
 ### Status everywhere
 
-- **Titlebar:** bot, folder, model, cost and context of the chat you're in.
-- **Session rows:** the owning bot's status line and spend; **All / Needs you / Working / Done** pills at the top of each bot's session group filter the list.
-- **Status bar:** *N need you*, *$ today*, *N working* and the focused chat's cost.
+- **Title bar:** the chip above, plus the bot, folder, model, cost and context of the chat you're in.
 - **HUD:** in Hermes's HUD window, who is on, what waits on you and the latest reply, above the HUD composer.
-- **Command palette:** *Desk*, *what needs me*, *new chat with ‹bot›*, *resume ‹bot›*, every theme and *Helm: diagnostics*.
-
-Title-bar tabs keep Hermes's own look: the tab strip has no plugin slot, so helm does not draw status dots there.
+- **Command palette:** *All apps*, *Routines*, *use helm as the whole shell*, *back to stock Hermes*, *fix layout*, *new chat with ‹bot›*, every theme and *Helm: diagnostics*.
 
 ## Guides
 
@@ -173,6 +180,7 @@ It has no path traversal and imports no Hermes internals.
 - Each bot's recent session rows (title, timestamps, unread/active flags, cost), through `host.listPersistedSessions`. This is the sidebar's own read, and helm keeps it in memory only.
 - The app's busy/usage state, through `host.state`.
 - Each bot's scheduled jobs, through the gateway's public `cron.manage` with `action: list`.
+- Your projects and each project's sessions, through the gateway's `projects.tree` (falling back to `projects.list`) and `projects.project_sessions`, the calls Hermes's own sidebar makes.
 - Live sessions and their pending approvals, through `session.active_list` and `approval.pending`.
 - The focused chat's transcript (`session.history`), to build its task plan. helm keeps this in memory only.
 - The window's approval mode and, per bot, a few settings (`config.get` on `approvals.mode`, `terminal.backend`, `tts.provider`, the chosen voice, `bot_desktop.placement`), and which MCP servers a bot has on (`mcp.servers.status`), for the Bot view's permissions and voice rows.
@@ -191,7 +199,10 @@ It has no path traversal and imports no Hermes internals.
 - Sends a message from the Desk prompt when you press **↵** or *Send*.
 - Stops the focused chat's turn (`session.interrupt`) from **Stop**.
 - Changes the window's approval mode (`config.set` on `approvals.mode`) from the composer's approval pill — *Ask before acting*, *Smart approvals* or *Act without asking*; the last one turns tool approvals off for that window, exactly as Hermes's own status-bar control does.
-- Pauses or resumes a bot's scheduled job (`cron.manage` with `pause` / `resume`) from the on/off switch in the Bot view's routines. helm never adds or removes a job.
+- Pauses or resumes a bot's scheduled job (`cron.manage` with `pause` / `resume`) from the Bot view's routines or the Routines page, only on your click. helm never adds or removes a job.
+- Makes a project active (`projects.set_active`) when you press **+** on it in the sidebar, then opens a new chat.
+- Runs the app's own view and navigation actions through `ctx.runAction` (Files, Review, Browser, Find, status bar, sidebar, ⌘K, Settings, Capabilities, Messaging, Artifacts, Scheduled jobs, Profiles, Agents, Keyboard shortcuts).
+- On **Use helm as the whole shell** only: requests the helm theme and hides the status bar; **Back to stock Hermes** requests your previous theme and shows the bar again.
 - Creates a bot (`profiles.create`) from *New bot*, and duplicates one (`profiles.create` with `clone_from`) from *Duplicate*.
 - Saves a bot's description, disabled skills, model and provider, or SOUL.md (`profiles.configure`) from the bot editor's *Save*; an expensive model asks again before it saves.
 - Starts a bot's computer (`display.start`) from the Computer tab's *Start*.

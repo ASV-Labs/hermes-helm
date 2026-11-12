@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.0 — 2026-11-12
+
+One navigation system. helm stops reading as a tab inside Hermes and becomes the shell around it, with every Hermes function still reachable (see `docs/function-inventory.md`).
+
+- **The sidebar is the list.** helm's pane in the sessions column has a search box, **Crew / Projects / All chats**, a hero for the bot you picked (its animated robot at 96 px, state, New chat / Board / Edit), crew rows at 56 px with a 40 px robot on the bot's own colour, a needs-you badge and the selected bot's chats beneath it, Rooms, an **Apps** section and a footer (bot switcher, New bot, Customize, Settings). Picking the Helm tab no longer opens the Bots board; the Board is the detail view you ask for.
+- **Projects** come from the gateway's own `projects.list` / `projects.project_sessions`; each project expands to its sessions and **+** starts a session in it.
+- **Apps** pins Routines, Kanban, SIEMless, Lineage and Artifacts by default. **All apps** (`/helm/apps`) lists every Hermes page, every plugin page helm knows, the workspace tools and any page you pin by route. A plugin turned off in Settings › Plugins leaves the list. SIEMless rows carry a badge from its `plugin.siemless.finding` event.
+- **Routines** (`/helm/routines`) groups scheduled jobs by desk (ads, cos, csat, gtm, sales, watchers, everything else) with Pause / Resume and a link to Hermes's Scheduled jobs. It says which store each count comes from, since Hermes's page lists one bot's store and helm lists every bot's.
+- **No more status-bar chips.** The bar is yours again. helm keeps one title-bar chip (needs-you and working counts) with Tools (Files, Review, Browser, Find, Show status bar, ⌘K), Customize, **Fix layout…** and the shell switch. Hook health shows only when something is broken. The bot editor mounts from the title bar.
+- **Use helm as the whole shell / Back to stock Hermes.** On your click only: applies the helm theme, rests the status bar and fronts helm's sidebar, saving what it changed; Back to stock puts the theme and status bar back and shows the native Sessions pane. In the chip, Settings › Plugins › Helm and ⌘K.
+- **The rail is off by default** (Customize › Icon rail brings it back). `tabStripDefault` is never written: the strip is restyled to a quiet, sentence-case row, and hiding it is a Customize option.
+- **Sentence case** for tabs and sidebar labels; the home's Today is one line linking to Routines.
+- **Sidebar toggle** goes through the app's `view.toggleSidebar` action first.
+- **Prefs:** `designVersion` is kept across saves, so earlier migrations no longer re-run on every launch.
+- **Layout break fixed (found on the build Mac).** "Show right sidebar" no longer lets the side panes take the window. Hermes caps a fixed zone only when every pane in it declares a `maxWidth`; helm's Task pane had none, which uncapped the Files zone and made it the layout's absorber. The Task pane now declares `maxWidth: 20rem` and helm's sidebar pane `22rem`. (A plugin pane in the Review zone without one, such as a local AI Task Broker, does the same; give it a `maxWidth`.)
+- **Projects match Hermes's sidebar:** helm reads `projects.tree` (Home, your projects and the repos Hermes promoted), not `projects.list`.
+- **Hidden bots stay hidden.** A bot hidden in Bot Mode (its profile's `ui_meta`) is left out of Crew, with a *Hidden N* link to show it.
+- **Hook health ignores what you rested.** With the status bar or the strip put away, their missing markers are not reported as a Hermes change.
+- **helm's own nav rows (Desk, Bots board, Customize) stay hidden** in stock mode too; the sidebar, Apps and ⌘K reach them.
+- **Scheduled runs stay out of chat lists**, as in Hermes: Crew and All chats show your chats; a bot's runs are a link to Routines.
+
 ## 1.2.1 — 2026-11-07
 
 Catalog-compliant desktop surface. `hermes plugins validate` refused 1.2.0 for eight `document.querySelector` calls on the app's own `data-slot` markup (catalog rule 8); 1.2.1 passes that check with 0 refusals, so the catalog can move from 1.0.5 to this release.

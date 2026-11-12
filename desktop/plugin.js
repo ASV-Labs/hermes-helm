@@ -2,9 +2,14 @@
 // Plain ESM, loaded uncompiled. Only `@hermes/plugin-sdk`, `react` and
 // `react/jsx-runtime` resolve. UI is jsx() calls, never JSX syntax.
 //
-// What this file registers:
-//   THEMES_AREA        three themes: helm-dark, helm-graphite, helm-paper (customCSS included)
-//   statusBar.right    "N working" and "$cost · ctx%" chips (both optional)
+// What this file registers (2.0):
+//   THEMES_AREA        helm-dark, helm-graphite, helm-ember, helm-paper and the live helm-custom (customCSS included)
+//   panes              helm's sidebar (Crew / Projects / All chats, Apps, footer) in the sessions column,
+//                      and the Task/Bot pane beside Files
+//   titleBar.right     one chip: needs-you and working counts, Tools, Customize, Fix layout,
+//                      "Use helm as the whole shell" / "Back to stock Hermes"; and the bot editor mount
+//   statusBar.left     a zero-width probe (is the bar up?), never a visible chip
+//   ROUTES_AREA        /helm/apps (All apps), /helm/routines (Routines by desk), plus the 1.x pages
 //   sidebarNav.prefs   hide the Messaging row when asked (Capabilities can never be hidden)
 //   ROUTES_AREA        /helm/bots — the Bots board with robot looks
 //   SIDEBAR_NAV_AREA   a "Bots board" row under the core rows
@@ -45,7 +50,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '1.2.1'
+const VERSION = '2.0.0'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -80,10 +85,10 @@ ${HELM_CSS_SCOPE} [data-slot="profile-rail"] {
 /* Sidebar: section labels are small tracked caps; the open row carries an accent edge. */
 ${HELM_CSS_SCOPE} [data-slot="sidebar"] { border-right: 1px solid var(--helm-hair) !important; }
 ${HELM_CSS_SCOPE} [data-slot="sidebar-group-label"] {
-  font-size: 10.5px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0;
+  text-transform: none;
   color: #76838F !important;
 }
 ${HELM_CSS_SCOPE} [data-slot="sidebar-menu-button"] {
@@ -153,12 +158,12 @@ ${HELM_CSS_SCOPE} [data-helm-row-status] {
   text-overflow: ellipsis;
 }
 
-/* Tabs: tracked caps, an underline for the open one. */
+/* Tabs: sentence case, an underline for the open one. */
 ${HELM_CSS_SCOPE} [data-slot="pane-tab"],
 ${HELM_CSS_SCOPE} [data-slot="tabs-trigger"] {
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-size: 11.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 12.5px;
   font-weight: 600;
   color: #98A4B1;
 }
@@ -348,6 +353,18 @@ ${HELM_CSS_SCOPE} [data-slot="tooltip-content"] {
 }
 `
 
+// Calm defaults for the strips: sentence case, a quieter sessions-column row.
+const HELM_SHELL_CSS = `
+${HELM_CSS_SCOPE} [data-slot="pane-tab"],
+${HELM_CSS_SCOPE} [data-slot="tabs-trigger"] { text-transform: none !important; letter-spacing: 0 !important; font-size: 12.5px; font-weight: 500; }
+${HELM_CSS_SCOPE} [data-slot="pane-tab"] span { letter-spacing: 0 !important; text-transform: none !important; }
+${HELM_CSS_SCOPE} [data-slot="sidebar-group-label"],
+${HELM_CSS_SCOPE} [data-slot="sidebar"] span:has(> .dither) { text-transform: none !important; letter-spacing: 0 !important; font-size: 12.5px !important; font-weight: 500 !important; }
+${HELM_CSS_SCOPE} [data-tree-group]:has([data-tree-tab="sessions"]) > [data-panel-header] [data-slot="pane-tab"] { height: 26px; font-size: 12px; color: var(--ui-text-tertiary); box-shadow: none !important; }
+${HELM_CSS_SCOPE} [data-tree-group]:has([data-tree-tab="sessions"]) > [data-panel-header] [data-slot="pane-tab"][data-active="true"] { color: var(--ui-text-primary); background: var(--ui-bg-elevated) !important; border-radius: 6px; }
+:root[data-helm-strip="hidden"][data-hermes-theme^="helm"] [data-tree-group]:has([data-tree-tab="sessions"]) > [data-panel-header] { display: none !important; }
+`
+
 // Customize-look tunables, written in front of HELM_CSS by the custom theme.
 const RADIUS = { sharp: 0.45, default: 0.85, round: 1.3 }
 const READING = { narrow: '720px', default: 'none', wide: '1180px' }
@@ -431,7 +448,7 @@ function customTheme(prefs) {
     typography: { ...TYPOGRAPHY, fontSans: font.fontSans, fontMono: (CODE_FONTS[prefs.codeFont] || CODE_FONTS.jetbrains).fontMono },
     terminal: base.terminal,
     darkTerminal: base.darkTerminal,
-    customCSS: surfacesCSS(base.colors, ':root[data-hermes-theme="helm-custom"]') + tunablesCSS(prefs) + HELM_CSS
+    customCSS: surfacesCSS(base.colors, ':root[data-hermes-theme="helm-custom"]') + tunablesCSS(prefs) + HELM_CSS + HELM_SHELL_CSS
   }
 }
 
@@ -610,7 +627,7 @@ const THEMES = [
     typography: TYPOGRAPHY,
     terminal: TERMINAL_DARK,
     darkTerminal: TERMINAL_DARK,
-    customCSS: surfacesCSS(DARK, ':root[data-hermes-theme="helm-dark"]') + HELM_CSS
+    customCSS: surfacesCSS(DARK, ':root[data-hermes-theme="helm-dark"]') + HELM_CSS + HELM_SHELL_CSS
   },
   {
     name: 'helm-graphite',
@@ -621,7 +638,7 @@ const THEMES = [
     typography: TYPOGRAPHY,
     terminal: TERMINAL_DARK,
     darkTerminal: TERMINAL_DARK,
-    customCSS: surfacesCSS(GRAPHITE, ':root[data-hermes-theme="helm-graphite"]') + HELM_CSS
+    customCSS: surfacesCSS(GRAPHITE, ':root[data-hermes-theme="helm-graphite"]') + HELM_CSS + HELM_SHELL_CSS
   },
   {
     name: 'helm-ember',
@@ -632,7 +649,7 @@ const THEMES = [
     typography: TYPOGRAPHY,
     terminal: TERMINAL_DARK,
     darkTerminal: TERMINAL_DARK,
-    customCSS: surfacesCSS(EMBER, ':root[data-hermes-theme="helm-ember"]') + HELM_CSS
+    customCSS: surfacesCSS(EMBER, ':root[data-hermes-theme="helm-ember"]') + HELM_CSS + HELM_SHELL_CSS
   },
   {
     name: 'helm-paper',
@@ -643,7 +660,7 @@ const THEMES = [
     typography: TYPOGRAPHY,
     terminal: TERMINAL_LIGHT,
     darkTerminal: TERMINAL_DARK,
-    customCSS: surfacesCSS(PAPER, ':root[data-hermes-theme="helm-paper"]') + HELM_CSS
+    customCSS: surfacesCSS(PAPER, ':root[data-hermes-theme="helm-paper"]') + HELM_CSS + HELM_SHELL_CSS
   }
 ]
 
@@ -687,13 +704,22 @@ const DEFAULT_PREFS = {
   showDeskStrip: true,
   homeOnNewSession: true,
   showHudPanel: true,
-  showRail: true,
+  showRail: false,
   showSidebarNeeds: true,
   hudBoard: true,
   routing: {},
   deskName: '',
   // Desk sections you folded, comma-separated ids ('continue,today').
-  deskFolded: ''
+  deskFolded: '',
+  // 2.0 shell
+  designVersion: 0,
+  fullShell: false,
+  stockSnapshot: null,
+  sidebarView: 'crew',
+  appsPinned: ['routines', 'kanban', 'siemless', 'lineage', 'artifacts'],
+  appsCustom: [],
+  hideStrip: false,
+  helmPinned: []
 }
 
 // ────────────────────────────────────────────────────────────── robot looks
@@ -1145,45 +1171,12 @@ function RobotFull({ look, expr, size = 200 }) {
 
 // ──────────────────────────────────────────────────────────── status chips
 
-function WorkingChip({ prefs }) {
-  const { showWorkingChip } = useValue(prefs)
-  const busy = useValue(host.state.busyBySession)
-  const n = Object.values(busy || {}).filter(Boolean).length
-  if (!showWorkingChip) return null
-  return jsxs('span', {
-    title: n === 1 ? 'One session is mid-turn' : `${n} sessions are mid-turn`,
-    className: cn(
-      'inline-flex h-full items-center gap-1.5 px-1.5 text-[0.6875rem]',
-      n > 0 ? 'text-(--ui-text-secondary)' : 'text-(--ui-text-quaternary)'
-    ),
-    children: [
-      jsx('span', {
-        className: cn('inline-block h-1.5 w-1.5 rounded-full', n > 0 ? 'bg-(--ui-accent)' : 'bg-(--ui-text-quaternary)')
-      }),
-      n === 0 ? 'idle' : `${n} working`
-    ]
-  })
-}
 
 function fmtCost(v) {
   if (typeof v !== 'number' || !isFinite(v)) return null
   return v < 0.01 && v > 0 ? '<$0.01' : `$${v.toFixed(2)}`
 }
 
-function CostChip({ prefs }) {
-  const { showCostChip } = useValue(prefs)
-  const usage = useValue(host.state.focusedUsage)
-  if (!showCostChip || !usage) return null
-  const cost = fmtCost(usage.cost_usd)
-  const pct = typeof usage.context_percent === 'number' ? `${Math.round(usage.context_percent)}% ctx` : null
-  const parts = [cost, pct].filter(Boolean)
-  if (parts.length === 0) return null
-  return jsx('span', {
-    title: 'Focused session: cost so far and context used',
-    className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] text-(--ui-text-tertiary) tabular-nums',
-    children: parts.join(' · ')
-  })
-}
 
 // ───────────────────────────────────────────────────────────── Bots board
 
@@ -1336,7 +1329,19 @@ async function refreshCrew() {
   crewInflight = true
   try {
     const res = await host.profiles.list()
-    const profiles = (res && res.profiles) || []
+    const profiles = ((res && res.profiles) || []).slice()
+    // Bot Mode's per-profile metadata (hidden, title) rides on the gateway's
+    // profiles.list rows, not the REST list. Best-effort.
+    try {
+      const rpc = await host.request('profiles.list', { include_sessions: false }, 10000)
+      const byName = new Map(((rpc && rpc.profiles) || []).filter(r => r && r.name).map(r => [r.name, r]))
+      for (let i = 0; i < profiles.length; i++) {
+        const row = byName.get(profiles[i].name)
+        if (row && row.ui_meta) profiles[i] = { ...profiles[i], ui_meta: row.ui_meta }
+      }
+    } catch {
+      /* older gateway: nothing hidden */
+    }
     const sessions = {}
     const byId = {}
     if (typeof host.listPersistedSessions === 'function') {
@@ -2218,7 +2223,8 @@ function RoomView({ roomId, looks }) {
 
 const $boardMounted = atom(false)
 const B = { bg: '#0F1419', panel: '#121820', sel: '#171E27', hair: '#1C242D', ctl: '#222B35', t1: '#E6EBF0', t2: '#C3CCD5', t3: '#98A4B1', t4: '#76838F', amber: '#E8A657', green: '#6FBF8E', red: '#E07080', mono: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace" }
-const B_CAPS = { fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: B.t4 }
+// 2.0: section labels are sentence case (the name is kept for the call sites).
+const B_CAPS = { fontSize: 12.5, fontWeight: 500, letterSpacing: 0, textTransform: 'none', color: B.t3 }
 const B_GRID = 'minmax(130px, 180px) 96px minmax(140px, 1fr) 130px 120px 60px'
 
 function isToday(ts) {
@@ -3102,43 +3108,8 @@ function ContextLine({ looks, prefs }) {
   })
 }
 
-function NeedsYouChip({ prefs }) {
-  const { showNeedsYouChip } = useValue(prefs)
-  const crew = useValue($crew)
-  const { needYou } = crewTotals(crew)
-  if (!showNeedsYouChip || needYou === 0) return null
-  return jsx('button', {
-    type: 'button',
-    title: 'Sessions with a reply you have not read — open the Bots board',
-    onClick: () => {
-      $boardFilter.set('attention')
-      openBoardTab()
-    },
-    className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] font-medium text-(--ui-yellow) hover:underline',
-    children: needYou === 1 ? '1 needs you' : `${needYou} need you`
-  })
-}
 
-function ApprovalsChip() {
-  const mode = useValue($approvalMode)
-  useEffect(() => {
-    readApprovalMode()
-  }, [])
-  if (!mode) return null
-  return jsx('span', { title: 'Approval mode for this window', className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] text-(--ui-text-tertiary)', children: `Approvals: ${mode === 'manual' ? 'ask' : mode}` })
-}
 
-function TodayChip({ prefs }) {
-  const { showTodayChip } = useValue(prefs)
-  const crew = useValue($crew)
-  const { today } = crewTotals(crew)
-  if (!showTodayChip) return null
-  return jsx('span', {
-    title: 'Spend across every bot’s sessions active today',
-    className: 'inline-flex h-full items-center px-1.5 text-[0.6875rem] tabular-nums text-(--ui-text-tertiary)',
-    children: `${fmtCost(today) || '$0.00'} today`
-  })
-}
 
 // ───────────────────────────────────────────────────────────────── the desk
 // Home for the whole app: who's working, what's waiting on you, what ran
@@ -3382,7 +3353,7 @@ const V = {
   radius: n => `calc(var(--radius-scalar, 1) * ${n}px)`
 }
 const TONE_COLOR = { amber: V.amber, accent: V.accent, muted: V.t3 }
-const CAPS = { fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: V.t3, margin: 0 }
+const CAPS = { fontSize: 12.5, fontWeight: 500, letterSpacing: 0, textTransform: 'none', color: V.t3, margin: 0 }
 const ON_ACCENT = '#06161A'
 
 // A Desk section. With `id` + `fold` it folds: the header toggles it, the
@@ -4020,11 +3991,7 @@ function HomeUnderside({ looks, prefs }) {
                 ]
               : jsx('div', { style: { padding: '9px 2px', color: B.t4, fontSize: 12.5, borderBottom: `1px solid ${B.hair}` }, children: 'Nothing is waiting on you.' })
           }),
-          jsx(HomeSection, {
-            title: 'Today',
-            action: jsx('button', { type: 'button', onClick: () => host.navigate('/cron'), style: { border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 12, cursor: 'pointer' }, children: 'Automations' }),
-            children: jsx(TodayList, {})
-          })
+          jsx(HomeSection, { title: 'Today', children: jsx(TodayLine, {}) })
         ]
       }),
       jsxs('div', {
@@ -4142,17 +4109,6 @@ const CHAT_CSS = `
 
 let hookCount = 0
 const $hookCount = atom(0)
-function HooksChip() {
-  const n = useValue($hookCount)
-  const health = useValue($health)
-  if (inHudWindow()) return null
-  const bad = health.missing.length
-  return jsx('span', {
-    title: bad ? `Falling back to Hermes's look for: ${health.missing.join(', ')}` : 'Every helm hook is attached to this Hermes',
-    className: cn('inline-flex h-full items-center px-1.5 text-[0.6875rem]', bad ? 'text-(--ui-yellow)' : 'text-(--ui-text-tertiary)'),
-    children: bad ? `helm ${VERSION} · ${bad} ${bad === 1 ? 'hook' : 'hooks'} need an update` : `helm ${VERSION} · ${n} hooks active`
-  })
-}
 const $detail = atom('normal')
 function chatPanelOn() {
   return !helmPrefsRef || helmPrefsRef.prefs.get().chatPanel !== false
@@ -5331,25 +5287,6 @@ function openBot(p, activity) {
   else host.newChat(p.name)
 }
 
-const DOT_FOR = key => (key === 'working' ? V.accent : key === 'needs-you' ? V.amber : null)
-
-function HelmTile({ p, look, line, activity, selected }) {
-  const dot = DOT_FOR(line.key)
-  return jsxs('button', {
-    type: 'button',
-    title: `${botLabel(p)} · ${line.text}`,
-    onClick: () => openBot(p, activity),
-    style: {
-      position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5, padding: '8px 4px', borderRadius: 8,
-      border: 0, background: selected ? HELM_RAISED : 'transparent', color: V.t1, cursor: 'pointer', minWidth: 0, font: 'inherit'
-    },
-    children: [
-      jsx(AnimatedRobot, { look, head: true, size: 36, expr: line.key === 'working' ? 'focused' : line.key === 'needs-you' ? 'question' : look.face, state: petStateFor(line.key), title: botLabel(p) }),
-      jsx('span', { style: { fontSize: 11.5, maxWidth: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: botLabel(p) }),
-      dot ? jsx('span', { style: { position: 'absolute', top: 7, right: 9, width: 7, height: 7, borderRadius: 4, background: dot, boxShadow: `0 0 0 2px ${selected ? HELM_RAISED : 'var(--ui-bg-sidebar, #121820)'}` } }) : null
-    ]
-  })
-}
 
 function HelmChip({ label, count, active, tone, onClick }) {
   return jsx('button', {
@@ -5364,35 +5301,10 @@ function HelmChip({ label, count, active, tone, onClick }) {
   })
 }
 
-function HelmBotRow({ p, look, line, activity, selected }) {
-  const role = botRole(p)
-  const when = activity.latest ? shortAgo(activity.latest.last_active) : ''
-  return jsxs('button', {
-    type: 'button',
-    onClick: () => openBot(p, activity),
-    style: {
-      margin: '0 8px', padding: '6px 8px', borderRadius: 6, border: 0, display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 8, alignItems: 'center',
-      textAlign: 'left', lineHeight: 1.3, background: selected ? HELM_RAISED : 'transparent', color: V.t1, font: 'inherit', cursor: 'pointer', width: 'calc(100% - 16px)'
-    },
-    children: [
-      jsx(AnimatedRobot, { look, head: true, size: 22, expr: line.key === 'working' ? 'focused' : line.key === 'needs-you' ? 'question' : look.face, state: petStateFor(line.key), title: botLabel(p) }),
-      jsxs('span', {
-        style: { display: 'flex', flexDirection: 'column', minWidth: 0 },
-        children: [
-          jsxs('span', { style: { fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: [botLabel(p), role ? jsx('span', { style: { color: '#76838F' }, children: ` · ${role}` }) : null] }),
-          jsx('span', { style: { fontSize: 11.5, color: line.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: line.text })
-        ]
-      }),
-      activity.unread > 0
-        ? jsx('span', { title: 'Unread output', style: { width: 6, height: 6, borderRadius: 3, background: V.accent, display: 'block', justifySelf: 'end' } })
-        : jsx('span', { style: { fontSize: 10.5, color: V.t3, fontFamily: V.mono }, children: when })
-    ]
-  })
-}
 
 function HelmSectionLabel({ children, tone, count }) {
   return jsxs('div', {
-    style: { padding: '12px 14px 4px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tone || V.t3 },
+    style: { padding: '12px 14px 4px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 500, letterSpacing: 0, textTransform: 'none', color: tone || V.t3 },
     children: [jsx('span', { children }), count ? jsx('span', { style: { color: V.t3, letterSpacing: 0, fontWeight: 500 }, children: count }) : null]
   })
 }
@@ -5449,242 +5361,7 @@ function HelmConnections() {
 
 // Footer: which bot you're on (swatch + name, a picker for the rest) and the
 // way to the full board.
-function HelmFooter({ rows, focusedProfile, board }) {
-  const [open, setOpen] = useState(false)
-  const current = rows.find(r => r.p.name === focusedProfile) || rows[0]
-  const swatch = r => {
-    const pal = PALETTE[r && r.look && r.look.color] || PALETTE.blue
-    return pal.dark
-  }
-  return jsxs('div', {
-    style: { marginTop: 'auto', position: 'relative', borderTop: '1px solid #1C242D', padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 6 },
-    children: [
-      current
-        ? jsxs('button', {
-            type: 'button',
-            'aria-haspopup': 'menu',
-            'aria-expanded': open,
-            title: 'Switch bot',
-            onClick: () => setOpen(v => !v),
-            style: { height: 26, padding: '0 8px', borderRadius: 6, border: '1px solid #1C242D', background: '#0F1419', color: '#E6EBF0', font: 'inherit', fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', maxWidth: 150 },
-            children: [
-              jsx('span', { style: { width: 8, height: 8, borderRadius: 2, background: swatch(current), flex: '0 0 8px' } }),
-              jsx('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: botLabel(current.p) }),
-              jsx('svg', { width: 10, height: 10, viewBox: '0 0 24 24', fill: 'none', stroke: '#76838F', strokeWidth: 2.5, 'aria-hidden': true, children: jsx('path', { d: 'M6 9l6 6 6-6' }) })
-            ]
-          })
-        : null,
-      open
-        ? jsx('div', {
-            role: 'menu',
-            style: { position: 'absolute', left: 10, bottom: 40, minWidth: 170, padding: 4, borderRadius: 8, border: '1px solid #222B35', background: '#121820', boxShadow: '0 8px 24px rgba(0,0,0,0.45)', zIndex: 20 },
-            children: rows.map(r =>
-              jsxs('button', {
-                key: r.p.name,
-                type: 'button',
-                role: 'menuitem',
-                onClick: () => {
-                  setOpen(false)
-                  openBot(r.p, r.activity)
-                },
-                style: { width: '100%', height: 28, padding: '0 8px', border: 0, borderRadius: 6, background: r.p.name === focusedProfile ? '#171E27' : 'transparent', color: '#E6EBF0', font: 'inherit', fontSize: 12, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', textAlign: 'left' },
-                children: [
-                  jsx('span', { style: { width: 8, height: 8, borderRadius: 2, background: swatch(r), flex: '0 0 8px' } }),
-                  jsx('span', { style: { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: botLabel(r.p) }),
-                  jsx('span', { style: { fontSize: 11, color: r.line.color }, children: r.line.key === 'working' ? 'working' : r.line.key === 'needs-you' ? 'needs you' : '' })
-                ]
-              })
-            )
-          })
-        : null,
-      board ? null : jsx('button', { type: 'button', onClick: () => openBoardTab(), style: { marginLeft: 'auto', border: 0, padding: 0, background: 'transparent', color: V.accent, cursor: 'pointer', font: 'inherit', fontSize: 11.5 }, children: 'Board view' })
-    ]
-  })
-}
 
-function HelmTab({ looks, prefs, setPrefs }) {
-  const crew = useValue($crew)
-  const looksValue = useValue(looks)
-  const prefsValue = useValue(prefs)
-  const n = useNeedsYou()
-  const [filter, setFilter] = useState('all')
-  const needs = useMemo(() => needsByBot(n), [n.approvals, n.questions])
-  const rows = useMemo(
-    () =>
-      (crew.profiles || []).map(p => {
-        const activity = activityFor(crew, p.name)
-        const line = botLine(p, activity, needs[p.name] || { approvals: 0, questions: 0 })
-        const look = normalizeLook(looksValue[p.name] || null, p.name)
-        const rank = line.key === 'needs-you' ? 0 : line.key === 'working' ? 1 : line.key === 'idle' ? 2 : 3
-        return { p, activity, line, look, rank, last: activity.latest ? activity.latest.last_active : 0 }
-      }),
-    [crew, looksValue, needs]
-  )
-  const sorted = useMemo(() => rows.slice().sort((a, b) => a.rank - b.rank || b.last - a.last), [rows])
-  const pinnedNames = Array.isArray(prefsValue.helmPinned) && prefsValue.helmPinned.length ? prefsValue.helmPinned : sorted.slice(0, 3).map(r => r.p.name)
-  const pinned = pinnedNames.map(name => rows.find(r => r.p.name === name)).filter(Boolean).slice(0, 3)
-  const needCount = rows.filter(r => r.line.key === 'needs-you').length
-  const workCount = rows.filter(r => r.line.key === 'working').length
-  const shown = sorted.filter(r => filter === 'all' || r.line.key === filter)
-  const focusedProfile = useValue(host.state.focusedSessionProfile)
-  const boardRoute = useValue($boardMounted)
-  const boardTab = useValue($boardTabVisible)
-  const boardMode = useValue($boardMode)
-  const boardOpen = boardRoute || boardTab
-  const roomsValue = useValue($rooms)
-  const [newRoom, setNewRoom] = useState(false)
-  const today = useValue($today)
-  const handoffs = useValue($handoffs)
-  // The Helm tab is the Bots board: picking the tab opens the board in the
-  // main area (Board / Roster / Routines / Agent inbox down the side).
-  useEffect(() => {
-    if (!isPrimaryWindow() || inHudWindow()) return undefined
-    let was = false
-    let atom = null
-    try {
-      atom = typeof host.paneVisibility === 'function' ? host.paneVisibility(`${ID}:helm-tab`) : null
-    } catch {
-      atom = null
-    }
-    const open = () => {
-      if (!$boardMounted.get()) openBoardTab()
-    }
-    if (!atom || typeof atom.subscribe !== 'function') {
-      $helmTabVisible.set(true)
-      open()
-      return undefined
-    }
-    const off = atom.subscribe(v => {
-      $helmTabVisible.set(!!v)
-      if (v && !was) open()
-      was = !!v
-    })
-    return () => typeof off === 'function' && off()
-  }, [])
-  if (!crew.ready && !(crew.profiles || []).length) {
-    return jsx('div', { style: { padding: '14px', fontSize: 12, color: V.t3 }, children: 'Loading your bots…' })
-  }
-  if (boardOpen) {
-    const routines = (today.jobs || []).filter(j => j.enabled).length
-    const navRow = (label, d, opts = {}) =>
-      jsxs('button', {
-        type: 'button',
-        className: opts.selected ? undefined : 'helm-nav-row',
-        onClick: opts.onClick,
-        style: { height: 30, display: 'flex', alignItems: 'center', gap: 9, padding: '0 8px', borderRadius: 6, border: 0, background: opts.selected ? '#171E27' : 'transparent', color: opts.selected ? '#E6EBF0' : '#C3CCD5', font: 'inherit', fontSize: 13, cursor: 'pointer', textAlign: 'left', width: '100%' },
-        children: [
-          jsx('svg', { width: 14, height: 14, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, 'aria-hidden': true, children: d.map((x, i) => (x.r ? jsx('rect', { ...x.r }, i) : x.c ? jsx('circle', { ...x.c }, i) : jsx('path', { d: x }, i))) }),
-          jsx('span', { children: label }),
-          opts.count ? jsx('span', { style: { marginLeft: 'auto', fontSize: 11, color: '#76838F' }, children: opts.count }) : null
-        ]
-      })
-    return jsxs('div', {
-      style: { height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', fontSize: 13, color: V.t1 },
-      children: [
-        jsxs('div', {
-          style: { padding: '10px 8px 0', display: 'flex', flexDirection: 'column', gap: 1 },
-          children: [
-            navRow('Board', [{ r: { x: 3, y: 4, width: 5, height: 16, rx: 1 } }, { r: { x: 10, y: 4, width: 5, height: 10, rx: 1 } }, { r: { x: 17, y: 4, width: 4, height: 13, rx: 1 } }], { selected: boardMode !== 'inbox', onClick: () => openBoardTab('board') }),
-            navRow('Roster', ['M4 6h16M4 12h16M4 18h10'], { onClick: () => { const r = rows.find(x => x.p.name === focusedProfile) || sorted[0]; if (r) openBot(r.p, r.activity) } }),
-            navRow('Routines', [{ c: { cx: 12, cy: 12, r: 9 } }, 'M12 7v5l3 2'], { count: routines || null, onClick: () => host.navigate('/cron') }),
-            navRow('Agent inbox', ['M4 6h16v10H8l-4 4z'], {
-              count: (handoffs || []).length + n.total || null,
-              selected: boardMode === 'inbox',
-              onClick: () => openBoardTab('inbox')
-            })
-          ]
-        }),
-        jsx(HelmSectionLabel, { children: 'Bots' }),
-        ...sorted.map(r =>
-          jsxs('button', {
-            type: 'button',
-            onClick: () => openBot(r.p, r.activity),
-            className: 'helm-nav-row',
-            style: { margin: '0 8px', padding: '6px 8px', borderRadius: 6, border: 0, display: 'grid', gridTemplateColumns: '22px 1fr auto', gap: 8, alignItems: 'center', textAlign: 'left', lineHeight: 1.3, background: 'transparent', color: V.t1, font: 'inherit', cursor: 'pointer', width: 'calc(100% - 16px)' },
-            children: [
-              jsx(AnimatedRobot, { look: r.look, head: true, size: 22, expr: r.line.key === 'working' ? 'focused' : r.line.key === 'needs-you' ? 'question' : r.look.face, state: petStateFor(r.line.key), title: botLabel(r.p) }),
-              jsxs('span', {
-                style: { display: 'flex', flexDirection: 'column', minWidth: 0 },
-                children: [
-                  jsx('span', { style: { fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: botLabel(r.p) }),
-                  jsx('span', { style: { fontSize: 11.5, color: r.line.color }, children: r.line.key === 'working' ? 'Working' : r.line.key === 'needs-you' ? (r.activity.unread && !(needs[r.p.name] && (needs[r.p.name].approvals || needs[r.p.name].questions)) ? 'Replied' : 'Blocked') : r.line.key === 'new' ? 'New' : 'Idle' })
-                ]
-              }),
-              r.activity.unread
-                ? jsx('span', { style: { width: 6, height: 6, borderRadius: 3, background: V.accent } })
-                : jsx('span', { style: { fontSize: 10.5, color: '#76838F', fontFamily: V.mono }, children: r.activity.latest ? shortAgo(r.activity.latest.last_active) : '' })
-            ]
-          }, r.p.name)
-        ),
-        jsx(HelmFooter, { rows, focusedProfile, board: true })
-      ]
-    })
-  }
-  return jsxs('div', {
-    style: { height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', fontSize: 13, color: V.t1 },
-    children: [
-      pinned.length && prefsValue.showPinnedTiles !== false
-        ? jsx('div', {
-            style: { padding: '10px 10px 0', display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 6 },
-            children: pinned.map(r => jsx(HelmTile, { ...r, selected: r.p.name === focusedProfile }, r.p.name))
-          })
-        : null,
-      jsxs('div', {
-        style: { padding: '8px 10px 0', display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'nowrap', overflow: 'hidden' },
-        children: [
-          jsx(HelmChip, { label: 'All', active: filter === 'all', onClick: () => setFilter('all') }),
-          jsx(HelmChip, { label: 'Needs you', count: needCount, active: filter === 'needs-you', tone: '#E8A657', onClick: () => setFilter('needs-you') }),
-          jsx(HelmChip, { label: 'Working', count: workCount, active: filter === 'working', onClick: () => setFilter('working') }),
-          roomsValue.ready && !roomsValue.error ? jsx(HelmChip, { label: 'Rooms', count: roomsValue.rooms.length, active: filter === 'rooms', onClick: () => setFilter('rooms') }) : null,
-          jsx('button', {
-            type: 'button',
-            'aria-label': 'New bot',
-            title: 'New bot',
-            onClick: openNewBot,
-            style: { marginLeft: 'auto', width: 24, height: 24, border: 0, borderRadius: 6, background: 'transparent', color: V.t3, cursor: 'pointer', font: 'inherit', fontSize: 16 },
-            children: '+'
-          })
-        ]
-      }),
-      roomsValue.ready && !roomsValue.error && (filter === 'all' || filter === 'rooms')
-        ? jsxs(Fragment, {
-            children: [
-              jsxs('div', {
-                style: { display: 'flex', alignItems: 'center', paddingRight: 14 },
-                children: [
-                  jsx('div', { style: { flex: 1 }, children: jsx(HelmSectionLabel, { children: 'Rooms' }) }),
-                  jsx('button', { type: 'button', onClick: () => setNewRoom(v => !v), style: { marginTop: 8, border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 11.5, cursor: 'pointer' }, children: newRoom ? 'Close' : 'New room' })
-                ]
-              }),
-              newRoom ? jsx(NewRoomForm, { profiles: crew.profiles || [], looks, onDone: () => setNewRoom(false) }) : null,
-              ...roomsValue.rooms.map(entry => jsx(HelmRoomRow, { entry, looks, looksValue }, entry.room.room_id)),
-              !roomsValue.rooms.length && !newRoom ? jsx('div', { style: { padding: '0 16px 4px', fontSize: 11.5, color: '#76838F' }, children: 'A room is a group chat of two to six bots.' }) : null
-            ]
-          })
-        : null,
-      n.total && (filter === 'all' || filter === 'needs-you')
-        ? jsxs(Fragment, {
-            children: [
-              jsx(HelmSectionLabel, { tone: V.amber, count: n.total, children: 'Needs you' }),
-              jsxs('div', {
-                style: { padding: '0 8px' },
-                children: [
-                  ...n.approvals.map(item => jsx(ApprovalRow, { item, looks: looksValue, compact: true }, item.requestId)),
-                  ...n.questions.map(item => jsx(QuestionRow, { item, looks: looksValue, compact: true }, `q:${item.sessionId}`))
-                ]
-              })
-            ]
-          })
-        : null,
-      filter === 'rooms' ? null : jsx(HelmSectionLabel, { children: 'Bots' }),
-      filter === 'rooms' ? null : shown.length
-        ? shown.map(r => jsx(HelmBotRow, { ...r, selected: r.p.name === focusedProfile }, r.p.name))
-        : jsx('div', { style: { padding: '4px 16px', fontSize: 12, color: V.t3 }, children: filter === 'working' ? 'Nobody is working right now.' : 'Nothing is waiting on you.' }),
-      jsx(HelmConnections, {}),
-      jsx(HelmFooter, { rows, focusedProfile })
-    ]
-  })
-}
 
 // A right-sidebar tab beside Files: the focused chat at a glance (who, where,
 // what it has cost), the rest of the crew, and the next scheduled job.
@@ -6736,7 +6413,12 @@ function runHealthCheck(ctx) {
   for (const [fn, what] of HEALTH_SDK) if (typeof host[fn] !== 'function') missing.push(what)
   if (!host.composer || typeof host.composer.setDraft !== 'function') missing.push('quick chips and Side chat')
   if (!host.settings || typeof host.settings.get !== 'function') missing.push('density, scale and surfaces')
-  if (typeof document !== 'undefined') for (const [sel, what] of HEALTH_DOM) if (!document.querySelector(sel)) missing.push(what)
+  // A marker that is absent because you rested it (status bar off, strip
+  // hidden) is not a Hermes change: skip those.
+  const rested = new Set()
+  if (!$statusbarShown.get()) rested.add('status bar styling')
+  if (helmPrefsRef && helmPrefsRef.prefs.get().hideStrip) rested.add('title-bar tab styling')
+  if (typeof document !== 'undefined') for (const [sel, what] of HEALTH_DOM) if (!rested.has(what) && !document.querySelector(sel)) missing.push(what)
   $health.set({ missing, checked: true })
   if (!missing.length) return
   const key = missing.join('|')
@@ -6815,17 +6497,18 @@ function SettingsGeneral({ prefs, setPrefs }) {
     children: [
       jsx(ListRow, { title: 'Theme', description: 'Three quiet themes. Picking one here also selects it in the app’s own theme picker.', action: null }),
       jsx('div', { className: 'pb-3', children: jsx(ThemeButtons, { prefs, setPrefs }) }),
-      jsx(ToggleRow, {
-        label: 'Status bar: working count',
-        description: 'How many sessions are mid-turn right now, from the app’s own busy map.',
-        checked: p.showWorkingChip,
-        onChange: on => setPrefs({ showWorkingChip: on })
+      jsx(ListRow, {
+        title: 'Use helm as the whole shell',
+        description: p.fullShell
+          ? 'On. helm’s sidebar is the way around, the status bar rests, and the chip at the top right has Tools. Back to stock Hermes puts your theme and status bar back.'
+          : 'Fronts helm’s sidebar, rests the status bar (one click in the title-bar chip brings it back) and applies the helm theme. Nothing is removed; Back to stock Hermes is one click.',
+        action: jsx(Button, { onClick: () => toggleWholeShell(), children: shellToggleLabel(p) })
       }),
       jsx(ToggleRow, {
-        label: 'Status bar: focused session cost',
-        description: 'Cost so far and context used for the session you are looking at.',
-        checked: p.showCostChip,
-        onChange: on => setPrefs({ showCostChip: on })
+        label: 'Hide the Sessions · Bots · Helm strip',
+        description: 'The strip is restyled to a quiet row by default. Hidden, Hermes’s Sessions and Bots panes are still one click away in helm’s sidebar (Hermes list, Bot Mode) and ⌘K.',
+        checked: !!p.hideStrip,
+        onChange: on => setPrefs({ hideStrip: on })
       }),
       jsx(ToggleRow, {
         label: 'Composer: who you are talking to',
@@ -7370,8 +7053,9 @@ function LookPage({ prefs, setPrefs, applyLook, looks }) {
                           children: [
                             jsx(H2b, { children: 'Shape' }),
                             jsxs('div', { style: { display: 'flex', gap: 8, alignItems: 'center' }, children: [jsx(Seg, { label: 'Corners', value: p.radius, options: [{ id: 'sharp', label: 'Sharp' }, { id: 'default', label: 'Soft' }, { id: 'round', label: 'Round' }], onChange: v => set({ radius: v }) }), jsx(Seg, { label: 'Reading width', value: p.width, options: [{ id: 'narrow', label: 'Narrow' }, { id: 'default', label: 'App' }, { id: 'wide', label: 'Wide' }], onChange: v => set({ width: v }) })] }),
-                            jsx(Check, { k: 'showRail', label: 'Icon rail' }),
-                            jsx(Check, { k: 'designNav', label: 'Five-row nav' }),
+                            jsx(Check, { k: 'showRail', label: 'Icon rail (off in the 2.0 shell)' }),
+                            jsx(Check, { k: 'hideStrip', label: 'Hide the Sessions · Bots · Helm strip' }),
+                            jsx(Check, { k: 'designNav', label: 'Short native nav (Apps carries the rest)' }),
                             jsx(Check, { k: 'showRowCost', label: 'Cost on each session row' }),
                             jsx(Check, { k: 'showRowBots', label: 'Robot on each session row' }),
                             jsx(Check, { k: 'homeOnNewSession', label: 'Home on New session' }),
@@ -7614,6 +7298,8 @@ function startAutoCollapse(prefs) {
 }
 
 function toggleSidebar() {
+  // The app's own action first; the title-bar button only on a host without ctx.runAction.
+  if (runAppAction('view.toggleSidebar')) return
   try {
     const b = document.querySelector('button[aria-label="Hide sidebar"], button[aria-label="Show sidebar"]')
     if (b) b.click()
@@ -7826,7 +7512,7 @@ function startSidebarNeedsYou(prefs) {
   const style = document.createElement('style')
   style.textContent = `
 #helm-sidebar-needs { padding: 4px 0 2px; }
-#helm-sidebar-needs .helm-sbn-head { padding: 12px 14px 4px; display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #E8A657; }
+#helm-sidebar-needs .helm-sbn-head { padding: 12px 14px 4px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: #E8A657; }
 #helm-sidebar-needs .helm-sbn-count { color: #76838F; letter-spacing: 0; font-weight: 500; }
 #helm-sidebar-needs .helm-sbn-row { display: flex; flex-direction: column; gap: 1px; width: calc(100% - 16px); margin: 0 8px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: #E6EBF0; font: inherit; font-size: 13px; line-height: 1.3; text-align: left; cursor: pointer; }
 #helm-sidebar-needs .helm-sbn-row:hover { background: #171E27; }
@@ -7857,10 +7543,975 @@ function startSidebarNeedsYou(prefs) {
   }
 }
 
+// ─────────────────────────────────────────────────────────── helm 2.0 shell
+// One navigation system. helm's sidebar pane (Crew / Projects / All chats,
+// pinned Apps, a footer) is the way around; helm's own status-bar chips are
+// gone, folded into one small title-bar chip with a Tools menu; the rail is an
+// option, not the default. Every Hermes function stays reachable: the chip's
+// Tools menu runs the app's own view actions, the All apps page lists every
+// Hermes page, and "Back to stock Hermes" is always one click.
+
+// Whether Hermes's status bar is mounted right now. helm's zero-width probe
+// item lives in the bar, so its mount state is the bar's — no app markup read.
+const $statusbarShown = atom(false)
+function StatusbarProbe() {
+  useEffect(() => {
+    $statusbarShown.set(true)
+    return () => $statusbarShown.set(false)
+  }, [])
+  return jsx('span', { 'data-helm-statusbar-probe': '', 'aria-hidden': true, style: { display: 'block', width: 0, alignSelf: 'stretch', pointerEvents: 'none' } })
+}
+
+// ── apps: every page you can open, Hermes's own and other plugins'
+// Core pages run the app's own navigation actions (ctx.runAction), so a
+// rebinding or an app update moves nothing. Plugin pages are a known map
+// (read from each plugin's source); anything else is pinned by route.
+const APPS_ROUTE = '/helm/apps'
+const ROUTINES_ROUTE = '/helm/routines'
+const CORE_APPS = [
+  { id: 'routines', label: 'Routines', codicon: 'watch', hint: 'Scheduled jobs grouped by desk', run: () => host.navigate(ROUTINES_ROUTE) },
+  { id: 'artifacts', label: 'Artifacts', codicon: 'files', action: 'nav.artifacts', route: '/artifacts' },
+  { id: 'capabilities', label: 'Capabilities', codicon: 'extensions', action: 'nav.capabilities', route: '/capabilities', locked: true, hint: 'Skills, plugins, connectors, tools' },
+  { id: 'messaging', label: 'Messaging', codicon: 'comment-discussion', action: 'nav.messaging', route: '/messaging' },
+  { id: 'cron', label: 'Scheduled jobs', codicon: 'calendar', action: 'nav.cron', route: '/cron', hint: 'Hermes’s own editor' },
+  { id: 'profiles', label: 'Profiles', codicon: 'person', action: 'nav.profiles', route: '/profiles' },
+  { id: 'agents', label: 'Agents', codicon: 'organization', action: 'nav.agents' },
+  { id: 'command-center', label: 'Command center', codicon: 'dashboard', route: '/command-center', hint: 'Sessions, logs, usage, maintenance' },
+  { id: 'board', label: 'Bots board', codicon: 'hubot', run: () => openBoardTab('board') },
+  { id: 'computer', label: 'Agent’s computer', codicon: 'device-desktop', run: () => openFocusedComputer() },
+  { id: 'settings', label: 'Settings', codicon: 'gear', action: 'nav.settings', route: '/settings' },
+  { id: 'shortcuts', label: 'Keyboard shortcuts', codicon: 'keyboard', action: 'keybinds.openPanel' }
+]
+const PLUGIN_APPS = [
+  { id: 'kanban', plugin: 'kanban', label: 'Kanban', codicon: 'project', route: '/kanban' },
+  { id: 'siemless', plugin: 'siemless', label: 'SIEMless', codicon: 'shield', route: '/siemless', badgeEvent: 'plugin.siemless.finding' },
+  { id: 'lineage', plugin: 'lineage', label: 'Lineage', codicon: 'type-hierarchy', route: '/lineage' }
+]
+const TOOL_APPS = [
+  { id: 'tool-files', tool: true, label: 'Files', codicon: 'folder', action: 'view.showFiles' },
+  { id: 'tool-review', tool: true, label: 'Review', codicon: 'git-pull-request', action: 'view.toggleReview' },
+  { id: 'tool-browser', tool: true, label: 'Browser', codicon: 'globe', action: 'view.showBrowser' },
+  { id: 'tool-find', tool: true, label: 'Find in page', codicon: 'search', action: 'view.findInPage' },
+  { id: 'tool-statusbar', tool: true, label: 'Status bar', codicon: 'layout-statusbar', action: 'view.toggleStatusbar' },
+  { id: 'tool-right', tool: true, label: 'Right sidebar', codicon: 'layout-sidebar-right', action: 'view.toggleRightSidebar' },
+  { id: 'tool-palette', tool: true, label: 'Terminal, logs and everything else (⌘K)', codicon: 'terminal', action: 'nav.commandPalette' }
+]
+const DEFAULT_PINNED_APPS = ['routines', 'kanban', 'siemless', 'lineage', 'artifacts']
+
+// Badge counts on app rows (SIEMless findings since you last opened it).
+const $appBadges = atom({})
+function bumpBadge(id) {
+  const cur = $appBadges.get()
+  $appBadges.set({ ...cur, [id]: (cur[id] || 0) + 1 })
+}
+function clearBadge(id) {
+  const cur = $appBadges.get()
+  if (cur[id]) $appBadges.set({ ...cur, [id]: 0 })
+}
+
+// A plugin is listed unless you turned it off in Settings › Plugins. Hermes
+// keeps only explicit choices (absence = the plugin's own default), so this
+// can't tell "installed" from "never installed"; Customize unpins either.
+function pluginAppVisible(app, decisions) {
+  if (!app.plugin) return true
+  return !(decisions && decisions[app.plugin] === false)
+}
+
+function readDecisions() {
+  try {
+    return host.pluginDecisions && typeof host.pluginDecisions.get === 'function' ? host.pluginDecisions.get() || {} : {}
+  } catch {
+    return {}
+  }
+}
+
+function useDecisions() {
+  const [d, setD] = useState(readDecisions)
+  useEffect(() => {
+    if (!host.pluginDecisions || typeof host.pluginDecisions.subscribe !== 'function') return undefined
+    const off = host.pluginDecisions.subscribe(v => setD(v || {}))
+    return () => typeof off === 'function' && off()
+  }, [])
+  return d
+}
+
+function customApps(prefs) {
+  const list = Array.isArray(prefs && prefs.appsCustom) ? prefs.appsCustom : []
+  return list
+    .filter(a => a && typeof a.route === 'string' && a.route.startsWith('/') && a.label)
+    .map(a => ({ id: `custom:${a.route}`, label: String(a.label).slice(0, 40), codicon: 'pinned', route: a.route, custom: true }))
+}
+
+function allApps(prefs, decisions) {
+  return [...CORE_APPS, ...PLUGIN_APPS.filter(a => pluginAppVisible(a, decisions)), ...customApps(prefs)]
+}
+
+function pinnedApps(prefs, decisions) {
+  const ids = Array.isArray(prefs && prefs.appsPinned) ? prefs.appsPinned : DEFAULT_PINNED_APPS
+  const all = allApps(prefs, decisions)
+  return ids.map(id => all.find(a => a.id === id)).filter(Boolean)
+}
+
+function openApp(app) {
+  haptic('tap')
+  clearBadge(app.id)
+  if (app.run) return app.run()
+  if (app.action && runAppAction(app.action)) return undefined
+  if (app.route) return host.navigate(app.route)
+  host.notify?.({ kind: 'info', message: `${app.label} isn’t available in this Hermes.` })
+  return undefined
+}
+
+function AppIcon({ name, size = 14 }) {
+  return jsx('span', { 'aria-hidden': true, style: { width: size + 2, display: 'inline-flex', justifyContent: 'center', color: 'inherit', flexShrink: 0 }, children: jsx(Codicon, { name }) })
+}
+
+// ── the title-bar chip: one quiet line, a Tools menu behind it
+function shellToggleLabel(p) {
+  return p.fullShell ? 'Back to stock Hermes' : 'Use helm as the whole shell'
+}
+
+function MenuItem({ icon, label, hint, onClick, tone }) {
+  return jsxs('button', {
+    type: 'button',
+    role: 'menuitem',
+    onClick,
+    className: 'helm-menu-item',
+    style: { width: '100%', minHeight: 30, padding: '0 10px', border: 0, borderRadius: 6, background: 'transparent', color: tone || V.t1, font: 'inherit', fontSize: 13, display: 'flex', alignItems: 'center', gap: 9, cursor: 'pointer', textAlign: 'left' },
+    children: [icon ? jsx(AppIcon, { name: icon }) : null, jsx('span', { style: { flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: label }), hint ? jsx('span', { style: { fontSize: 11.5, color: V.t3 }, children: hint }) : null]
+  })
+}
+
+function MenuLabel({ children }) {
+  return jsx('div', { style: { padding: '8px 10px 4px', fontSize: 12, color: V.t3 }, children })
+}
+
+const MENU_CSS = `
+.helm-menu-item:hover, .helm-menu-item:focus-visible { background: var(--ui-row-hover-background, rgba(255,255,255,0.06)) !important; outline: none; }
+.helm-side-row:hover { background: var(--ui-row-hover-background, rgba(255,255,255,0.05)); }
+.helm-side-row[aria-current="true"] { background: var(--ui-bg-elevated, rgba(255,255,255,0.07)); }
+`
+
+function FixLayoutPanel({ onDone }) {
+  return jsxs('div', {
+    style: { padding: '8px 10px 10px', display: 'flex', flexDirection: 'column', gap: 8, fontSize: 12.5, color: V.t2, lineHeight: 1.45, maxWidth: 300 },
+    children: [
+      jsx('span', { children: 'If a side pane has taken the window, re-apply your layout template. Open the layout editor and pick the template you use (Basic on this Mac), or restore “Before helm…”.' }),
+      jsx('span', { style: { color: V.t3 }, children: 'helm’s own panes only dock beside Files on the right and in the sessions column.' }),
+      jsxs('div', {
+        style: { display: 'flex', gap: 6 },
+        children: [
+          jsx(SmallButton, { primary: true, onClick: () => { openLayoutEditor(); onDone() }, children: 'Open layout editor' }),
+          jsx(SmallButton, { onClick: () => { runAppAction('view.toggleRightSidebar'); onDone() }, children: 'Toggle right sidebar' })
+        ]
+      })
+    ]
+  })
+}
+
+function HelmTitleChip({ prefs }) {
+  const p = useValue(prefs)
+  const crew = useValue($crew)
+  const busy = useValue(host.state.busyBySession)
+  const health = useValue($health)
+  const n = useNeedsYou()
+  const [open, setOpen] = useState(false)
+  const [fix, setFix] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return undefined
+    const onDown = e => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
+    const onKey = e => e.key === 'Escape' && setOpen(false)
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  if (inHudWindow()) return null
+  const working = Object.values(busy || {}).filter(Boolean).length || (crew.profiles || []).filter(x => activityFor(crew, x.name).active).length
+  const needs = n.approvals.length + n.questions.length
+  const broken = health.missing.length
+  const parts = []
+  if (needs) parts.push(jsx('span', { style: { color: V.amber }, children: `${needs} need${needs === 1 ? 's' : ''} you` }, 'n'))
+  if (working) parts.push(jsx('span', { children: `${working} working` }, 'w'))
+  if (!parts.length) parts.push(jsx('span', { style: { color: V.t3 }, children: 'All quiet' }, 'q'))
+  const close = () => {
+    setOpen(false)
+    setFix(false)
+  }
+  const tool = (id, label, icon) => jsx(MenuItem, { icon, label, onClick: () => { close(); runAppAction(id) } }, id)
+  return jsxs('div', {
+    ref,
+    'data-helm-title-chip': '',
+    style: { position: 'relative', display: 'flex', alignItems: 'center', height: '100%', WebkitAppRegion: 'no-drag' },
+    children: [
+      jsx('style', { children: MENU_CSS }),
+      jsxs('button', {
+        type: 'button',
+        'aria-haspopup': 'menu',
+        'aria-expanded': open,
+        title: broken ? `helm ${VERSION}: ${broken} hook${broken === 1 ? '' : 's'} need an update (${health.missing.join(', ')})` : `helm ${VERSION} · tools and status`,
+        onClick: () => setOpen(v => !v),
+        style: { height: 24, padding: '0 9px', borderRadius: 6, border: 0, background: open ? V.raised : 'transparent', color: V.t2, font: 'inherit', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', whiteSpace: 'nowrap' },
+        children: [
+          jsx('span', { 'aria-hidden': true, style: { width: 6, height: 6, borderRadius: 3, background: needs ? V.amber : working ? V.accent : V.t4 } }),
+          ...parts.flatMap((x, i) => (i ? [jsx('span', { style: { color: V.t4 }, children: '·' }, `d${i}`), x] : [x])),
+          broken ? jsx('span', { title: 'A helm hook needs an update', style: { width: 6, height: 6, borderRadius: 3, background: V.red } }) : null
+        ]
+      }),
+      open
+        ? jsx('div', {
+            role: 'menu',
+            style: { position: 'absolute', top: 'calc(100% + 4px)', right: 0, minWidth: 250, padding: 4, borderRadius: 10, border: `1px solid ${V.hair2}`, background: 'var(--ui-bg-elevated, #121820)', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', zIndex: 60 },
+            children: fix
+              ? jsx(FixLayoutPanel, { onDone: close })
+              : [
+                  needs ? jsx(MenuItem, { icon: 'bell', label: `${needs} waiting on you`, tone: V.amber, onClick: () => { close(); openBoardTab('inbox') } }, 'needs') : null,
+                  working ? jsx(MenuItem, { icon: 'pulse', label: `${working} working`, onClick: () => { close(); openBoardTab('board') } }, 'working') : null,
+                  jsx(MenuLabel, { children: 'Tools' }, 'tl'),
+                  tool('view.showFiles', 'Files', 'folder'),
+                  tool('view.toggleReview', 'Review', 'git-pull-request'),
+                  tool('view.showBrowser', 'Browser', 'globe'),
+                  tool('view.findInPage', 'Find in page', 'search'),
+                  tool('view.toggleStatusbar', $statusbarShown.get() ? 'Hide status bar' : 'Show status bar', 'layout-statusbar'),
+                  tool('nav.commandPalette', 'Terminal, logs and more (⌘K)', 'terminal'),
+                  jsx(MenuLabel, { children: 'helm' }, 'hl'),
+                  jsx(MenuItem, { icon: 'symbol-color', label: 'Customize', onClick: () => { close(); openCustomizeTab() } }, 'cust'),
+                  jsx(MenuItem, { icon: 'layout', label: 'Fix layout…', onClick: () => setFix(true) }, 'fix'),
+                  jsx(MenuItem, { icon: p.fullShell ? 'discard' : 'layers', label: shellToggleLabel(p), onClick: () => { close(); toggleWholeShell() } }, 'shell'),
+                  broken ? jsx('div', { style: { padding: '6px 10px', fontSize: 12, color: V.red }, children: `Needs an update: ${health.missing.join(', ')}` }, 'broken') : null
+                ]
+          })
+        : null
+    ]
+  })
+}
+
+// ── "Use helm as the whole shell" / "Back to stock Hermes"
+// Writes only on your click, never at register. What it changes is saved
+// first, so Back to stock puts exactly that back.
+function currentThemeName() {
+  try {
+    return String(document.documentElement.getAttribute('data-hermes-theme') || '')
+  } catch {
+    return ''
+  }
+}
+
+function enterWholeShell() {
+  if (!helmPrefsRef) return
+  const { prefs, setPrefs } = helmPrefsRef
+  const p = prefs.get()
+  const theme = currentThemeName()
+  const snapshot = {
+    theme: theme && !theme.startsWith('helm') ? theme : (p.stockSnapshot && p.stockSnapshot.theme) || '',
+    statusbar: $statusbarShown.get(),
+    designNav: p.designNav,
+    showRail: p.showRail,
+    at: Date.now()
+  }
+  setPrefs({ fullShell: true, stockSnapshot: snapshot, designNav: true, showRail: false, keepTheme: true })
+  if (!theme.startsWith('helm')) requestTheme(p.lastHelmTheme || p.preferredTheme || 'helm-dark')
+  if ($statusbarShown.get()) runAppAction('view.toggleStatusbar')
+  try {
+    host.revealPane?.(`${ID}:helm-tab`)
+  } catch {
+    /* older host */
+  }
+  host.notify?.({ kind: 'success', message: 'helm is the shell now. The chip at the top right has Tools and “Back to stock Hermes”.' })
+}
+
+function backToStock() {
+  if (!helmPrefsRef) return
+  const { prefs, setPrefs } = helmPrefsRef
+  const snap = prefs.get().stockSnapshot || {}
+  setPrefs({ fullShell: false, stockSnapshot: null, designNav: false, showRail: false, keepTheme: false })
+  const name = snap.theme || ''
+  if (!(name && requestTheme(name))) requestTheme('nous')
+  if (snap.statusbar !== false && !$statusbarShown.get()) runAppAction('view.toggleStatusbar')
+  try {
+    host.revealPane?.('sessions')
+  } catch {
+    /* older host */
+  }
+  host.notify?.({ kind: 'info', message: 'Back to stock Hermes. helm is still installed; turn it off in Settings › Plugins to remove it entirely.' })
+}
+
+function toggleWholeShell() {
+  if (helmPrefsRef && helmPrefsRef.prefs.get().fullShell) backToStock()
+  else enterWholeShell()
+}
+
+// ── Routines: the company's schedule, grouped by desk
+const DESKS = [
+  { id: 'ads', label: 'Ads' },
+  { id: 'cos', label: 'Chief of staff' },
+  { id: 'csat', label: 'Customer satisfaction' },
+  { id: 'gtm', label: 'Go to market' },
+  { id: 'sales', label: 'Sales' },
+  { id: 'watchers', label: 'Watchers' },
+  { id: 'other', label: 'Everything else' }
+]
+function deskOf(job) {
+  const name = String(job.name || '').toLowerCase().trim()
+  const prefix = name.split(/[-_:\s]/)[0]
+  if (['ads', 'cos', 'csat', 'gtm', 'sales'].includes(prefix)) return prefix
+  if (/watch/.test(name)) return 'watchers'
+  return 'other'
+}
+
+
+function storeCounts(jobs) {
+  const out = {}
+  for (const j of jobs) {
+    const k = j.profile || 'unscoped'
+    out[k] = (out[k] || 0) + 1
+  }
+  return out
+}
+
+function RoutineRow({ job, open, onToggle }) {
+  const last = toMs(job.last_run_at)
+  const next = toMs(job.next_run_at)
+  const state = job.running ? { word: 'Running', color: V.accent } : job.last_status === 'error' ? { word: 'Failed', color: V.red } : !job.enabled ? { word: 'Paused', color: V.t3 } : { word: 'On', color: V.green }
+  return jsxs('div', {
+    style: { borderBottom: `1px solid ${V.hair}` },
+    children: [
+      jsxs('div', {
+        style: { display: 'grid', gridTemplateColumns: 'minmax(160px, 1fr) 90px 150px 150px auto', gap: 12, alignItems: 'center', minHeight: 44, padding: '0 4px', fontSize: 13 },
+        children: [
+          jsxs('button', {
+            type: 'button',
+            onClick: onToggle,
+            'aria-expanded': open,
+            style: { border: 0, padding: 0, background: 'transparent', color: V.t1, font: 'inherit', textAlign: 'left', cursor: 'pointer', minWidth: 0, display: 'flex', flexDirection: 'column', lineHeight: 1.3 },
+            children: [
+              jsx('span', { style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: job.name || 'Scheduled job' }),
+              jsx('span', { style: { fontSize: 12, color: V.t3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: [job.profile, job.schedule_display].filter(Boolean).join(' · ') })
+            ]
+          }),
+          jsx('span', { style: { color: state.color, fontSize: 12.5 }, children: state.word }),
+          jsx('span', { style: { color: V.t2, fontSize: 12.5 }, children: last ? `Last ${new Date(last).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : 'Not run yet' }),
+          jsx('span', { style: { color: V.t2, fontSize: 12.5 }, children: next && job.enabled ? `Next ${new Date(next).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : '' }),
+          jsxs('span', {
+            style: { display: 'flex', gap: 6, justifyContent: 'flex-end' },
+            children: [
+              jsx(SmallButton, { onClick: () => setRoutineEnabled(job, !job.enabled), children: job.enabled ? 'Pause' : 'Resume' }),
+              // The gateway's cron.manage has no run action (Nov 12, v0.23.1); Hermes's
+              // own Scheduled jobs page has Trigger now.
+              jsx(SmallButton, { onClick: () => runAppAction('nav.cron') || host.navigate('/cron'), title: 'Trigger it from Hermes’s Scheduled jobs', children: 'Open' })
+            ]
+          })
+        ]
+      }),
+      open && job.last_error ? jsx('div', { style: { padding: '0 4px 10px', fontSize: 12, color: V.red, lineHeight: 1.45 }, children: job.last_error }) : null
+    ]
+  })
+}
+
+function RoutinesPage() {
+  const today = useValue($today)
+  const crew = useValue($crew)
+  const [filter, setFilter] = useState('all')
+  const [openId, setOpenId] = useState(null)
+  const [q, setQ] = useState('')
+  useEffect(() => {
+    refreshToday()
+    const h = setInterval(refreshToday, 30000)
+    return () => clearInterval(h)
+  }, [])
+  const jobs = today.jobs || []
+  const query = q.trim().toLowerCase()
+  const shown = jobs.filter(j => (filter === 'all' || (filter === 'failed' ? j.last_status === 'error' : filter === 'paused' ? !j.enabled : deskOf(j) === filter)) && (!query || String(j.name || '').toLowerCase().includes(query)))
+  const groups = DESKS.map(d => ({ ...d, jobs: shown.filter(j => deskOf(j) === d.id).sort((a, b) => String(a.name).localeCompare(String(b.name))) })).filter(g => g.jobs.length)
+  const counts = storeCounts(jobs)
+  const failed = jobs.filter(j => j.last_status === 'error').length
+  const paused = jobs.filter(j => !j.enabled).length
+  const chip = (id, label, n) => jsx(HelmChip, { label, count: n || null, active: filter === id, onClick: () => setFilter(id) }, id)
+  return jsxs('div', {
+    style: { height: '100%', overflowY: 'auto', padding: '28px 36px 48px', color: V.t1, fontSize: 13.5, maxWidth: 1100, boxSizing: 'border-box' },
+    children: [
+      jsxs('div', {
+        style: { display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 6 },
+        children: [
+          jsx('h1', { style: { margin: 0, fontSize: 20, fontWeight: 600 }, children: 'Routines' }),
+          jsx('span', { style: { color: V.t3 }, children: today.ready ? `${jobs.length} scheduled job${jobs.length === 1 ? '' : 's'}` : 'Reading scheduled jobs…' }),
+          jsx('span', { style: { marginLeft: 'auto' }, children: jsx(SmallButton, { onClick: () => runAppAction('nav.cron') || host.navigate('/cron'), children: 'Edit in Scheduled jobs' }) })
+        ]
+      }),
+      today.ready && Object.keys(counts).length
+        ? jsx('p', {
+            style: { margin: '0 0 16px', fontSize: 12.5, color: V.t3, lineHeight: 1.5 },
+            children: `By bot: ${Object.entries(counts).map(([k, v]) => `${k} ${v}`).join(' · ')}. Pause and resume here; trigger or edit a job in Scheduled jobs.`
+          })
+        : null,
+      jsxs('div', {
+        style: { display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 },
+        children: [
+          chip('all', 'All', jobs.length),
+          ...DESKS.filter(d => jobs.some(j => deskOf(j) === d.id)).map(d => chip(d.id, d.label, jobs.filter(j => deskOf(j) === d.id).length)),
+          failed ? chip('failed', 'Failed', failed) : null,
+          paused ? chip('paused', 'Paused', paused) : null,
+          jsx('input', { value: q, onChange: e => setQ(e.target.value), placeholder: 'Find a routine', 'aria-label': 'Find a routine', style: { marginLeft: 'auto', height: 28, width: 200, borderRadius: 6, border: `1px solid ${V.hair2}`, background: 'transparent', color: V.t1, padding: '0 9px', font: 'inherit', fontSize: 12.5 } })
+        ]
+      }),
+      !today.ready ? null : !today.available ? jsx(Quiet, { children: 'Couldn’t read scheduled jobs: the gateway didn’t answer. Retrying every 30 seconds.' }) : !groups.length ? jsx(Quiet, { children: jobs.length ? 'No routine matches.' : 'No scheduled jobs yet.' }) : null,
+      ...groups.map(g =>
+        jsxs('section', {
+          style: { marginBottom: 22 },
+          children: [
+            jsxs('h2', { style: { margin: '0 0 4px', fontSize: 14, fontWeight: 600, display: 'flex', gap: 8, alignItems: 'baseline' }, children: [g.label, jsx('span', { style: { color: V.t3, fontWeight: 400, fontSize: 12.5 }, children: g.jobs.length })] }),
+            ...g.jobs.map(job => jsx(RoutineRow, { job, open: openId === job.id, onToggle: () => setOpenId(openId === job.id ? null : job.id) }, `${job.profile}:${job.id}`))
+          ]
+        }, g.id)
+      ),
+      crew.error ? jsx(Quiet, { children: `Bots: ${crew.error}` }) : null
+    ]
+  })
+}
+
+// One line for the home: what ran, what failed, what's next.
+function TodayLine() {
+  const today = useValue($today)
+  useEffect(() => {
+    if (!$today.get().ready) refreshToday()
+  }, [])
+  const rows = (today.jobs || []).map(jobRow).filter(Boolean)
+  const ran = rows.filter(r => r.word === 'done').length
+  const failed = rows.filter(r => r.word === 'failed').length
+  const next = rows.filter(r => r.word === 'scheduled').sort((a, b) => a.at - b.at)[0]
+  const parts = !today.ready ? ['Reading scheduled jobs…'] : !today.available ? ['Scheduled jobs didn’t answer'] : [`${ran} ran`, failed ? `${failed} failed` : null, next ? `next ${next.job.name || 'job'} at ${clock(next.at)}` : 'nothing else due today'].filter(Boolean)
+  return jsxs('button', {
+    type: 'button',
+    onClick: () => host.navigate(ROUTINES_ROUTE),
+    'data-helm-today-line': '',
+    style: { width: '100%', border: 0, borderBottom: `1px solid ${B.hair}`, background: 'transparent', padding: '9px 2px', color: B.t3, font: 'inherit', fontSize: 12.5, textAlign: 'left', cursor: 'pointer', display: 'flex', gap: 8 },
+    children: [jsx('span', { style: { color: failed ? B.red : B.t3 }, children: parts.join(' · ') }), jsx('span', { style: { marginLeft: 'auto', color: V.accent }, children: 'Routines' })]
+  })
+}
+
+// ── All apps
+function AppsPage({ prefs, setPrefs }) {
+  const p = useValue(prefs)
+  const decisions = useDecisions()
+  const badges = useValue($appBadges)
+  const [label, setLabel] = useState('')
+  const [route, setRoute] = useState('')
+  const pinned = Array.isArray(p.appsPinned) ? p.appsPinned : DEFAULT_PINNED_APPS
+  const togglePin = id => setPrefs({ appsPinned: pinned.includes(id) ? pinned.filter(x => x !== id) : [...pinned, id] })
+  const row = app =>
+    jsxs('div', {
+      className: 'helm-side-row',
+      style: { display: 'grid', gridTemplateColumns: '22px 1fr auto auto', gap: 10, alignItems: 'center', minHeight: 44, padding: '0 8px', borderRadius: 8 },
+      children: [
+        jsx(AppIcon, { name: app.codicon || 'window', size: 16 }),
+        jsxs('button', {
+          type: 'button',
+          onClick: () => openApp(app),
+          style: { border: 0, padding: 0, background: 'transparent', color: V.t1, font: 'inherit', fontSize: 13.5, textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column', lineHeight: 1.3 },
+          children: [
+            jsxs('span', { children: [app.label, badges[app.id] ? jsx('span', { style: { marginLeft: 8, color: V.amber, fontSize: 12 }, children: `${badges[app.id]} new` }) : null] }),
+            app.hint || app.plugin ? jsx('span', { style: { fontSize: 12, color: V.t3 }, children: app.hint || 'Plugin page' }) : null
+          ]
+        }),
+        app.custom ? jsx(SmallButton, { onClick: () => setPrefs({ appsCustom: (p.appsCustom || []).filter(a => `custom:${a.route}` !== app.id), appsPinned: pinned.filter(x => x !== app.id) }), children: 'Remove' }) : jsx('span', {}),
+        app.tool
+          ? jsx('span', {})
+          : jsx(SmallButton, { onClick: () => togglePin(app.id), children: pinned.includes(app.id) ? 'Unpin' : 'Pin to sidebar' })
+      ]
+    }, app.id)
+  const section = (title, list) =>
+    list.length
+      ? jsxs('section', { style: { marginBottom: 24 }, children: [jsx('h2', { style: { margin: '0 0 6px', fontSize: 14, fontWeight: 600 }, children: title }), ...list.map(row)] })
+      : null
+  return jsxs('div', {
+    style: { height: '100%', overflowY: 'auto', padding: '28px 36px 48px', color: V.t1, maxWidth: 820, boxSizing: 'border-box' },
+    children: [
+      jsx('style', { children: MENU_CSS }),
+      jsx('h1', { style: { margin: '0 0 4px', fontSize: 20, fontWeight: 600 }, children: 'All apps' }),
+      jsx('p', { style: { margin: '0 0 22px', fontSize: 13, color: V.t3 }, children: 'Every Hermes page, every plugin page helm knows, and the workspace tools. Pinned apps show in the sidebar.' }),
+      section('Hermes', CORE_APPS),
+      section('Plugins', PLUGIN_APPS.filter(a => pluginAppVisible(a, decisions))),
+      section('Workspace tools', TOOL_APPS),
+      section('Pinned pages', customApps(p)),
+      jsxs('section', {
+        children: [
+          jsx('h2', { style: { margin: '0 0 6px', fontSize: 14, fontWeight: 600 }, children: 'Pin a page' }),
+          jsx('p', { style: { margin: '0 0 8px', fontSize: 12.5, color: V.t3 }, children: 'For any other plugin’s page: its name and its route (the part after # in the address, like /siemless).' }),
+          jsxs('div', {
+            style: { display: 'flex', gap: 6 },
+            children: [
+              jsx('input', { value: label, onChange: e => setLabel(e.target.value), placeholder: 'Name', 'aria-label': 'Page name', style: { height: 28, width: 160, borderRadius: 6, border: `1px solid ${V.hair2}`, background: 'transparent', color: V.t1, padding: '0 9px', font: 'inherit', fontSize: 12.5 } }),
+              jsx('input', { value: route, onChange: e => setRoute(e.target.value), placeholder: '/route', 'aria-label': 'Page route', style: { height: 28, width: 200, borderRadius: 6, border: `1px solid ${V.hair2}`, background: 'transparent', color: V.t1, padding: '0 9px', font: 'inherit', fontSize: 12.5 } }),
+              jsx(SmallButton, {
+                primary: true,
+                disabled: !label.trim() || !route.trim().startsWith('/'),
+                onClick: () => {
+                  const r = route.trim()
+                  const list = (p.appsCustom || []).filter(a => a.route !== r)
+                  setPrefs({ appsCustom: [...list, { label: label.trim().slice(0, 40), route: r }], appsPinned: [...pinned.filter(x => x !== `custom:${r}`), `custom:${r}`] })
+                  setLabel('')
+                  setRoute('')
+                },
+                children: 'Pin'
+              })
+            ]
+          })
+        ]
+      })
+    ]
+  })
+}
+
+// ── the sidebar: Crew / Projects / All chats
+function botTint(look) {
+  const pal = PALETTE[look && look.color] || PALETTE.blue
+  return { bg: `color-mix(in srgb, ${pal.dark} 30%, transparent)`, edge: pal.glow }
+}
+
+function lineFor(r, needs) {
+  const nb = needs[r.p.name] || { approvals: 0, questions: 0 }
+  return nb.approvals + nb.questions
+}
+
+function SideSearch({ value, onChange }) {
+  return jsx('input', {
+    type: 'search',
+    value,
+    onChange: e => onChange(e.target.value),
+    placeholder: 'Search bots and chats',
+    'aria-label': 'Search bots and chats',
+    style: { width: '100%', height: 32, boxSizing: 'border-box', borderRadius: 8, border: `1px solid ${V.hair2}`, background: 'transparent', color: V.t1, padding: '0 10px', font: 'inherit', fontSize: 13 }
+  })
+}
+
+function ViewSwitch({ value, onChange }) {
+  const opt = (id, label) =>
+    jsx('button', {
+      type: 'button',
+      'aria-pressed': value === id,
+      onClick: () => onChange(id),
+      style: { flex: 1, height: 26, border: 0, borderRadius: 6, background: value === id ? V.raised : 'transparent', color: value === id ? V.t1 : V.t3, font: 'inherit', fontSize: 12.5, cursor: 'pointer' },
+      children: label
+    }, id)
+  return jsx('div', { role: 'group', 'aria-label': 'Sidebar view', style: { display: 'flex', gap: 2, padding: 2, borderRadius: 8, border: `1px solid ${V.hair}` }, children: [opt('crew', 'Crew'), opt('projects', 'Projects'), opt('chats', 'All chats')] })
+}
+
+function SideLabel({ children, action }) {
+  return jsxs('div', {
+    style: { padding: '14px 14px 6px', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, fontWeight: 500, color: V.t3 },
+    children: [jsx('span', { children }), action ? jsx('span', { style: { marginLeft: 'auto' }, children: action }) : null]
+  })
+}
+
+function LinkText({ onClick, children }) {
+  return jsx('button', { type: 'button', onClick, style: { border: 0, padding: 0, background: 'transparent', color: V.accent, font: 'inherit', fontSize: 12.5, cursor: 'pointer' }, children })
+}
+
+function Hero({ r, needs }) {
+  if (!r) return null
+  const tint = botTint(r.look)
+  const waiting = lineFor(r, needs)
+  return jsxs('div', {
+    'data-helm-hero': '',
+    style: { margin: '12px 10px 4px', padding: '14px 12px 12px', borderRadius: 12, background: tint.bg, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, textAlign: 'center' },
+    children: [
+      jsx(AnimatedRobot, { look: r.look, size: 96, expr: r.line.key === 'working' ? 'focused' : r.line.key === 'needs-you' ? 'question' : r.look.face, state: petStateFor(r.line.key), title: botLabel(r.p) }),
+      jsxs('div', {
+        style: { display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, maxWidth: '100%' },
+        children: [
+          jsx('span', { style: { fontSize: 15, fontWeight: 600, color: V.t1 }, children: botLabel(r.p) }),
+          jsx('span', { style: { fontSize: 12.5, color: r.line.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: waiting ? `Waiting on you · ${waiting}` : r.line.text })
+        ]
+      }),
+      jsxs('div', {
+        style: { display: 'flex', gap: 6 },
+        children: [
+          jsx(SmallButton, { primary: true, onClick: () => host.newChat(r.p.name), children: 'New chat' }),
+          jsx(SmallButton, { onClick: () => openBoardTab('board'), children: 'Board' }),
+          jsx(SmallButton, { onClick: () => openBotEditor(r.p.name, 'look'), title: 'Edit robot and profile', children: 'Edit' })
+        ]
+      })
+    ]
+  })
+}
+
+function CrewRow({ r, selected, waiting, onPick }) {
+  const tint = botTint(r.look)
+  const when = r.activity.latest ? shortAgo(r.activity.latest.last_active) : ''
+  return jsxs('button', {
+    type: 'button',
+    className: 'helm-side-row',
+    'aria-current': selected ? 'true' : undefined,
+    onClick: onPick,
+    onDoubleClick: () => openBot(r.p, r.activity),
+    title: `${botLabel(r.p)} · ${r.line.text}`,
+    style: { margin: '0 8px', width: 'calc(100% - 16px)', minHeight: 56, padding: '8px', border: 0, borderRadius: 10, display: 'grid', gridTemplateColumns: '40px 1fr auto', gap: 10, alignItems: 'center', textAlign: 'left', background: 'transparent', color: V.t1, font: 'inherit', cursor: 'pointer' },
+    children: [
+      jsx('span', { style: { width: 40, height: 40, borderRadius: 20, background: tint.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }, children: jsx(AnimatedRobot, { look: r.look, head: true, size: 34, expr: r.line.key === 'working' ? 'focused' : r.line.key === 'needs-you' ? 'question' : r.look.face, state: petStateFor(r.line.key), title: botLabel(r.p) }) }),
+      jsxs('span', {
+        style: { display: 'flex', flexDirection: 'column', minWidth: 0, lineHeight: 1.35 },
+        children: [
+          jsx('span', { style: { fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: botLabel(r.p) }),
+          jsx('span', { style: { fontSize: 12.5, color: r.line.key === 'idle' || r.line.key === 'new' ? V.t3 : r.line.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: r.line.text })
+        ]
+      }),
+      jsxs('span', {
+        style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 },
+        children: [
+          jsx('span', { style: { fontSize: 11.5, color: V.t3 }, children: when }),
+          waiting ? jsx('span', { 'aria-label': `${waiting} waiting on you`, style: { minWidth: 18, height: 18, padding: '0 5px', boxSizing: 'border-box', borderRadius: 9, background: V.amber, color: '#1A1206', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }, children: waiting }) : r.activity.unread ? jsx('span', { title: 'Unread', style: { width: 7, height: 7, borderRadius: 4, background: V.accent } }) : null
+        ]
+      })
+    ]
+  })
+}
+
+function ChatRow({ row, profileName, look, showBot }) {
+  const live = row.is_active && !row.ended_at
+  return jsxs('button', {
+    type: 'button',
+    className: 'helm-side-row',
+    onClick: () => openSession(row, profileName),
+    title: sessionTitle(row),
+    style: { margin: '0 8px', width: 'calc(100% - 16px)', minHeight: 34, padding: showBot ? '6px 8px' : '6px 8px 6px 58px', border: 0, borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', background: 'transparent', color: V.t2, font: 'inherit', fontSize: 13, cursor: 'pointer' },
+    children: [
+      showBot && look ? jsx(AnimatedRobot, { look, head: true, size: 20, title: profileName }) : null,
+      jsx('span', { style: { width: 6, height: 6, borderRadius: 3, flexShrink: 0, background: live ? V.accent : row.unread ? V.amber : 'transparent' } }),
+      jsx('span', { style: { flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: row.unread ? V.t1 : V.t2 }, children: sessionTitle(row) }),
+      jsx('span', { style: { fontSize: 11.5, color: V.t3 }, children: shortAgo(row.last_active) })
+    ]
+  })
+}
+
+// Scheduled runs are the cron's sessions. Hermes lists them apart from your
+// chats; so does helm (Routines has them).
+function isScheduledRow(r) {
+  const src = String((r && (r.handoff_platform || r.source)) || '').toLowerCase()
+  return src === 'cron' || !!(r && r.scheduler_owned)
+}
+
+// Projects: the gateway's own projects RPCs, the ones Hermes's sidebar uses.
+const $projects = atom({ ready: false, list: [], active: null, error: null, profile: '' })
+// projects.tree is what Hermes's own sidebar lists: the Home bucket, the
+// projects you made and the git repos it promoted on its own. projects.list
+// only knows the ones you made, so it is the fallback.
+function projectRows(res) {
+  const list = Array.isArray(res && res.projects) ? res.projects : []
+  return list
+    .filter(x => x && !x.archived)
+    .map(x => ({ ...x, name: x.isNoProject ? 'Home' : x.label || x.name || 'Project' }))
+    .sort((a, b) => (a.isNoProject ? -1 : b.isNoProject ? 1 : 0))
+}
+
+async function refreshProjects(profile) {
+  try {
+    const params = profile ? { profile } : {}
+    let res
+    try {
+      res = await host.request('projects.tree', { ...params, preview_limit: 3 }, 30000)
+    } catch {
+      res = await host.request('projects.list', params, 15000)
+    }
+    $projects.set({ ready: true, list: projectRows(res), active: (res && res.active_id) || null, error: null, profile })
+  } catch (err) {
+    $projects.set({ ready: true, list: [], active: null, error: err && err.message ? err.message : String(err), profile })
+  }
+}
+
+async function projectSessions(id, profile) {
+  const res = await host.request('projects.project_sessions', profile ? { project_id: id, profile } : { project_id: id }, 15000)
+  const tree = res && res.project
+  if (!tree) return []
+  const out = []
+  const walk = node => {
+    if (!node || typeof node !== 'object') return
+    for (const k of ['sessions', 'previewSessions', 'preview_sessions']) if (Array.isArray(node[k])) out.push(...node[k])
+    for (const k of ['repos', 'groups', 'lanes', 'worktrees', 'children']) if (Array.isArray(node[k])) node[k].forEach(walk)
+  }
+  walk(tree)
+  const seen = new Set()
+  return out.filter(s => s && s.id && !seen.has(s.id) && seen.add(s.id)).sort((a, b) => (b.last_active || 0) - (a.last_active || 0))
+}
+
+async function newSessionInProject(project, profile) {
+  if (project.isNoProject) {
+    host.newChat(profile || undefined)
+    return
+  }
+  try {
+    await host.request('projects.set_active', profile ? { id: project.id, profile } : { id: project.id }, 15000)
+  } catch (err) {
+    host.notifyError?.(`Could not switch to ${project.name}: ${err && err.message ? err.message : err}`)
+    return
+  }
+  host.newChat(profile || undefined)
+}
+
+function ProjectRow({ project, profile, query }) {
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState(null)
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    if (!open || rows) return
+    projectSessions(project.id, profile).then(setRows, e => setErr(e && e.message ? e.message : String(e)))
+  }, [open])
+  const swatch = project.color || 'var(--ui-text-quaternary)'
+  const shown = (rows || []).filter(r => !query || sessionTitle(r).toLowerCase().includes(query))
+  return jsxs('div', {
+    children: [
+      jsxs('div', {
+        className: 'helm-side-row',
+        style: { margin: '0 8px', minHeight: 40, padding: '0 8px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 9 },
+        children: [
+          jsxs('button', {
+            type: 'button',
+            'aria-expanded': open,
+            onClick: () => setOpen(v => !v),
+            style: { flex: 1, minWidth: 0, border: 0, padding: 0, background: 'transparent', color: V.t1, font: 'inherit', fontSize: 13.5, display: 'flex', alignItems: 'center', gap: 9, textAlign: 'left', cursor: 'pointer' },
+            children: [
+              jsx('span', { style: { width: 10, height: 10, borderRadius: 3, background: swatch, flexShrink: 0 } }),
+              jsx('span', { style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, children: project.name }),
+              jsx('span', { style: { marginLeft: 'auto', color: V.t3, fontSize: 12 }, children: open ? 'Hide' : 'Sessions' })
+            ]
+          }),
+          jsx('button', { type: 'button', title: `New session in ${project.name}`, 'aria-label': `New session in ${project.name}`, onClick: () => newSessionInProject(project, profile), style: { width: 24, height: 24, border: 0, borderRadius: 6, background: 'transparent', color: V.t3, cursor: 'pointer', font: 'inherit', fontSize: 16 }, children: '+' })
+        ]
+      }),
+      open
+        ? rows === null && !err
+          ? jsx('div', { style: { padding: '4px 30px', fontSize: 12.5, color: V.t3 }, children: 'Loading…' })
+          : err
+            ? jsx('div', { style: { padding: '4px 30px', fontSize: 12.5, color: V.red }, children: err })
+            : shown.length
+              ? shown.slice(0, 12).map(row => jsx(ChatRow, { row, profileName: row.profile || profile }, row.id))
+              : jsx('div', { style: { padding: '4px 30px', fontSize: 12.5, color: V.t3 }, children: 'No sessions in this project yet.' })
+        : null
+    ]
+  })
+}
+
+function ProjectsView({ profile, query }) {
+  const pr = useValue($projects)
+  useEffect(() => {
+    if (!pr.ready || pr.profile !== profile) refreshProjects(profile)
+  }, [profile])
+  if (!pr.ready) return jsx('div', { style: { padding: '8px 16px', fontSize: 12.5, color: V.t3 }, children: 'Loading projects…' })
+  if (pr.error) return jsx('div', { style: { padding: '8px 16px', fontSize: 12.5, color: V.t3 }, children: ['Projects didn’t answer here. ', jsx(LinkText, { onClick: () => host.revealPane?.('sessions'), children: 'Open Hermes’s Sessions list' }, 'l')] })
+  const list = pr.list.filter(x => !query || String(x.name).toLowerCase().includes(query))
+  return jsxs(Fragment, {
+    children: [
+      jsx(SideLabel, { action: jsx(LinkText, { onClick: () => host.revealPane?.('sessions'), children: 'Pinned and Home' }), children: 'Projects' }),
+      list.length ? list.map(project => jsx(ProjectRow, { project, profile, query }, project.id)) : jsx('div', { style: { padding: '4px 16px', fontSize: 12.5, color: V.t3 }, children: 'No projects yet. Hermes’s Sessions list makes them.' })
+    ]
+  })
+}
+
+function AllChatsView({ crew, looksValue, query }) {
+  const rows = useMemo(() => {
+    const out = []
+    for (const p of crew.profiles || []) for (const r of (crew.sessions && crew.sessions[p.name]) || []) if (!r.hidden && !isScheduledRow(r)) out.push({ row: r, p })
+    return out.sort((a, b) => (b.row.last_active || 0) - (a.row.last_active || 0))
+  }, [crew])
+  const shown = rows.filter(x => !query || sessionTitle(x.row).toLowerCase().includes(query) || botLabel(x.p).toLowerCase().includes(query)).slice(0, 80)
+  return jsxs(Fragment, {
+    children: [
+      jsx(SideLabel, { action: jsx(LinkText, { onClick: () => host.revealPane?.('sessions'), children: 'Hermes list' }), children: 'All chats' }),
+      shown.length ? shown.map(x => jsx(ChatRow, { row: x.row, profileName: x.p.name, look: normalizeLook(looksValue[x.p.name] || null, x.p.name), showBot: true }, `${x.p.name}:${x.row.id}`)) : jsx('div', { style: { padding: '4px 16px', fontSize: 12.5, color: V.t3 }, children: crew.ready ? 'No chats match.' : 'Loading chats…' })
+    ]
+  })
+}
+
+function AppsSection({ prefs }) {
+  const p = useValue(prefs)
+  const decisions = useDecisions()
+  const badges = useValue($appBadges)
+  const apps = pinnedApps(p, decisions)
+  return jsxs(Fragment, {
+    children: [
+      jsx(SideLabel, { action: jsx(LinkText, { onClick: () => host.navigate(APPS_ROUTE), children: 'All apps' }), children: 'Apps' }),
+      ...apps.map(app =>
+        jsxs('button', {
+          type: 'button',
+          className: 'helm-side-row',
+          onClick: () => openApp(app),
+          style: { margin: '0 8px', width: 'calc(100% - 16px)', height: 34, padding: '0 8px', border: 0, borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10, background: 'transparent', color: V.t2, font: 'inherit', fontSize: 13.5, cursor: 'pointer', textAlign: 'left' },
+          children: [
+            jsx(AppIcon, { name: app.codicon || 'window' }),
+            jsx('span', { style: { flex: 1 }, children: app.label }),
+            badges[app.id] ? jsx('span', { style: { minWidth: 18, height: 18, padding: '0 5px', boxSizing: 'border-box', borderRadius: 9, background: V.amber, color: '#1A1206', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center' }, children: badges[app.id] }) : null
+          ]
+        }, app.id)
+      )
+    ]
+  })
+}
+
+function SideFooter({ rows, focused, onPick }) {
+  const [open, setOpen] = useState(false)
+  const current = rows.find(r => r.p.name === focused) || rows[0]
+  const iconBtn = (label, icon, onClick) => jsx('button', { type: 'button', title: label, 'aria-label': label, onClick, style: { width: 30, height: 30, border: 0, borderRadius: 8, background: 'transparent', color: V.t3, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }, children: jsx(Codicon, { name: icon }) })
+  return jsxs('div', {
+    style: { marginTop: 'auto', position: 'sticky', bottom: 0, background: 'var(--ui-bg-sidebar, transparent)', borderTop: `1px solid ${V.hair}`, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 4 },
+    children: [
+      current
+        ? jsxs('button', {
+            type: 'button',
+            'aria-haspopup': 'menu',
+            'aria-expanded': open,
+            title: 'Switch bot',
+            onClick: () => setOpen(v => !v),
+            style: { flex: 1, minWidth: 0, height: 30, padding: '0 8px', borderRadius: 8, border: 0, background: 'transparent', color: V.t1, font: 'inherit', fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' },
+            children: [
+              jsx(AnimatedRobot, { look: current.look, head: true, size: 20, title: botLabel(current.p) }),
+              jsx('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: botLabel(current.p) }),
+              jsx(Codicon, { name: 'chevron-up' })
+            ]
+          })
+        : jsx('span', { style: { flex: 1 } }),
+      iconBtn('New bot', 'add', openNewBot),
+      iconBtn('Customize', 'symbol-color', () => openCustomizeTab()),
+      iconBtn('Settings', 'gear', () => runAppAction('nav.settings') || host.navigate('/settings')),
+      open
+        ? jsx('div', {
+            role: 'menu',
+            style: { position: 'absolute', left: 10, bottom: 46, minWidth: 200, maxHeight: 320, overflowY: 'auto', padding: 4, borderRadius: 10, border: `1px solid ${V.hair2}`, background: 'var(--ui-bg-elevated, #121820)', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', zIndex: 20 },
+            children: [
+              ...rows.map(r => jsx(MenuItem, { label: botLabel(r.p), hint: r.line.key === 'working' ? 'working' : r.line.key === 'needs-you' ? 'needs you' : '', onClick: () => { setOpen(false); onPick(r.p.name) } }, r.p.name)),
+              jsx(MenuItem, { icon: 'organization', label: 'Profiles…', onClick: () => { setOpen(false); runAppAction('nav.profiles') || host.navigate('/profiles') } }, 'profiles')
+            ]
+          })
+        : null
+    ]
+  })
+}
+
+// Bot Mode's "Hide Bot" lives on the profile (profile.yaml ui_meta), so helm
+// honours it without reading Bot Mode's own storage.
+function botHiddenInBotMode(p) {
+  const meta = p && p.ui_meta && p.ui_meta['hermes-bots']
+  return !!(meta && meta.hidden)
+}
+
+function HelmSidebar({ looks, prefs, setPrefs }) {
+  const crew = useValue($crew)
+  const looksValue = useValue(looks)
+  const p = useValue(prefs)
+  const n = useNeedsYou()
+  const focusedSession = useValue(host.state.focusedSessionProfile)
+  const picked = useValue($botFocus)
+  const roomsValue = useValue($rooms)
+  const [query, setQuery] = useState('')
+  const [newRoom, setNewRoom] = useState(false)
+  const [showHidden, setShowHidden] = useState(false)
+  const view = p.sidebarView === 'projects' || p.sidebarView === 'chats' ? p.sidebarView : 'crew'
+  const needs = useMemo(() => needsByBot(n), [n.approvals, n.questions])
+  // Track the pane's visibility for the right-hand Bot/Task pane, but never
+  // open anything on our own: the sidebar list is the list, the Board is the
+  // detail view you ask for.
+  useEffect(() => {
+    let vis = null
+    try {
+      vis = typeof host.paneVisibility === 'function' ? host.paneVisibility(`${ID}:helm-tab`) : null
+    } catch {
+      vis = null
+    }
+    if (!vis || typeof vis.subscribe !== 'function') {
+      $helmTabVisible.set(true)
+      return undefined
+    }
+    const off = vis.subscribe(v => $helmTabVisible.set(!!v))
+    return () => typeof off === 'function' && off()
+  }, [])
+  const rows = useMemo(
+    () =>
+      (crew.profiles || []).map(prof => {
+        const activity = activityFor(crew, prof.name)
+        const line = botLine(prof, activity, needs[prof.name] || { approvals: 0, questions: 0 })
+        const look = normalizeLook(looksValue[prof.name] || null, prof.name)
+        const rank = line.key === 'needs-you' ? 0 : line.key === 'working' ? 1 : line.key === 'idle' ? 2 : 3
+        return { p: prof, activity, line, look, rank, last: activity.latest ? activity.latest.last_active : 0 }
+      }),
+    [crew, looksValue, needs]
+  )
+  const sorted = useMemo(() => rows.slice().sort((a, b) => a.rank - b.rank || b.last - a.last), [rows])
+  const q = query.trim().toLowerCase()
+  const selectedName = picked || focusedSession || (sorted[0] && sorted[0].p.name)
+  const selected = rows.find(r => r.p.name === selectedName) || sorted[0]
+  const setView = v => setPrefs({ sidebarView: v })
+  const hiddenCount = sorted.filter(r => botHiddenInBotMode(r.p)).length
+  const shownCrew = sorted.filter(r => (showHidden || !botHiddenInBotMode(r.p)) && (!q || botLabel(r.p).toLowerCase().includes(q) || r.p.name.toLowerCase().includes(q)))
+  const chatsOf = r => (r.activity.sessions || []).filter(s => !s.hidden && !isScheduledRow(s) && (!q || sessionTitle(s).toLowerCase().includes(q))).slice(0, 6)
+  const runsOf = r => (r.activity.sessions || []).filter(isScheduledRow).length
+  if (!crew.ready && !(crew.profiles || []).length) {
+    return jsx('div', { style: { padding: 16, fontSize: 13, color: V.t3 }, children: 'Loading your bots…' })
+  }
+  return jsxs('div', {
+    'data-helm-sidebar': '',
+    style: { height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', fontSize: 14, color: V.t1, position: 'relative' },
+    children: [
+      jsx('style', { children: MENU_CSS }),
+      jsxs('div', { style: { padding: '12px 10px 0', display: 'flex', flexDirection: 'column', gap: 8 }, children: [jsx(SideSearch, { value: query, onChange: setQuery }), jsx(ViewSwitch, { value: view, onChange: setView })] }),
+      view === 'crew' && !q ? jsx(Hero, { r: selected, needs }) : null,
+      view === 'crew' && n.total && !q
+        ? jsxs(Fragment, {
+            children: [
+              jsx(SideLabel, { action: jsx(LinkText, { onClick: () => openBoardTab('inbox'), children: 'Inbox' }), children: jsxs('span', { children: ['Needs you ', jsx('span', { style: { color: V.amber }, children: n.approvals.length + n.questions.length || n.total })] }) }),
+              jsxs('div', { style: { padding: '0 8px' }, children: [...n.approvals.map(item => jsx(ApprovalRow, { item, looks: looksValue, compact: true }, item.requestId)), ...n.questions.map(item => jsx(QuestionRow, { item, looks: looksValue, compact: true }, `q:${item.sessionId}`))] })
+            ]
+          })
+        : null,
+      view === 'crew'
+        ? jsxs(Fragment, {
+            children: [
+              jsx(SideLabel, { action: jsx(LinkText, { onClick: () => host.revealPane?.('hermes-bots:pane'), children: 'Bot Mode' }), children: 'Crew' }),
+              ...shownCrew.flatMap(r => {
+                const isSel = selected && r.p.name === selected.p.name
+                const out = [jsx(CrewRow, { r, selected: isSel, waiting: lineFor(r, needs), onPick: () => { $botFocus.set(r.p.name); haptic('tap') } }, r.p.name)]
+                if (isSel || q) {
+                  const chats = chatsOf(r)
+                  out.push(...chats.map(row => jsx(ChatRow, { row, profileName: r.p.name }, `${r.p.name}:${row.id}`)))
+                  if (isSel && !q) {
+                    const runs = runsOf(r)
+                    out.push(jsx('div', { style: { padding: '2px 16px 8px 66px', display: 'flex', gap: 12, flexWrap: 'wrap' }, children: [jsx(LinkText, { onClick: () => host.newChat(r.p.name), children: 'New chat' }, 'n'), jsx(LinkText, { onClick: () => setView('chats'), children: 'All chats' }, 'a'), runs ? jsx(LinkText, { onClick: () => host.navigate(ROUTINES_ROUTE), children: `${runs} scheduled run${runs === 1 ? '' : 's'}` }, 'r') : null] }, `${r.p.name}:more`))
+                  }
+                }
+                return out
+              }),
+              !shownCrew.length ? jsx('div', { style: { padding: '4px 16px', fontSize: 12.5, color: V.t3 }, children: 'No bot matches.' }) : null,
+              hiddenCount && !q ? jsx('div', { style: { padding: '4px 16px' }, children: jsx(LinkText, { onClick: () => setShowHidden(v => !v), children: showHidden ? 'Hide hidden bots' : `Hidden ${hiddenCount}` }) }) : null,
+              roomsValue.ready && !roomsValue.error && !q
+                ? jsxs(Fragment, {
+                    children: [
+                      jsx(SideLabel, { action: jsx(LinkText, { onClick: () => setNewRoom(v => !v), children: newRoom ? 'Close' : 'New room' }), children: 'Rooms' }),
+                      newRoom ? jsx(NewRoomForm, { profiles: crew.profiles || [], looks, onDone: () => setNewRoom(false) }) : null,
+                      ...roomsValue.rooms.map(entry => jsx(HelmRoomRow, { entry, looks, looksValue }, entry.room.room_id)),
+                      !roomsValue.rooms.length && !newRoom ? jsx('div', { style: { padding: '0 16px 4px', fontSize: 12.5, color: V.t3 }, children: 'A room is a group chat of two to six bots.' }) : null
+                    ]
+                  })
+                : null,
+              q ? null : jsx(HelmConnections, {})
+            ]
+          })
+        : view === 'projects'
+          ? jsx(ProjectsView, { profile: atomGet(host.state.profile) || '', query: q })
+          : jsx(AllChatsView, { crew, looksValue, query: q }),
+      jsx(AppsSection, { prefs }),
+      jsx('div', { style: { height: 12 } }),
+      jsx(SideFooter, { rows, focused: selected && selected.p.name, onPick: name => $botFocus.set(name) })
+    ]
+  })
+}
+
+
 // ───────────────────────────────────────────────────────────────── plugin
 
 // Pure helpers, exported for the test suite only.
-export const _internals = { SidebarPills, $rowFilter, runAppAction, focusComposer, $helmTabVisible, routeBrief, readBrief, routingRules, tierOfModel, roomSummary, permsLine, onHandoffEvent, $handoffs, onReplyEvent, $lastReply, AnimatedRobot, petKey, petStateFor, petSheets, PET_ROW, autoAvatars, pngEdge, AVATAR_EDGE, DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
+export const _internals = { HelmSidebar, HelmTitleChip, AppsPage, RoutinesPage, TodayLine, deskOf, pinnedApps, allApps, pluginAppVisible, enterWholeShell, backToStock, $statusbarShown, $appBadges, bumpBadge, $projects, refreshProjects, projectSessions, SidebarPills, $rowFilter, runAppAction, focusComposer, $helmTabVisible, routeBrief, readBrief, routingRules, tierOfModel, roomSummary, permsLine, onHandoffEvent, $handoffs, onReplyEvent, $lastReply, AnimatedRobot, petKey, petStateFor, petSheets, PET_ROW, autoAvatars, pngEdge, AVATAR_EDGE, DeskSection, TodayList, foldedIds, $today, refreshToday, latestPlan, parseTodoList, answerApproval, answerQuestion, refreshPlan, onPromptEvent, onPromptGone, onToolEvent, $plan, $inbox, $liveTodos }
 
 export default {
   id: ID,
@@ -7897,6 +8548,12 @@ export default {
     }
     if (stored.designVersion < 4) {
       Object.assign(stored, { openDeskAtLaunch: false, homeOnNewSession: true, designVersion: 4 })
+      ctx.storage.set('prefs', stored)
+    }
+    // 2.0: one navigation system. The rail becomes an option (off), and helm's
+    // status-bar chips are gone (one title-bar chip replaces them).
+    if (stored.designVersion < 6) {
+      Object.assign(stored, { showRail: false, designVersion: 6 })
       ctx.storage.set('prefs', stored)
     }
     const prefs = atom({ ...DEFAULT_PREFS, ...stored })
@@ -7945,7 +8602,10 @@ export default {
       // Scheduled jobs live on the Desk chips and in ⌘K; the Bots board in the
       // Helm tab; Customize look in ⌘K and Settings.
       const p = prefs.get()
-      const hide = p.designNav !== false ? ['messaging', 'artifacts', 'cron', `${ID}:bots-nav`, `${ID}:look-nav`, `${ID}:desk-nav`] : p.hideMessagingRow ? ['messaging'] : []
+      // helm's own pages (Desk, Bots board, Customize) are reached from its
+      // sidebar, Apps and ⌘K, so their nav rows stay hidden even in stock mode.
+      const own = [`${ID}:bots-nav`, `${ID}:look-nav`, `${ID}:desk-nav`]
+      const hide = p.designNav !== false ? ['messaging', 'artifacts', 'cron', ...own] : p.hideMessagingRow ? ['messaging', ...own] : own
       const key = hide.join(',')
       if (unregisterNav && key === navKey) return
       if (unregisterNav) unregisterNav()
@@ -7992,11 +8652,11 @@ export default {
     regMany([
       // Zero-width, so the rail can read where the status bar starts without
       // selecting the app's markup.
-      { id: 'statusbar-probe', area: 'statusBar.left', order: 0, render: () => jsx('span', { 'data-helm-statusbar-probe': '', 'aria-hidden': true, style: { display: 'block', width: 0, alignSelf: 'stretch', pointerEvents: 'none' } }) },
-      { id: 'needs-you', area: 'statusBar.right', order: 116, render: () => jsx(NeedsYouChip, { prefs }) },
-      { id: 'today', area: 'statusBar.right', order: 117, render: () => jsx(TodayChip, { prefs }) },
-      { id: 'working', area: 'statusBar.right', order: 118, render: () => jsx(WorkingChip, { prefs }) },
-      { id: 'cost', area: 'statusBar.right', order: 119, render: () => jsx(CostChip, { prefs }) },
+      // Zero width and invisible: tells helm whether the bar is up, never a chip.
+      { id: 'statusbar-probe', area: 'statusBar.left', order: 0, render: () => jsx(StatusbarProbe, {}) },
+      // The one thing helm puts in the chrome: needs-you and working counts,
+      // with Tools, Customize, Fix layout and Back to stock Hermes behind it.
+      { id: 'title-chip', area: 'titleBar.right', order: 5, render: () => jsx(HelmTitleChip, { prefs }) },
       { id: 'context', area: 'titleBar.center', order: 50, render: () => jsx(ContextLine, { looks, prefs }) },
       { id: 'row-bot', area: 'sessionRow.leading', data: { render: ({ sessionId }) => jsx(SessionRowBot, { sessionId, looks, prefs }) } },
       { id: 'row-status', area: 'sessionRow.trailing', data: { render: ({ sessionId }) => jsx(SessionRowStatus, { sessionId, prefs }) } }
@@ -8038,16 +8698,27 @@ export default {
       { id: 'route-middleware', area: 'composer.middleware', data: { handler: routeMiddleware } },
       { id: 'session-chrome', area: 'composer.underside', order: 2, render: () => jsx(SessionChrome, { looks, prefs }) },
       { id: 'sidechat-key', area: KEYBINDS_AREA, data: { id: 'helm.side-chat', label: 'Side chat (/btw)', category: 'view', defaults: ['mod+;'], run: openSideChat } },
-      { id: 'approvals-chip', area: 'statusBar.right', order: 121, render: () => jsx(ApprovalsChip, {}) },
-      { id: 'hooks-chip', area: 'statusBar.right', order: 125, render: () => jsx(HooksChip, {}) },
-      { id: 'bot-editor', area: 'statusBar.right', order: 300, render: () => jsx(BotEditorModal, {}) },
+      // The bot editor is a modal; it needs a permanent mount, and title-bar
+      // slots stay mounted across routes.
+      { id: 'bot-editor', area: 'titleBar.right', order: 300, render: () => jsx(BotEditorModal, {}) },
+      { id: 'apps-route', area: ROUTES_AREA, data: { path: APPS_ROUTE }, render: () => jsx(AppsPage, { prefs, setPrefs }) },
+      { id: 'routines-route', area: ROUTES_AREA, data: { path: ROUTINES_ROUTE }, render: () => jsx(RoutinesPage, {}) },
+      { id: 'apps-palette', area: PALETTE_AREA, data: { id: 'helm.apps', label: 'Helm: All apps', keywords: ['apps', 'pages', 'plugins', 'launcher', 'helm'], run: () => host.navigate(APPS_ROUTE) } },
+      { id: 'routines-palette', area: PALETTE_AREA, data: { id: 'helm.routines', label: 'Helm: Routines', keywords: ['routines', 'cron', 'scheduled', 'jobs', 'automations', 'helm'], run: () => host.navigate(ROUTINES_ROUTE) } },
+      { id: 'shell-palette', area: PALETTE_AREA, data: { id: 'helm.shell', label: 'Helm: use helm as the whole shell', keywords: ['shell', 'helm', 'redesign', 'full'], run: () => enterWholeShell() } },
+      { id: 'stock-palette', area: PALETTE_AREA, data: { id: 'helm.stock', label: 'Helm: back to stock Hermes', keywords: ['stock', 'default', 'hermes', 'reset', 'helm'], run: () => backToStock() } },
+      { id: 'fixlayout-palette', area: PALETTE_AREA, data: { id: 'helm.fix-layout', label: 'Helm: fix layout (open the layout editor)', keywords: ['layout', 'fix', 'pane', 'template', 'basic', 'helm'], run: () => { openLayoutEditor(); host.notify?.({ kind: 'info', message: 'Re-apply your layout template (Basic on this Mac) to put the panes back.' }) } } },
       { id: 'hud-panel', area: 'composer.top', order: 4, render: () => jsx(HudPanel, { looks, prefs }) },
       { id: 'hud-footer', area: 'composer.bottom', order: 90, render: () => jsx(HudFooter, { prefs }) },
       {
         id: 'session-pane',
         area: 'panes',
         title: 'Task',
-        data: { placement: 'right', collapsible: true, dock: { pane: 'files', pos: 'center' }, tabTitleText: () => ($helmTabVisible.get() ? 'Bot' : 'Task'), width: '290px', minWidth: '240px' },
+        // maxWidth matters: Hermes caps a fixed zone only when EVERY pane in it
+        // declares one. Without it this pane uncaps the Files zone, which then
+        // becomes the all-fixed run's absorber and takes the window (the
+        // "Show right sidebar" break, Nov 11).
+        data: { placement: 'right', collapsible: true, dock: { pane: 'files', pos: 'center' }, tabTitleText: () => ($helmTabVisible.get() ? 'Bot' : 'Task'), width: '290px', minWidth: '240px', maxWidth: '20rem' },
         render: () => jsx(RightPane, { looks })
       },
       { id: 'bots-route', area: ROUTES_AREA, data: { path: BOTS_ROUTE }, render: () => jsx(BotsPage, { looks, setLook, avatars, os: ctx.os }) },
@@ -8157,6 +8828,31 @@ export default {
     }
     // Rooms for the Helm tab and the board.
     if (isPrimaryWindow()) startRooms(ctx)
+    // App badges: a plugin's documented event bumps its row in Apps.
+    for (const app of PLUGIN_APPS) {
+      if (!app.badgeEvent) continue
+      const listen = typeof ctx.onEvent === 'function' ? ctx.onEvent : host.onEvent
+      if (typeof listen === 'function') {
+        const off = listen(app.badgeEvent, () => bumpBadge(app.id))
+        if (typeof off === 'function' && listen !== ctx.onEvent) ctx.onDispose(off)
+      }
+    }
+    // The sessions-column strip is restyled to a quiet row; hiding it is a
+    // Customize option (the strip is how the native Sessions and Bots panes
+    // are reached, so it never hides by default).
+    {
+      const syncStrip = v => {
+        try {
+          if (v.hideStrip) document.documentElement.setAttribute('data-helm-strip', 'hidden')
+          else document.documentElement.removeAttribute('data-helm-strip')
+        } catch { /* no document */ }
+      }
+      const offStrip = prefs.subscribe(syncStrip)
+      ctx.onDispose(() => {
+        offStrip()
+        try { document.documentElement.removeAttribute('data-helm-strip') } catch { /* no document */ }
+      })
+    }
     // The Helm tab: a third tab in the sessions column, beside SESSIONS and BOTS,
     // docked the way Hermes docks its own Bots tab (centre of the sessions
     // zone, collapsing with it). It replaces 1.0's split-above-Sessions
@@ -8169,12 +8865,14 @@ export default {
         data: {
           placement: 'left',
           width: '260px',
+          // Keep the sessions zone capped (see the Task pane note).
+          maxWidth: '22rem',
           collapsible: true,
           hideOnly: true,
           tabTitleText: () => 'Helm',
           dock: { pane: 'sessions', pos: 'center', enforce: true }
         },
-        render: () => jsx(HelmTab, { looks, prefs, setPrefs })
+        render: () => jsx(HelmSidebar, { looks, prefs, setPrefs })
       })
     }
     const offCrew = $crew.subscribe(crew => {
@@ -8200,10 +8898,10 @@ export default {
           render: () =>
             jsxs('div', {
               children: [
-                jsx(ListRow, { title: `helm ${VERSION}`, description: 'A redesigned desk: theme layer, Customize look, crew view, robots as avatars, titlebar context, sidebar row status, needs-you and spend chips.' }),
+                jsx(ListRow, { title: `helm ${VERSION}`, description: 'A redesigned Hermes Desktop: one sidebar (Crew, Projects, All chats, Apps), a single title-bar chip with Tools, Routines by desk, All apps, robots as avatars, and Back to stock Hermes one click away.' }),
                 jsx(ListRow, {
                   title: 'How it stays update-proof',
-                  description: 'Only Desktop SDK areas and public gateway calls the app itself makes: profiles, session lists, cron.manage (list), approval.respond / clarify.respond (only on your click), profiles.create / set_asset (only from New bot and robot avatars). The theme layer is CSS that targets the app’s data-slot names; a renamed slot drops that one rule.'
+                  description: 'Only Desktop SDK areas, the app’s own view and navigation actions (ctx.runAction), and public gateway calls the app itself makes: profiles, session lists, projects.list / project_sessions, cron.manage (list; pause, resume and run only on your click), approval.respond / clarify.respond (only on your click), projects.set_active (only from “New session in”), profiles.create / set_asset (only from New bot and robot avatars). The theme layer is CSS that targets the app’s data-slot names; a renamed slot drops that one rule.'
                 })
               ]
             })
