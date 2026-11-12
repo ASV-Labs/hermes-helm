@@ -1,6 +1,6 @@
 name: helm
 manifest_version: 2
-version: 2.0.0
+version: 2.0.0-beta.5
 description: "A redesigned Hermes Desktop shell: one sidebar for your crew, projects, chats and apps, Routines grouped by desk, approvals and questions from every bot answered in one place, a themeable redesign layer, and animated robots that become your bots' avatars and Hermes pets. Every Hermes function stays one or two clicks away, and Back to stock Hermes is one click. Desktop-only; the agent half registers nothing."
 author: "ASV Labs"
 license: "MIT"

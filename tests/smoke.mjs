@@ -434,7 +434,7 @@ disposed.forEach(fn => fn())
   mod._internals.$statusbarShown.set(true)
   const routinesHtml = renderToString(byArea('routes').find(c => c.data.path === '/helm/routines').render())
   if (process.env.HELM_SCREEN) writeFileSync(join(here, '.tmp', 'routines.html'), routinesHtml)
-  for (const w of ['Routines', 'Edit in Scheduled jobs', 'Pause', 'Run now', 'Everything else', 'By store']) assert.ok(routinesHtml.includes(w), `routines: ${w}`)
+  for (const w of ['Routines', 'Edit in Scheduled jobs', 'Pause', 'Open', 'Everything else', 'By bot']) assert.ok(routinesHtml.includes(w), `routines: ${w}`)
   // Today is one line on the home
   const line = renderToString(createElement(I.TodayLine))
   assert.ok(line.includes('data-helm-today-line') && line.includes('Routines'), line)
@@ -454,10 +454,10 @@ disposed.forEach(fn => fn())
   assert.equal(store.get('prefs').stockSnapshot, null)
   I.$statusbarShown.set(keep)
   // Projects through the gateway's own projects RPCs
-  globalThis.__gw['projects.list'] = { projects: [{ id: 'p1', name: 'Vision', color: '#5FB8D8', archived: false }, { id: 'p2', name: 'Old', archived: true }], active_id: 'p1' }
-  globalThis.__gw['projects.project_sessions'] = { project: { id: 'p1', repos: [{ lanes: [{ sessions: [{ id: 'a', title: 'Older', last_active: 1 }, { id: 'b', title: 'Newer', last_active: 9 }] }] }] } }
+  globalThis.__gw['projects.tree'] = { projects: [{ id: 'p1', label: 'Vision', color: '#5FB8D8', archived: false, isAuto: true }, { id: 'home', label: 'x', isNoProject: true }, { id: 'p2', label: 'Old', archived: true }], active_id: 'p1' }
+  globalThis.__gw['projects.project_sessions'] = { project: { id: 'p1', repos: [{ groups: [{ sessions: [{ id: 'a', title: 'Older', last_active: 1 }, { id: 'b', title: 'Newer', last_active: 9 }] }] }] } }
   await I.refreshProjects('vision')
-  assert.deepEqual(I.$projects.get().list.map(x => x.name), ['Vision'], 'archived projects hidden')
+  assert.deepEqual(I.$projects.get().list.map(x => x.name), ['Home', 'Vision'], 'Home first, archived projects hidden')
   assert.deepEqual((await I.projectSessions('p1', 'vision')).map(x => x.title), ['Newer', 'Older'])
   // Nothing written to app settings at register
   assert.ok(!globalThis.__settings || !('tabStripDefault' in globalThis.__settings), 'never sets tabStripDefault')

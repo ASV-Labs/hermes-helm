@@ -50,7 +50,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '2.0.0'
+const VERSION = '2.0.0-beta.5'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -1329,7 +1329,19 @@ async function refreshCrew() {
   crewInflight = true
   try {
     const res = await host.profiles.list()
-    const profiles = (res && res.profiles) || []
+    const profiles = ((res && res.profiles) || []).slice()
+    // Bot Mode's per-profile metadata (hidden, title) rides on the gateway's
+    // profiles.list rows, not the REST list. Best-effort.
+    try {
+      const rpc = await host.request('profiles.list', { include_sessions: false }, 10000)
+      const byName = new Map(((rpc && rpc.profiles) || []).filter(r => r && r.name).map(r => [r.name, r]))
+      for (let i = 0; i < profiles.length; i++) {
+        const row = byName.get(profiles[i].name)
+        if (row && row.ui_meta) profiles[i] = { ...profiles[i], ui_meta: row.ui_meta }
+      }
+    } catch {
+      /* older gateway: nothing hidden */
+    }
     const sessions = {}
     const byId = {}
     if (typeof host.listPersistedSessions === 'function') {
@@ -6400,7 +6412,12 @@ function runHealthCheck(ctx) {
   for (const [fn, what] of HEALTH_SDK) if (typeof host[fn] !== 'function') missing.push(what)
   if (!host.composer || typeof host.composer.setDraft !== 'function') missing.push('quick chips and Side chat')
   if (!host.settings || typeof host.settings.get !== 'function') missing.push('density, scale and surfaces')
-  if (typeof document !== 'undefined') for (const [sel, what] of HEALTH_DOM) if (!document.querySelector(sel)) missing.push(what)
+  // A marker that is absent because you rested it (status bar off, strip
+  // hidden) is not a Hermes change: skip those.
+  const rested = new Set()
+  if (!$statusbarShown.get()) rested.add('status bar styling')
+  if (helmPrefsRef && helmPrefsRef.prefs.get().hideStrip) rested.add('title-bar tab styling')
+  if (typeof document !== 'undefined') for (const [sel, what] of HEALTH_DOM) if (!rested.has(what) && !document.querySelector(sel)) missing.push(what)
   $health.set({ missing, checked: true })
   if (!missing.length) return
   const key = missing.join('|')
@@ -7846,17 +7863,6 @@ function deskOf(job) {
   return 'other'
 }
 
-async function runRoutineNow(job) {
-  try {
-    const params = { action: 'run', name: job.id }
-    if (job.profile) params.profile = job.profile
-    await host.request('cron.manage', params, 15000)
-    host.notify?.({ kind: 'success', message: `${job.name || 'Routine'} is running.` })
-  } catch (err) {
-    host.notifyError?.(`Could not run ${job.name || 'the routine'}: ${err && err.message ? err.message : err}`)
-  }
-  refreshToday()
-}
 
 function storeCounts(jobs) {
   const out = {}
@@ -7894,7 +7900,9 @@ function RoutineRow({ job, open, onToggle }) {
             style: { display: 'flex', gap: 6, justifyContent: 'flex-end' },
             children: [
               jsx(SmallButton, { onClick: () => setRoutineEnabled(job, !job.enabled), children: job.enabled ? 'Pause' : 'Resume' }),
-              jsx(SmallButton, { onClick: () => runRoutineNow(job), disabled: job.running, children: 'Run now' })
+              // The gateway's cron.manage has no run action (Nov 12, v0.23.1); Hermes's
+              // own Scheduled jobs page has Trigger now.
+              jsx(SmallButton, { onClick: () => runAppAction('nav.cron') || host.navigate('/cron'), title: 'Trigger it from Hermes’s Scheduled jobs', children: 'Open' })
             ]
           })
         ]
@@ -7920,7 +7928,6 @@ function RoutinesPage() {
   const shown = jobs.filter(j => (filter === 'all' || (filter === 'failed' ? j.last_status === 'error' : filter === 'paused' ? !j.enabled : deskOf(j) === filter)) && (!query || String(j.name || '').toLowerCase().includes(query)))
   const groups = DESKS.map(d => ({ ...d, jobs: shown.filter(j => deskOf(j) === d.id).sort((a, b) => String(a.name).localeCompare(String(b.name))) })).filter(g => g.jobs.length)
   const counts = storeCounts(jobs)
-  const launch = atomGet(host.state.profile) || ''
   const failed = jobs.filter(j => j.last_status === 'error').length
   const paused = jobs.filter(j => !j.enabled).length
   const chip = (id, label, n) => jsx(HelmChip, { label, count: n || null, active: filter === id, onClick: () => setFilter(id) }, id)
@@ -7931,14 +7938,14 @@ function RoutinesPage() {
         style: { display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 6 },
         children: [
           jsx('h1', { style: { margin: 0, fontSize: 20, fontWeight: 600 }, children: 'Routines' }),
-          jsx('span', { style: { color: V.t3 }, children: today.ready ? `${jobs.length} scheduled job${jobs.length === 1 ? '' : 's'} across ${Object.keys(counts).length} store${Object.keys(counts).length === 1 ? '' : 's'}` : 'Reading scheduled jobs…' }),
+          jsx('span', { style: { color: V.t3 }, children: today.ready ? `${jobs.length} scheduled job${jobs.length === 1 ? '' : 's'}` : 'Reading scheduled jobs…' }),
           jsx('span', { style: { marginLeft: 'auto' }, children: jsx(SmallButton, { onClick: () => runAppAction('nav.cron') || host.navigate('/cron'), children: 'Edit in Scheduled jobs' }) })
         ]
       }),
       today.ready && Object.keys(counts).length
         ? jsx('p', {
             style: { margin: '0 0 16px', fontSize: 12.5, color: V.t3, lineHeight: 1.5 },
-            children: `Hermes’s Scheduled jobs page lists one bot’s store at a time${launch ? ` (this window: ${launch})` : ''}; this page lists every bot’s, so the totals differ. By store: ${Object.entries(counts).map(([k, v]) => `${k} ${v}`).join(' · ')}.`
+            children: `By bot: ${Object.entries(counts).map(([k, v]) => `${k} ${v}`).join(' · ')}. Pause and resume here; trigger or edit a job in Scheduled jobs.`
           })
         : null,
       jsxs('div', {
@@ -8180,13 +8187,36 @@ function ChatRow({ row, profileName, look, showBot }) {
   })
 }
 
+// Scheduled runs are the cron's sessions. Hermes lists them apart from your
+// chats; so does helm (Routines has them).
+function isScheduledRow(r) {
+  const src = String((r && (r.handoff_platform || r.source)) || '').toLowerCase()
+  return src === 'cron' || !!(r && r.scheduler_owned)
+}
+
 // Projects: the gateway's own projects RPCs, the ones Hermes's sidebar uses.
 const $projects = atom({ ready: false, list: [], active: null, error: null, profile: '' })
+// projects.tree is what Hermes's own sidebar lists: the Home bucket, the
+// projects you made and the git repos it promoted on its own. projects.list
+// only knows the ones you made, so it is the fallback.
+function projectRows(res) {
+  const list = Array.isArray(res && res.projects) ? res.projects : []
+  return list
+    .filter(x => x && !x.archived)
+    .map(x => ({ ...x, name: x.isNoProject ? 'Home' : x.label || x.name || 'Project' }))
+    .sort((a, b) => (a.isNoProject ? -1 : b.isNoProject ? 1 : 0))
+}
+
 async function refreshProjects(profile) {
   try {
     const params = profile ? { profile } : {}
-    const res = await host.request('projects.list', params, 15000)
-    $projects.set({ ready: true, list: Array.isArray(res && res.projects) ? res.projects.filter(x => x && !x.archived) : [], active: (res && res.active_id) || null, error: null, profile })
+    let res
+    try {
+      res = await host.request('projects.tree', { ...params, preview_limit: 3 }, 30000)
+    } catch {
+      res = await host.request('projects.list', params, 15000)
+    }
+    $projects.set({ ready: true, list: projectRows(res), active: (res && res.active_id) || null, error: null, profile })
   } catch (err) {
     $projects.set({ ready: true, list: [], active: null, error: err && err.message ? err.message : String(err), profile })
   }
@@ -8200,7 +8230,7 @@ async function projectSessions(id, profile) {
   const walk = node => {
     if (!node || typeof node !== 'object') return
     for (const k of ['sessions', 'previewSessions', 'preview_sessions']) if (Array.isArray(node[k])) out.push(...node[k])
-    for (const k of ['repos', 'lanes', 'worktrees', 'children']) if (Array.isArray(node[k])) node[k].forEach(walk)
+    for (const k of ['repos', 'groups', 'lanes', 'worktrees', 'children']) if (Array.isArray(node[k])) node[k].forEach(walk)
   }
   walk(tree)
   const seen = new Set()
@@ -8208,6 +8238,10 @@ async function projectSessions(id, profile) {
 }
 
 async function newSessionInProject(project, profile) {
+  if (project.isNoProject) {
+    host.newChat(profile || undefined)
+    return
+  }
   try {
     await host.request('projects.set_active', profile ? { id: project.id, profile } : { id: project.id }, 15000)
   } catch (err) {
@@ -8279,7 +8313,7 @@ function ProjectsView({ profile, query }) {
 function AllChatsView({ crew, looksValue, query }) {
   const rows = useMemo(() => {
     const out = []
-    for (const p of crew.profiles || []) for (const r of (crew.sessions && crew.sessions[p.name]) || []) if (!r.hidden) out.push({ row: r, p })
+    for (const p of crew.profiles || []) for (const r of (crew.sessions && crew.sessions[p.name]) || []) if (!r.hidden && !isScheduledRow(r)) out.push({ row: r, p })
     return out.sort((a, b) => (b.row.last_active || 0) - (a.row.last_active || 0))
   }, [crew])
   const shown = rows.filter(x => !query || sessionTitle(x.row).toLowerCase().includes(query) || botLabel(x.p).toLowerCase().includes(query)).slice(0, 80)
@@ -8355,6 +8389,13 @@ function SideFooter({ rows, focused, onPick }) {
   })
 }
 
+// Bot Mode's "Hide Bot" lives on the profile (profile.yaml ui_meta), so helm
+// honours it without reading Bot Mode's own storage.
+function botHiddenInBotMode(p) {
+  const meta = p && p.ui_meta && p.ui_meta['hermes-bots']
+  return !!(meta && meta.hidden)
+}
+
 function HelmSidebar({ looks, prefs, setPrefs }) {
   const crew = useValue($crew)
   const looksValue = useValue(looks)
@@ -8365,6 +8406,7 @@ function HelmSidebar({ looks, prefs, setPrefs }) {
   const roomsValue = useValue($rooms)
   const [query, setQuery] = useState('')
   const [newRoom, setNewRoom] = useState(false)
+  const [showHidden, setShowHidden] = useState(false)
   const view = p.sidebarView === 'projects' || p.sidebarView === 'chats' ? p.sidebarView : 'crew'
   const needs = useMemo(() => needsByBot(n), [n.approvals, n.questions])
   // Track the pane's visibility for the right-hand Bot/Task pane, but never
@@ -8400,8 +8442,10 @@ function HelmSidebar({ looks, prefs, setPrefs }) {
   const selectedName = picked || focusedSession || (sorted[0] && sorted[0].p.name)
   const selected = rows.find(r => r.p.name === selectedName) || sorted[0]
   const setView = v => setPrefs({ sidebarView: v })
-  const shownCrew = sorted.filter(r => !q || botLabel(r.p).toLowerCase().includes(q) || r.p.name.toLowerCase().includes(q))
-  const chatsOf = r => (r.activity.sessions || []).filter(s => !s.hidden && (!q || sessionTitle(s).toLowerCase().includes(q))).slice(0, 6)
+  const hiddenCount = sorted.filter(r => botHiddenInBotMode(r.p)).length
+  const shownCrew = sorted.filter(r => (showHidden || !botHiddenInBotMode(r.p)) && (!q || botLabel(r.p).toLowerCase().includes(q) || r.p.name.toLowerCase().includes(q)))
+  const chatsOf = r => (r.activity.sessions || []).filter(s => !s.hidden && !isScheduledRow(s) && (!q || sessionTitle(s).toLowerCase().includes(q))).slice(0, 6)
+  const runsOf = r => (r.activity.sessions || []).filter(isScheduledRow).length
   if (!crew.ready && !(crew.profiles || []).length) {
     return jsx('div', { style: { padding: 16, fontSize: 13, color: V.t3 }, children: 'Loading your bots…' })
   }
@@ -8430,11 +8474,15 @@ function HelmSidebar({ looks, prefs, setPrefs }) {
                 if (isSel || q) {
                   const chats = chatsOf(r)
                   out.push(...chats.map(row => jsx(ChatRow, { row, profileName: r.p.name }, `${r.p.name}:${row.id}`)))
-                  if (isSel && !q) out.push(jsx('div', { style: { padding: '2px 16px 8px 66px', display: 'flex', gap: 12 }, children: [jsx(LinkText, { onClick: () => host.newChat(r.p.name), children: 'New chat' }, 'n'), jsx(LinkText, { onClick: () => setView('chats'), children: 'All chats' }, 'a')] }, `${r.p.name}:more`))
+                  if (isSel && !q) {
+                    const runs = runsOf(r)
+                    out.push(jsx('div', { style: { padding: '2px 16px 8px 66px', display: 'flex', gap: 12, flexWrap: 'wrap' }, children: [jsx(LinkText, { onClick: () => host.newChat(r.p.name), children: 'New chat' }, 'n'), jsx(LinkText, { onClick: () => setView('chats'), children: 'All chats' }, 'a'), runs ? jsx(LinkText, { onClick: () => host.navigate(ROUTINES_ROUTE), children: `${runs} scheduled run${runs === 1 ? '' : 's'}` }, 'r') : null] }, `${r.p.name}:more`))
+                  }
                 }
                 return out
               }),
               !shownCrew.length ? jsx('div', { style: { padding: '4px 16px', fontSize: 12.5, color: V.t3 }, children: 'No bot matches.' }) : null,
+              hiddenCount && !q ? jsx('div', { style: { padding: '4px 16px' }, children: jsx(LinkText, { onClick: () => setShowHidden(v => !v), children: showHidden ? 'Hide hidden bots' : `Hidden ${hiddenCount}` }) }) : null,
               roomsValue.ready && !roomsValue.error && !q
                 ? jsxs(Fragment, {
                     children: [
@@ -8553,7 +8601,10 @@ export default {
       // Scheduled jobs live on the Desk chips and in ⌘K; the Bots board in the
       // Helm tab; Customize look in ⌘K and Settings.
       const p = prefs.get()
-      const hide = p.designNav !== false ? ['messaging', 'artifacts', 'cron', `${ID}:bots-nav`, `${ID}:look-nav`, `${ID}:desk-nav`] : p.hideMessagingRow ? ['messaging'] : []
+      // helm's own pages (Desk, Bots board, Customize) are reached from its
+      // sidebar, Apps and ⌘K, so their nav rows stay hidden even in stock mode.
+      const own = [`${ID}:bots-nav`, `${ID}:look-nav`, `${ID}:desk-nav`]
+      const hide = p.designNav !== false ? ['messaging', 'artifacts', 'cron', ...own] : p.hideMessagingRow ? ['messaging', ...own] : own
       const key = hide.join(',')
       if (unregisterNav && key === navKey) return
       if (unregisterNav) unregisterNav()
@@ -8662,7 +8713,11 @@ export default {
         id: 'session-pane',
         area: 'panes',
         title: 'Task',
-        data: { placement: 'right', collapsible: true, dock: { pane: 'files', pos: 'center' }, tabTitleText: () => ($helmTabVisible.get() ? 'Bot' : 'Task'), width: '290px', minWidth: '240px' },
+        // maxWidth matters: Hermes caps a fixed zone only when EVERY pane in it
+        // declares one. Without it this pane uncaps the Files zone, which then
+        // becomes the all-fixed run's absorber and takes the window (the
+        // "Show right sidebar" break, Nov 11).
+        data: { placement: 'right', collapsible: true, dock: { pane: 'files', pos: 'center' }, tabTitleText: () => ($helmTabVisible.get() ? 'Bot' : 'Task'), width: '290px', minWidth: '240px', maxWidth: '20rem' },
         render: () => jsx(RightPane, { looks })
       },
       { id: 'bots-route', area: ROUTES_AREA, data: { path: BOTS_ROUTE }, render: () => jsx(BotsPage, { looks, setLook, avatars, os: ctx.os }) },
@@ -8809,6 +8864,8 @@ export default {
         data: {
           placement: 'left',
           width: '260px',
+          // Keep the sessions zone capped (see the Task pane note).
+          maxWidth: '22rem',
           collapsible: true,
           hideOnly: true,
           tabTitleText: () => 'Helm',

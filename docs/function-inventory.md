@@ -22,7 +22,7 @@ The **Checked in app** column is filled during the release walk (Advanced and Si
 | Messaging | All apps › Messaging | `nav.messaging` | ☐ |
 | Artifacts | Pinned app | `nav.artifacts` | ☐ |
 | Scheduled jobs (Hermes's editor) | All apps › Scheduled jobs; **Edit in Scheduled jobs** on Routines | `nav.cron` | ☐ |
-| Routines by desk, Pause / Resume / Run now | Pinned app **Routines** (`/helm/routines`) | `cron.manage` list / pause / resume / run | ☐ |
+| Routines by desk, Pause / Resume (Trigger now stays in Scheduled jobs) | Pinned app **Routines** (`/helm/routines`) | `cron.manage` list / pause / resume | ☑ |
 | Profiles page, SOUL.md | All apps › Profiles; footer **Profiles…** | `nav.profiles` | ☐ |
 | Agents | All apps › Agents | `nav.agents` | ☐ |
 | Agent's computer | All apps › Agent's computer | helm's bot computer view | ☐ |
