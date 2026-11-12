@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.0 — unreleased (beta branch)
+## 2.0.0 — 2026-11-12
 
 One navigation system. helm stops reading as a tab inside Hermes and becomes the shell around it, with every Hermes function still reachable (see `docs/function-inventory.md`).
 

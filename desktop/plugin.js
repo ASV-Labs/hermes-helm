@@ -50,7 +50,7 @@ import { jsx, jsxs } from 'react/jsx-runtime'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 
 const ID = 'helm'
-const VERSION = '2.0.0-beta.5'
+const VERSION = '2.0.0'
 const BOTS_ROUTE = '/helm/bots'
 const LOOK_ROUTE = '/helm/look'
 const DESK_ROUTE = '/helm/desk'
@@ -85,10 +85,10 @@ ${HELM_CSS_SCOPE} [data-slot="profile-rail"] {
 /* Sidebar: section labels are small tracked caps; the open row carries an accent edge. */
 ${HELM_CSS_SCOPE} [data-slot="sidebar"] { border-right: 1px solid var(--helm-hair) !important; }
 ${HELM_CSS_SCOPE} [data-slot="sidebar-group-label"] {
-  font-size: 10.5px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 12.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0;
+  text-transform: none;
   color: #76838F !important;
 }
 ${HELM_CSS_SCOPE} [data-slot="sidebar-menu-button"] {
@@ -158,12 +158,12 @@ ${HELM_CSS_SCOPE} [data-helm-row-status] {
   text-overflow: ellipsis;
 }
 
-/* Tabs: tracked caps, an underline for the open one. */
+/* Tabs: sentence case, an underline for the open one. */
 ${HELM_CSS_SCOPE} [data-slot="pane-tab"],
 ${HELM_CSS_SCOPE} [data-slot="tabs-trigger"] {
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-size: 11.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-size: 12.5px;
   font-weight: 600;
   color: #98A4B1;
 }
@@ -2223,7 +2223,8 @@ function RoomView({ roomId, looks }) {
 
 const $boardMounted = atom(false)
 const B = { bg: '#0F1419', panel: '#121820', sel: '#171E27', hair: '#1C242D', ctl: '#222B35', t1: '#E6EBF0', t2: '#C3CCD5', t3: '#98A4B1', t4: '#76838F', amber: '#E8A657', green: '#6FBF8E', red: '#E07080', mono: "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace" }
-const B_CAPS = { fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: B.t4 }
+// 2.0: section labels are sentence case (the name is kept for the call sites).
+const B_CAPS = { fontSize: 12.5, fontWeight: 500, letterSpacing: 0, textTransform: 'none', color: B.t3 }
 const B_GRID = 'minmax(130px, 180px) 96px minmax(140px, 1fr) 130px 120px 60px'
 
 function isToday(ts) {
@@ -3352,7 +3353,7 @@ const V = {
   radius: n => `calc(var(--radius-scalar, 1) * ${n}px)`
 }
 const TONE_COLOR = { amber: V.amber, accent: V.accent, muted: V.t3 }
-const CAPS = { fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: V.t3, margin: 0 }
+const CAPS = { fontSize: 12.5, fontWeight: 500, letterSpacing: 0, textTransform: 'none', color: V.t3, margin: 0 }
 const ON_ACCENT = '#06161A'
 
 // A Desk section. With `id` + `fold` it folds: the header toggles it, the
@@ -5303,7 +5304,7 @@ function HelmChip({ label, count, active, tone, onClick }) {
 
 function HelmSectionLabel({ children, tone, count }) {
   return jsxs('div', {
-    style: { padding: '12px 14px 4px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: tone || V.t3 },
+    style: { padding: '12px 14px 4px', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 500, letterSpacing: 0, textTransform: 'none', color: tone || V.t3 },
     children: [jsx('span', { children }), count ? jsx('span', { style: { color: V.t3, letterSpacing: 0, fontWeight: 500 }, children: count }) : null]
   })
 }
@@ -7511,7 +7512,7 @@ function startSidebarNeedsYou(prefs) {
   const style = document.createElement('style')
   style.textContent = `
 #helm-sidebar-needs { padding: 4px 0 2px; }
-#helm-sidebar-needs .helm-sbn-head { padding: 12px 14px 4px; display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #E8A657; }
+#helm-sidebar-needs .helm-sbn-head { padding: 12px 14px 4px; display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: #E8A657; }
 #helm-sidebar-needs .helm-sbn-count { color: #76838F; letter-spacing: 0; font-weight: 500; }
 #helm-sidebar-needs .helm-sbn-row { display: flex; flex-direction: column; gap: 1px; width: calc(100% - 16px); margin: 0 8px; padding: 6px 8px; border: 0; border-radius: 6px; background: transparent; color: #E6EBF0; font: inherit; font-size: 13px; line-height: 1.3; text-align: left; cursor: pointer; }
 #helm-sidebar-needs .helm-sbn-row:hover { background: #171E27; }
