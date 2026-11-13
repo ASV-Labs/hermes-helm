@@ -1,0 +1,35 @@
+name: release
+# When main carries a plugin.yaml version that has no tag yet, tag it and
+# publish a GitHub release with that version's CHANGELOG section.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Read version
+        id: v
+        run: |
+          v=$(grep -E '^version:' plugin.yaml | head -1 | awk '{print $2}')
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if git rev-parse "v$v" >/dev/null 2>&1; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Release notes
+        if: steps.v.outputs.exists == 'false'
+        run: |
+          v='${{ steps.v.outputs.version }}'
+          awk -v v="$v" 'index($0,"## " v)==1{f=1;next} /^## /{if(f)exit} f' CHANGELOG.md > notes.md
+          printf '\n### Updating\n\n`hermes plugins update helm`, then View › Reload in Hermes Desktop. Your preferences are kept.\n\nA Salty Vet, a product of ASV Labs.\n' >> notes.md
+      - name: Tag and release
+        if: steps.v.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v='${{ steps.v.outputs.version }}'
+          pre=""; case "$v" in *-*) pre="--prerelease";; esac
+          gh release create "v$v" --target "$GITHUB_SHA" --title "helm $v" --notes-file notes.md $pre
